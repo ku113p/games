@@ -1,6 +1,6 @@
-# Деплой на GitHub Pages при пуше в main. Один раз в репозитории: Settings -> Pages -> Source: "GitHub Actions".
-# Base path в workflow не нужен: сборка целиком на относительных путях (см. tools/build.ts),
-# поэтому сайт работает по /<репозиторий>/ и /<репозиторий>/<игра>/ с любым именем репозитория.
+# Deploy to GitHub Pages on a push to main. Once per repository: Settings -> Pages -> Source: "GitHub Actions".
+# No base path is needed in the workflow: the build uses relative paths throughout (see tools/build.ts),
+# so the site works at /<repo>/ and /<repo>/<game>/ whatever the repository is called.
 name: Deploy to GitHub Pages
 
 on:

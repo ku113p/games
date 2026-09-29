@@ -39,3 +39,6 @@ pid
 /yarn.lock
 /bunfig.toml
 /.gitmodules
+
+# work-kit: machine-local settings, not part of the game
+.work-kit/

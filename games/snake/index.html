@@ -305,6 +305,10 @@
         font-size: calc(var(--boost) * 0.34);
         font-weight: 700;
         line-height: 1;
+        /* Optical centring, same class of bug as the pause icon: the button centres the LINE BOX, whose middle depends on the font's ascent/descent,
+           not on where the digits are painted - the ink sat 0 to 4.6 px off centre depending on the font. Trimming the box to the cap height and the
+           baseline makes the box equal the digits, so any label ("×1.5", "×4") is centred on what the eye sees, in any font. Unsupported browsers keep the old centring. */
+        text-box: trim-both cap alphabetic;
         background: rgba(5, 6, 10, 0.55);
         border: 2px solid rgba(255, 47, 176, 0.55);
         color: rgba(255, 47, 176, 0.9);
