@@ -23,21 +23,13 @@ The snake's `heading` always lies in the screen plane: it is ±right or ±up.
 ### Turn in the plane
 `heading` changes to ±right or ±up. Frame does not change. A 180-degree reversal is forbidden.
 
-### Axis turn (the third axis)
-Two commands: `'into'` (into the screen, away from the viewer) and `'out'` (toward the viewer).
+### The third axis
+There is no axis-turn command and no third axis in the controls (removed): classic snake has none, and the flat opening sells that illusion. The only turn along the depth
+axis is the **demo turn** (Addendum 2), which the core makes by itself and which switches the game from `'plane'` to `'free'` for good. The frame is therefore constant while the game is flat.
 
-1. New heading: `into` → `-depth`, `out` → `+depth`.
-2. Frame rolls by **+90° around the old heading vector** (right-hand rule,
-   the axis is the signed heading vector, not its absolute axis).
-
-Formula for rotating a vector v by +90° around a unit integer axis:
+Formula for rotating a vector v by +90° around a unit integer axis (still used by the free-mode frame, `rotateFrame`):
 `v' = axis × v` when v ⊥ axis. For frame: right, up, depth are rotated by this rule,
 except the one of them that coincides with ±axis - it stays in place.
-
-A check that the tests must pass: heading = +right, frame = (R,U,D).
-After `into`: frame = (R, D, -U), heading = -D, i.e. the new heading = -up' → down on the screen.
-After `out`: frame = (R, D, -U), heading = +D = +up' → up on the screen.
-Frame is the same after both commands, only heading differs.
 
 ## core/ - pure TS
 
@@ -53,7 +45,6 @@ export interface Frame { right: Vec3; up: Vec3; depth: Vec3 }
 export type Mode = 'plane' | 'free'
 export type Phase = 'ready' | 'running' | 'dead'
 export type ScreenDir = 'left' | 'right' | 'up' | 'down'
-export type AxisDir = 'into' | 'out'
 export type DeathCause = 'body' | 'wall' | 'obstacle'
 
 export interface GameState {
@@ -65,7 +56,6 @@ export interface GameState {
   heading: Vec3
   frame: Frame
   pendingTurn: Vec3 | null   // input buffer: the new heading, applied on the next step
-  rolledSinceStep: boolean   // the frame was rolled by turnAxis, the next step is a turn in place (no movement)
   mode: Mode                 // 'plane' | 'free', see Addendum 2
   stepCount: number          // successful moves made in the game (a turn-in-place step is not one)
   growth: number             // how many cells are still to be grown
@@ -135,7 +125,6 @@ export type GameEvent =
   | { type: 'moved' }
   | { type: 'turned'; heading: Vec3 }
   | { type: 'turnedInPlace'; heading: Vec3 }
-  | { type: 'axisTurned'; rollAxis: Vec3; direction: AxisDir }
   | { type: 'ate'; apple: Vec3; score: number }
   | { type: 'appleSpawned'; apple: Vec3 }
   | { type: 'speedUp'; stepMs: number }
@@ -147,7 +136,6 @@ export type GameEvent =
 export function startGame(s: GameState): GameEvent[]
 export function setBoost(s: GameState, on: boolean): GameEvent[]
 export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[]
-export function turnAxis(s: GameState, dir: AxisDir): GameEvent[]
 export function tick(s: GameState, config: Config, dtMs: number): GameEvent[]
 ```
 
@@ -209,9 +197,10 @@ the apple pulses, obstacles are dim neon. Bloom through postprocessing.
 The snake and obstacles are `InstancedMesh` (100³ with dense obstacles = tens of thousands of cubes).
 No new objects and no `await` in the frame: pools, reuse, in-place mutation.
 
-**Camera roll** on the `axisTurned` event: a smooth 90° turn around `rollAxis`
-over `config.camera.rollMs`, preceded by a micro-pause `config.camera.microPauseMs`,
-with a glitch `config.camera.glitchMs` on top. Numbers only from config.
+**The flat opening** (`'plane'`, the player's first game): the camera is far from the cube and looks through a narrow lens, the head's layer (20×20) fills the screen width
+(`camera.plane`, sized by `planeCameraDistance` in `view/camera-config.ts`). Everything at another depth is **not drawn**: the camera's near and far clipping planes sit on the faces of the head's layer and
+the obstacles' shaders drop cells outside the layer (`layerReach`); the flat board (`view/plane-board.ts`) is the only field. The tilt is off while flat. On the mode change the layers appear outward from
+the head's layer over `camera.plane.revealShare` of the flight (`CameraRig.reveal`), with a glitch `config.camera.glitchMs` on top. Numbers only from config.
 
 ## input/ - touch and keyboard
 
@@ -220,8 +209,6 @@ with a glitch `config.camera.glitchMs` on top. Numbers only from config.
 export type InputScheme = 'swipes' | 'taps'
 export interface InputHandlers {
   onTurn(dir: ScreenDir): void
-  onAxis(dir: AxisDir): void
-  axisEnabled?(): boolean                             // false in 'free': third-axis taps and Q/E are ignored
   onBoost?(on: boolean): void                         // held / released, always in pairs
   onCameraTiltBy?(dYaw: number, dPitch: number): void // increment, rad
   onCameraZoomBy?(factor: number): void               // increment: > 1 farther, < 1 closer
@@ -232,13 +219,10 @@ export function attachInput(el: HTMLElement, scheme: InputScheme,
                             config: Config, h: InputHandlers): () => void  // returns detach
 ```
 
-- `'swipes'` (default): a swipe is a turn in the plane; a single tap anywhere is `into`
-  (it waits `config.input.doubleTapMs` for a second tap); a double tap is `out`.
-  A swipe is at least `config.input.swipeMinPx`.
-- `'taps'`: the canvas only tilts the camera. Turns and the third axis come from the corner pad
-  (`input/pad.ts`, `attachPad(root, handlers)`, separate DOM buttons over the canvas): four arrow buttons,
-  and `into` / `out` buttons that are hidden in `'free'`.
-- Keyboard (PC, works in both schemes): arrows/WASD - the plane, **Q** and **E** - the third axis,
+- `'swipes'` (default): a swipe is a turn; a tap does nothing. A swipe is at least `config.input.swipeMinPx`.
+- `'taps'`: the canvas only tilts the camera. Turns come from the corner pad
+  (`input/pad.ts`, `attachPad(root, handlers)`, separate DOM buttons over the canvas): four arrow buttons.
+- Keyboard (PC, works in both schemes): arrows/WASD - turn,
   Shift/Space (hold) - boost, R - camera reset, Escape - pause.
 - Tap zones ≥ 44 px. No hover. Input must not break on an orientation change.
 
@@ -251,17 +235,19 @@ export function attachInput(el: HTMLElement, scheme: InputScheme,
   "speed": { "startStepMs": 1080, "minStepMs": 360, "stepMsPerApple": 24,
              "boostFactor": 1.5, "boostFactors": [1.5, 2, 3, 4], "minEffectiveStepMs": 60 },
   "obstacles": { "density": 0.03, "stickiness": 0.6, "clearRadius": 4, "wallMargin": 1 },
-  "camera": { "rollMs": 260, "microPauseMs": 90, "glitchMs": 180, "distanceFactor": 1.6,
+  "camera": { "glitchMs": 180,
               "followDistance": 4, "followHeight": 2.4, "lateralOffset": 0.7, "lookAheadDistance": 10,
               "lookDownOffset": 1.5, "modeSwitchMs": 1400, "zoomMin": 0.5, "zoomMax": 2,
-              "zoomWheelPerPx": 0.0012, "zoomPinchGain": 1, "zoomFollowMs": 120 },
+              "zoomWheelPerPx": 0.0012, "zoomPinchGain": 1, "zoomFollowMs": 120,
+              "plane": { "visibleCells": 20, "marginCells": 1, "fovDeg": 20, "raise": 0.1, "revealShare": 0.45 } },
   "hints": { "latticeAt": "corners", "latticeStep": 4, "compassHideDist": 1.5, "compassFullDist": 3 },
   "headSignal": { "dangerHorizon": 2, "riseMs": 50, "fallMs": 400 },
   "demo": { "afterSteps": 5 },
+  "plane": { "appleMaxSteps": 4 },
   "loop": { "maxFrameMs": 100 },
   "minimap": { "windowCells": 20, "levelWindowCells": 10 },
   "fog": { "density": 0.06, "defaultOn": true },
-  "input": { "doubleTapMs": 240, "swipeMinPx": 24, "tiltRadPerPx": 0.005, "twoFingerLockPx": 10,
+  "input": { "swipeMinPx": 24, "tiltRadPerPx": 0.005, "twoFingerLockPx": 10,
              "stick": { "sizeVmin": 24, "sizeMinPx": 88, "sizeMaxPx": 112, "deadZone": 0.2,
                         "curve": 1.5, "maxRadPerSec": 1.2, "tapMaxMs": 250 } }
 }
@@ -295,14 +281,15 @@ AGENTS.md rule 2: the view reads state ONLY through queries. Reading
 
 **The core never reports a roll that it will not perform.**
 The camera orientation must at any moment be derivable from `cameraFrame(s)`.
-The review found that `turnAxis` emitted `axisTurned` immediately, and `turnInPlane` later silently canceled the roll -
-the camera moved away, the world did not. Now the frame is rolled at the moment of the command and `turnInPlane` does not cancel it.
-The invariant is mandatory and tests for exactly these scenarios must exist:
+The review found that an axis-turn command emitted its event immediately while a later turn silently canceled the roll -
+the camera moved away, the world did not. The axis-turn command is gone (there is no third axis in the controls), so the only frame changes left are
+the demo turn (sets the frame at once) and the free-mode reorientation on a step (`viewFrame` predicts it for the queued turn).
+The invariant is still mandatory and tests for these scenarios exist:
 
-1. `turnAxis('into')`, then `turnInPlane` before the step, then the step.
-2. `turnAxis('into')`, then `turnAxis('out')` before the step, then the step.
-3. Two `turnInPlane` in a row before the step.
-4. Death on the same step on which the roll was scheduled.
+1. Two `turnInPlane` in a row before the step.
+2. A queued turn in free mode: `viewFrame` equals the frame the step will produce.
+3. The demo turn: heading = ∓old depth, `depth = -heading`, no pending turn.
+4. Death on the step of a turn.
 
 ## Demo turn (new rules from DESIGN.md)
 
@@ -338,7 +325,9 @@ right away as `'free'` (`createGame` with `isFirstGameEver = false`). On the dem
 
 ### Mode `'plane'` - as now
 - `heading` lies in the screen plane (±right or ±up), `depth` toward the viewer.
-- `turnInPlane` - 4 directions in the slice, `turnAxis` - the third axis.
+- `turnInPlane` - 4 directions in the slice. The frame does not change; the only way out of this mode is the demo turn.
+- The apple is in the head's layer, reachable without leaving it, at most `plane.appleMaxSteps` moves from the head (`spawnApplePlane` in `core/rules.ts`). A flat-opening rule, not a general one.
+- `createGame` runs the first game ever on `config.cube.default` (20) whatever size is passed (`arenaSizeFor`).
 - The camera is at the side, looks at the cube center.
 
 ### Mode `'free'` - new
@@ -347,7 +336,6 @@ right away as `'free'` (`createGame` with `isFirstGameEver = false`). On the dem
 - `turnInPlane(dir)` turns the head: `left → -right`, `right → +right`,
   `up → +up`, `down → -up`. After the turn, frame is recomputed so that
   `depth` again equals `-heading`, and `up` changes minimally (no upside-down flips).
-- `turnAxis` in this mode is a **no-op, an empty events array**: swipes already give all directions.
 - A 180-degree reversal is still forbidden (in this mode it is unreachable by swipe anyway).
 
 ## Events
@@ -377,9 +365,7 @@ The snake **cannot be seen**: dark on a dark background. Required:
 
 ## Input
 
-- In `'free'` taps on the third axis do nothing. The hints and zones of the `taps` scheme
-  that relate to the third axis are not shown in this mode.
-- The Q and E keys in `'free'` are also a no-op.
+- There is no third-axis input in either mode (no taps, no double tap, no pad buttons, no Q/E).
 
 ---
 
@@ -388,9 +374,8 @@ The snake **cannot be seen**: dark on a dark background. Required:
 The designer's feedback: "probably the snake shouldn't move during the flip - let the change of direction
 happen before the movement."
 
-**An axis turn is a separate step.** The snake first turns in place, and only
-on the next step moves in the new direction. This applies both to a manual `turnAxis` in mode `plane`
-and to the demo transition. Ordinary turns in the plane (`turnInPlane`) are not affected - they
+**The demo turn is a separate step.** The snake first turns in place, and only
+on the next step moves in the new direction. (Once a manual axis turn did the same; it was removed with the third axis.) Ordinary turns in the plane (`turnInPlane`) are not affected - they
 still coincide with a step, as in the classic snake.
 
 On the turn-in-place step the snake does not move, does not grow, does not eat, collisions are not checked,
@@ -404,16 +389,9 @@ On the turn-in-place step the snake does not move, does not grow, does not eat, 
 
 In the demo it comes first, before `modeChanged` and `demoTurn`.
 
-## Known limitation
-
-The `frame` roll stays at the moment of the command, not at the turn-in-place step - otherwise `cameraFrame`
-would diverge from subsequent swipes. So the camera starts rotating on `axisTurned`
-(at the moment of the tap), and the head turns on `turnedInPlace`, up to one `stepMs` later.
-If this becomes noticeable, it is fixed on the view side, the core does not need to change.
-
 ## Side finding
 
-After a turn in place `heading` no longer matches the last step taken,
+After the demo turn `heading` no longer matches the last step taken,
 and the ordinary "180-degree reversal" check stopped being enough: a swipe backward hit the neck and killed.
 The `pointsIntoNeck` check was added - such a swipe is ignored.
 

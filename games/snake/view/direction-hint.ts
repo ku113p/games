@@ -27,8 +27,6 @@ export const HINT_RAY_SIDES = false
 export const HINT_NEAR = true
 
 export interface DirectionHint {
-  /** true if the ray ahead hits the apple. Still computed and passed on to AppleView.update, which ignores it: no consumer uses it. */
-  appleTargeted: boolean
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest, freeAmount: number): void
   /** Frame buffer height in pixels; only the dots need it. */
   setViewportHeight?(pixels: number): void
@@ -36,7 +34,6 @@ export interface DirectionHint {
 }
 
 class LayeredHint implements DirectionHint {
-  appleTargeted = false
   private ray: AheadRay | null
   private lattice: AheadDots | null
   private near: NearCells | null
@@ -69,12 +66,7 @@ class LayeredHint implements DirectionHint {
     const pz = Math.round(frame.depth.z)
     const h = head(s)
 
-    if (this.ray) {
-      this.ray.update(s, dx, dy, dz, isSolid)
-      this.appleTargeted = this.ray.appleTargeted
-    } else {
-      this.appleTargeted = false
-    }
+    this.ray?.update(s, dx, dy, dz, isSolid)
     this.lattice?.update(cubeSize(s), h.x, h.y, h.z, dx, dy, dz, px, py, pz, freeAmount)
     if (this.near) {
       this.trace.run(s, dx, dy, dz, 1, isSolid) // body map for kindAt

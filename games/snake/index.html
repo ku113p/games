@@ -246,17 +246,6 @@
         gap: 4px;
       }
 
-      #pad .axis {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-
-      /* 'free' mode: no third axis, its buttons are not shown. */
-      #pad.no-axis .axis {
-        display: none;
-      }
-
       #pad button {
         padding: 0;
         width: var(--btn);
@@ -298,12 +287,6 @@
       }
       #pad button.down {
         grid-area: 3 / 2;
-      }
-
-      #pad .axis button {
-        height: calc(var(--btn) * 1.15);
-        font-size: calc(var(--btn) * 0.22);
-        letter-spacing: 0.02em;
       }
 
       /* Boost button (both schemes): hold - the snake goes faster. In "Swipes" - at the bottom
@@ -506,7 +489,7 @@
         left: auto;
         right: calc(max(12px, env(safe-area-inset-right)) + (var(--boost) - var(--size)) / 2);
       }
-      /* Scheme "Taps": reset above the pad (above the third-axis column, at the screen edge), pad height = 3 buttons + 2 gaps. */
+      /* Scheme "Taps": reset above the pad, pad height = 3 buttons + 2 gaps. */
       #cam-reset.above-pad {
         --btn: clamp(48px, 15vmin, 72px);
         bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--btn) * 3 + 8px + 10px);
@@ -1460,10 +1443,6 @@
           <button type="button" class="left" data-pad="left" tabindex="-1" data-i18n-aria="aria.left">◀</button>
           <button type="button" class="right" data-pad="right" tabindex="-1" data-i18n-aria="aria.right">▶</button>
           <button type="button" class="down" data-pad="down" tabindex="-1" data-i18n-aria="aria.down">▼</button>
-        </div>
-        <div class="axis">
-          <button type="button" data-pad="into" tabindex="-1" data-i18n-aria="aria.into" data-i18n="pad.into"></button>
-          <button type="button" data-pad="out" tabindex="-1" data-i18n-aria="aria.out" data-i18n="pad.out"></button>
         </div>
       </div>
 

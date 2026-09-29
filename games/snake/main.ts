@@ -6,8 +6,8 @@
 // when perfPanel is not null).
 
 import { createGame, type Config } from './core/rules'
-import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
-import { effectiveStepMs, type AxisDir, type GameState, type ScreenDir } from './core/state'
+import { setBoost, startGame, tick, turnInPlane, type GameEvent } from './core/commands'
+import { effectiveStepMs, type GameState, type ScreenDir } from './core/state'
 import { cubeSize, effectiveBoostFactor, elapsedMs, gameMode, isAlive, score, snakeLength } from './core/queries'
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
@@ -641,8 +641,6 @@ interface Session {
   stick: Stick
   /** Boost sources (finger on the button, Shift/Space): on while at least one holds. */
   boost: BoostHold
-  /** Current mode (core Mode: plane or free), not just the camera: it also picks the pad layout and whether the third axis is enabled in input. Mirrors GameState.mode, updated on the modeChanged event. */
-  mode: 'plane' | 'free'
   /** Show the explainer screen at the transition (only the player's very first game). */
   explainTransition: boolean
   /** A real game (not a ?perf measurement): only these go to analytics. */
@@ -692,9 +690,6 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       s.pad?.clearQueued()
       break
     case 'modeChanged':
-      // The flat snake became volumetric: no third axis any more, hide its pad buttons.
-      s.mode = ev.mode
-      showPad(lastScheme, s.mode)
       // Clear the flag only here: the twist intro actually happened.
       if (ev.mode === 'free') consumeFirstGameEver()
       if (ev.mode === 'free' && s.explainTransition && s.counted) tracker.twistSeen()
@@ -849,14 +844,12 @@ function dockBoost(inCross: boolean): void {
   stickEl.classList.toggle('beside-pad', inCross) // the stick lines up horizontally with the cross
 }
 
-function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
+function showPad(scheme: InputScheme): void {
   dockBoost(scheme === 'taps')
   if (scheme !== 'taps') {
     padEl.classList.add('hidden')
     return
   }
-  // In 'free' mode the third-axis buttons are not shown, the four arrows remain.
-  padEl.classList.toggle('no-axis', mode === 'free')
   padEl.classList.toggle('left', padSide === 'left')
   padEl.classList.remove('hidden')
 }
@@ -871,7 +864,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
 
   const isFirstGameEver = forBench ? false : readIsFirstGameEver()
   // In the first game the core starts in 'plane' and switches at step demo.afterSteps,
-  // in all following ones - straight to 'free'. s.mode below mirrors this and is updated by modeChanged.
+  // in all following ones - straight to 'free'.
   const seed = forBench ? BENCH_SEED : Math.floor(Math.random() * 0x7fffffff)
   // Measurement and freeze run with the boost from the config and do not touch the wallet; a normal game spends a game on temporary
   // items and takes the equipped boost.
@@ -908,7 +901,6 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   })
   const boostBtn = attachBoostButton(boostEl, {
     onTurn: () => {},
-    onAxis: () => {},
     onBoost: (on) => (on ? boost.press('btn') : boost.release('btn')),
   })
 
@@ -923,7 +915,6 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
     boostBtn,
     stick,
     boost,
-    mode: gameMode(state),
     explainTransition: isFirstGameEver,
     counted: !forBench,
   }
@@ -933,11 +924,6 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
       if (isPaused()) return
       dispatchEvents(s, turnInPlane(s.state, dir))
     },
-    onAxis(dir: AxisDir) {
-      if (isPaused() || s.mode === 'free') return
-      dispatchEvents(s, turnAxis(s.state, dir))
-    },
-    axisEnabled: () => s.mode === 'plane',
     onBoost: (on) => (on ? boost.press('kbd') : boost.release('kbd')),
     onPause: () => {
       if (benchActive) {
@@ -985,7 +971,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   screens.startGame()
   boostHint.begin(isFirstGameEver) // after startGame: its screen change has already reset the prompt
   hudScore.textContent = '0'
-  showPad(scheme, s.mode)
+  showPad(scheme)
   showBoostAndPause()
 
   syncViewSize(view)
@@ -1182,9 +1168,6 @@ window.addEventListener('orientationchange', onWindowResize)
 
 // --- game loop: requestAnimationFrame, dt passed to the core; steady-state frames do not allocate or await (see the header of this file for the exceptions) ---
 
-// Whether to draw the scene under the game-over screen (it is opaque, so it is wasted). true - the old behavior.
-const RENDER_WHEN_DEAD = false
-
 let lastFrameTime: number | null = null
 
 function frame(now: number): void {
@@ -1219,8 +1202,8 @@ function step(now: number): void {
     if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)
   }
   // The game-over screen is opaque and fully covers the canvas: drawing the scene with postprocessing behind it
-  // is pointless (a full GPU frame competes with drum presses). RENDER_WHEN_DEAD = true brings it back as it was.
-  if (!RENDER_WHEN_DEAD && !isAlive(s.state)) return
+  // is pointless (a full GPU frame competes with drum presses).
+  if (!isAlive(s.state)) return
   // On demo pause render keeps going: the camera finishes the roll behind the explainer screen.
   s.view.render(s.state, dtMs)
 }

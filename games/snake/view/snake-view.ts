@@ -102,7 +102,6 @@ export class SnakeView {
   private sigAx = -1
   private sigAy = -1
   private sigAz = -1
-  private sigRolled = false
   private crashIn = 0
   private goal = false
   private goalAmount = 0
@@ -257,7 +256,7 @@ export class SnakeView {
     const a = s.apple
     if (
       s !== this.sigState || s.stepCount !== this.sigStep || dx !== this.sigHx || dy !== this.sigHy || dz !== this.sigHz ||
-      a.x !== this.sigAx || a.y !== this.sigAy || a.z !== this.sigAz || s.rolledSinceStep !== this.sigRolled
+      a.x !== this.sigAx || a.y !== this.sigAy || a.z !== this.sigAz
     ) {
       this.sigState = s
       this.sigStep = s.stepCount
@@ -267,7 +266,6 @@ export class SnakeView {
       this.sigAx = a.x
       this.sigAy = a.y
       this.sigAz = a.z
-      this.sigRolled = s.rolledSinceStep
       const horizon = this.signalCfg.dangerHorizon
       this.crashIn = stepsToCrash(s, horizon)
       this.goal = this.crashIn === 0 && appleOnCourse(s)

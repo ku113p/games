@@ -1,5 +1,5 @@
 // Boost button: a DOM button next to the canvas (a touch that starts on it never reaches touch.ts:
-// it does not interfere with swipes, third-axis taps, or the two-finger tilt). Works in both schemes.
+// it does not interfere with swipes or the two-finger tilt). Works in both schemes.
 // While the finger is held, boost is on. Release always fires: pointerup, pointercancel,
 // lostpointercapture (on the button AND on document: if capture failed and the finger moved off the button, the event
 // no longer goes to the button), window blur, hidden tab, detach.

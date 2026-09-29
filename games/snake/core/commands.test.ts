@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { cellKey, type GameState, type ScreenDir, type Vec3 } from './state'
 import { createGame, type Config } from './rules'
-import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './commands'
+import { setBoost, startGame, tick, turnInPlane, type GameEvent } from './commands'
 import { cameraFrame, isBoostActive, isBoosting, stepProgress } from './queries'
 import { config, makeRng, makeState, v } from './test-helpers'
 
@@ -27,19 +27,11 @@ function dot(a: Vec3, b: Vec3): number {
   return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-/** Invariant: heading always lies in the camera's screen plane (±right or ±up from cameraFrame). */
-function expectHeadingInScreenPlane(s: GameState): void {
-  const f = cameraFrame(s)
-  expect(Math.abs(dot(s.heading, f.right)) + Math.abs(dot(s.heading, f.up))).toBe(1)
-  expect(dot(s.heading, f.depth)).toBe(0)
-}
-
 function snapshotTurnRelevant(s: GameState) {
   return JSON.stringify({
     h: s.heading,
     f: s.frame,
     p: s.pendingTurn,
-    r: s.rolledSinceStep,
     ph: s.phase,
     sn: s.snake,
   })
@@ -163,243 +155,6 @@ describe('turnInPlane: all four headings × all four directions', () => {
       const before = snapshotTurnRelevant(s)
       expect(turnInPlane(s, 'up')).toEqual([])
       expect(snapshotTurnRelevant(s)).toBe(before)
-    }
-  })
-})
-
-describe('turnAxis: axis turn for all four headings', () => {
-  // Expected frame after a +90° roll around the signed heading, and the heading for into/out.
-  const table: Array<{
-    name: string
-    heading: Vec3
-    frame: { right: Vec3; up: Vec3; depth: Vec3 }
-    into: Vec3
-    out: Vec3
-  }> = [
-    { name: '+right', heading: v(1, 0, 0), frame: { right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) }, into: v(0, 0, -1), out: v(0, 0, 1) },
-    { name: '-right', heading: v(-1, 0, 0), frame: { right: v(1, 0, 0), up: v(0, 0, -1), depth: v(0, 1, 0) }, into: v(0, 0, -1), out: v(0, 0, 1) },
-    { name: '+up', heading: v(0, 1, 0), frame: { right: v(0, 0, -1), up: v(0, 1, 0), depth: v(1, 0, 0) }, into: v(0, 0, -1), out: v(0, 0, 1) },
-    { name: '-up', heading: v(0, -1, 0), frame: { right: v(0, 0, 1), up: v(0, 1, 0), depth: v(-1, 0, 0) }, into: v(0, 0, -1), out: v(0, 0, 1) },
-  ]
-  for (const row of table) {
-    for (const dir of ['into', 'out'] as const) {
-      test(`heading ${row.name}, ${dir}`, () => {
-        const s = makeState({ heading: { ...row.heading } })
-        const expectedHeading = dir === 'into' ? row.into : row.out
-        const events = turnAxis(s, dir)
-        expect(events).toEqual([{ type: 'axisTurned', rollAxis: row.heading, direction: dir }])
-        // The frame is rolled immediately: the camera and the core agree from the moment of the event.
-        expect(s.frame).toEqual(row.frame)
-        expect(s.heading).toEqual(row.heading) // heading changes on the next step
-        expect(s.pendingTurn).toEqual(expectedHeading)
-        // Turn-in-place step: the heading is new, the snake stands still. It moves only on the step after that.
-        const flip = stepOnce(s)
-        expect(flip).toEqual([{ type: 'turnedInPlace', heading: expectedHeading }])
-        expect(s.heading).toEqual(expectedHeading)
-        expect(s.frame).toEqual(row.frame)
-        expect(s.snake[0]).toEqual(v(10, 10, 10))
-        expect(stepOnce(s)).toEqual([{ type: 'moved' }])
-        expect(s.snake[0]).toEqual(v(10 + expectedHeading.x, 10 + expectedHeading.y, 10 + expectedHeading.z))
-        expectHeadingInScreenPlane(s)
-      })
-    }
-  }
-
-  test('contract: +right into → frame (R,D,-U), heading = screen down; out → screen up', () => {
-    const into = makeState()
-    turnAxis(into, 'into')
-    stepOnce(into)
-    expect(into.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-    expect(into.heading).toEqual({ x: 0 - into.frame.up.x, y: 0 - into.frame.up.y, z: 0 - into.frame.up.z })
-
-    const out = makeState()
-    turnAxis(out, 'out')
-    stepOnce(out)
-    expect(out.frame).toEqual(into.frame)
-    expect(out.heading).toEqual(out.frame.up)
-  })
-
-  test('rolls around the last moved heading even if a plane turn is queued', () => {
-    const s = makeState()
-    turnInPlane(s, 'up')
-    const events = turnAxis(s, 'into')
-    expect(events).toEqual([{ type: 'axisTurned', rollAxis: v(1, 0, 0), direction: 'into' }])
-    expect(s.pendingTurn).toEqual(v(0, 0, -1))
-  })
-
-  test('no signed zeros leak into heading or frame', () => {
-    const s = makeState({ heading: v(0, -1, 0) })
-    turnAxis(s, 'into')
-    stepOnce(s)
-    for (const vec of [s.heading, s.frame.right, s.frame.up, s.frame.depth])
-      for (const c of [vec.x, vec.y, vec.z]) expect(Object.is(c, -0)).toBe(false)
-  })
-
-  test('does nothing in phases ready and dead', () => {
-    for (const phase of ['ready', 'dead'] as const) {
-      const s = makeState({ phase })
-      const before = snapshotTurnRelevant(s)
-      expect(turnAxis(s, 'into')).toEqual([])
-      expect(turnAxis(s, 'out')).toEqual([])
-      expect(snapshotTurnRelevant(s)).toBe(before)
-    }
-  })
-})
-
-describe('roll invariant: the camera is always derived from cameraFrame', () => {
-  test('1. turnAxis(into), then turnInPlane before the step, then the step', () => {
-    const s = makeState()
-    const e1 = turnAxis(s, 'into')
-    expect(e1.map((e) => e.type)).toEqual(['axisTurned'])
-    const rolled = JSON.parse(JSON.stringify(cameraFrame(s)))
-    expect(rolled).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-
-    const e2 = turnInPlane(s, 'up') // in the rolled frame up' = +z
-    expect(e2).toEqual([{ type: 'turned', heading: v(0, 0, 1) }])
-    expect(cameraFrame(s)).toEqual(rolled) // the roll is not cancelled
-
-    const ev = stepOnce(s) // turn-in-place step: the snake stands still
-    expect(ev.filter((e) => e.type === 'axisTurned').length).toBe(0)
-    expect(cameraFrame(s)).toEqual(rolled)
-    expect(s.heading).toEqual(v(0, 0, 1))
-    expect(s.snake[0]).toEqual(v(10, 10, 10))
-    stepOnce(s)
-    expect(s.snake[0]).toEqual(v(10, 10, 11))
-    expectHeadingInScreenPlane(s)
-    // further turns go by the rolled frame
-    turnInPlane(s, 'right')
-    stepOnce(s)
-    expect(s.heading).toEqual(v(1, 0, 0))
-  })
-
-  test('1b. turnInPlane, then turnAxis: the roll happens, the buffer is replaced', () => {
-    const s = makeState()
-    turnInPlane(s, 'down')
-    turnAxis(s, 'out')
-    stepOnce(s)
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-    expect(s.heading).toEqual(v(0, 0, 1))
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('2. turnAxis(into), then turnAxis(out) before the step, then the step', () => {
-    const s = makeState()
-    const e1 = [...turnAxis(s, 'into')]
-    const e2 = [...turnAxis(s, 'out')]
-    const all = [...e1, ...e2]
-    // The camera rolls exactly once, and the frame is rolled exactly once.
-    expect(all.filter((e) => e.type === 'axisTurned').length).toBe(1)
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-    expect(e2).toEqual([{ type: 'turned', heading: v(0, 0, 1) }]) // out = +D_old
-
-    stepOnce(s)
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-    expect(s.heading).toEqual(v(0, 0, 1))
-    expect(s.snake[0]).toEqual(v(10, 10, 10)) // turn-in-place step
-    stepOnce(s)
-    expect(s.snake[0]).toEqual(v(10, 10, 11))
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('2b. out, then into: also a single roll, heading = -D_old', () => {
-    const s = makeState()
-    turnAxis(s, 'out')
-    const e2 = [...turnAxis(s, 'into')]
-    expect(e2).toEqual([{ type: 'turned', heading: v(0, 0, -1) }])
-    stepOnce(s)
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-    expect(s.heading).toEqual(v(0, 0, -1))
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('2c. a repeated turnAxis also works for heading ±up (a different roll axis)', () => {
-    const s = makeState({ heading: v(0, 1, 0) })
-    turnAxis(s, 'into')
-    const e = [...turnAxis(s, 'out')]
-    expect(e).toEqual([{ type: 'turned', heading: v(0, 0, 1) }])
-    stepOnce(s)
-    expect(s.heading).toEqual(v(0, 0, 1))
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('3. two turnInPlane in a row before the step: the last one wins, the frame is untouched', () => {
-    const s = makeState()
-    turnInPlane(s, 'up')
-    turnInPlane(s, 'down')
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) })
-    stepOnce(s)
-    expect(s.heading).toEqual(v(0, -1, 0))
-    expect(s.snake[0]).toEqual(v(10, 9, 10))
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) })
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('4. death on the same step as the scheduled roll', () => {
-    // z = 0 and into → heading -z → wall. The roll was already shown to the camera, the world is consistent.
-    const s = makeState({ snake: [v(10, 10, 0), v(9, 10, 0), v(8, 10, 0)] })
-    const e1 = [...turnAxis(s, 'into')]
-    expect(e1.map((e) => e.type)).toEqual(['axisTurned'])
-    const rolled = JSON.parse(JSON.stringify(cameraFrame(s)))
-    const flip = stepOnce(s) // a turn-in-place step does not kill: nowhere to go
-    expect(flip.map((e) => e.type)).toEqual(['turnedInPlace'])
-    expect(s.phase).toBe('running')
-    const ev = stepOnce(s) // but the first step into the wall kills
-    expect(ev).toContainEqual({ type: 'died', cause: 'wall' })
-    expect(s.phase).toBe('dead')
-    expect(cameraFrame(s)).toEqual(rolled)
-    expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
-    expectHeadingInScreenPlane(s)
-    expect(s.snake[0]).toEqual(v(10, 10, 0)) // the head did not move
-    // on a dead game, commands change nothing
-    const before = snapshotTurnRelevant(s)
-    expect(turnAxis(s, 'out')).toEqual([])
-    expect(turnInPlane(s, 'left')).toEqual([])
-    expect(snapshotTurnRelevant(s)).toBe(before)
-  })
-
-  test('4b. death by an obstacle on the roll step', () => {
-    const s = makeState({ obstacles: new Set([cellKey(10, 10, 11, 20)]) })
-    turnAxis(s, 'out')
-    expect(stepOnce(s).map((e) => e.type)).toEqual(['turnedInPlace'])
-    expect(s.phase).toBe('running')
-    const ev = stepOnce(s)
-    expect(ev).toContainEqual({ type: 'died', cause: 'obstacle' })
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('after the step the roll flag is cleared: the next turnAxis rolls the frame again', () => {
-    const s = makeState()
-    turnAxis(s, 'into')
-    stepOnce(s)
-    const events = turnAxis(s, 'into')
-    expect(events.map((e) => e.type)).toEqual(['axisTurned'])
-    stepOnce(s)
-    expectHeadingInScreenPlane(s)
-  })
-
-  test('random command series: heading is always in the cameraFrame plane, axisTurned = exactly a frame change', () => {
-    let seed = 12345
-    const rnd = () => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff
-      return seed / 0x7fffffff
-    }
-    const dirs: ScreenDir[] = ['left', 'right', 'up', 'down']
-    for (let game = 0; game < 30; game++) {
-      const s = makeState({ size: 60, snake: [v(30, 30, 30), v(29, 30, 30), v(28, 30, 30)], apple: v(0, 0, 0) })
-      for (let i = 0; i < 40 && s.phase === 'running'; i++) {
-        const cmds = Math.floor(rnd() * 4)
-        for (let c = 0; c < cmds; c++) {
-          const before = JSON.stringify(s.frame)
-          const ev =
-            rnd() < 0.5
-              ? turnAxis(s, rnd() < 0.5 ? 'into' : 'out')
-              : turnInPlane(s, dirs[Math.floor(rnd() * 4)]!)
-          const rolled = ev.some((e) => e.type === 'axisTurned')
-          expect(JSON.stringify(s.frame) !== before).toBe(rolled)
-        }
-        stepOnce(s)
-        expectHeadingInScreenPlane(s)
-      }
     }
   })
 })
@@ -676,16 +431,14 @@ describe('demo turn: on step demo.afterSteps of the first game, direction chosen
     expect(s.snake.length).toBe(3)
   })
 
-  test('demo turn: heading = ∓old depth right away, depth = -heading, no pendingTurn, no axisTurned', () => {
+  test('demo turn: heading = ∓old depth right away, depth = -heading, no pendingTurn', () => {
     // seed-independent: check both branches (into: frame unchanged; out: right/depth flip sign, up stays)
     const seen = new Set<number>()
     for (let seed = 0; seed < 40; seed++) {
       const s = demoState({ rngState: seed * 977 })
       const evAll: GameEvent[] = []
       for (let i = 0; i < 6; i++) evAll.push(...stepOnce(s))
-      expect(evAll.some((e) => e.type === 'axisTurned')).toBe(false)
       expect(s.pendingTurn).toBeNull()
-      expect(s.rolledSinceStep).toBe(false)
       expect(s.heading.z === 1 || s.heading.z === -1).toBe(true)
       expect(s.heading.x).toBe(0)
       expect(s.heading.y).toBe(0)
@@ -940,6 +693,7 @@ describe('demo turn: on step demo.afterSteps of the first game, direction chosen
     expect(s.demoTurnPending).toBe(false)
   })
 
+
   test('createGame(not first game): free from the start, no modeChanged/demoTurn ever, invariant holds through play', () => {
     const cfg = cfgWith({ obstacles: { density: 0, stickiness: 0, clearRadius: 4, wallMargin: 1 } })
     const dirs: ScreenDir[] = ['left', 'right', 'up', 'down']
@@ -955,7 +709,7 @@ describe('demo turn: on step demo.afterSteps of the first game, direction chosen
       for (let i = 0; i < 40 && s.phase === 'running'; i++) {
         if (i % 2 === 0) {
           const tev = turnInPlane(s, dirs[Math.floor(rng() * 4)]!)
-          expect(tev.some((e) => e.type === 'modeChanged' || e.type === 'demoTurn' || e.type === 'axisTurned')).toBe(false)
+          expect(tev.some((e) => e.type === 'modeChanged' || e.type === 'demoTurn')).toBe(false)
         }
         const ev = stepOnce(s, cfg)
         expect(ev.some((e) => e.type === 'modeChanged' || e.type === 'demoTurn')).toBe(false)
@@ -1004,12 +758,64 @@ describe('demo turn: on step demo.afterSteps of the first game, direction chosen
     }
   })
 
-  test('createGame(not first game): a turnAxis at the start is a no-op', () => {
-    const s = createGame(config, 20, 5, false)
+})
+
+describe('the demo turn is the only way out of plane mode', () => {
+  test('there is no third-axis command any more', async () => {
+    const api = (await import('./commands')) as Record<string, unknown>
+    expect(api['turnAxis']).toBeUndefined()
+  })
+
+  test('no sequence of turns and boost changes the mode before the demo; the mode changes exactly once, on the demo step', () => {
+    const cfg = cfgWith({ obstacles: { density: 0, stickiness: 0, clearRadius: 4, wallMargin: 1 } })
+    const dirs: ScreenDir[] = ['left', 'right', 'up', 'down']
+    for (let seed = 1; seed <= 30; seed++) {
+      const s = createGame(cfg, 20, seed, true)
+      startGame(s)
+      const rng = makeRng(seed)
+      const frame0 = JSON.stringify(s.frame)
+      let changes = 0
+      for (let i = 0; i < 12 && s.phase === 'running'; i++) {
+        const before = s.mode
+        turnInPlane(s, dirs[Math.floor(rng() * 4)]!)
+        setBoost(s, rng() < 0.5)
+        expect(s.mode).toBe(before) // no command but the step can change the mode
+        const ev = stepOnce(s, cfg)
+        if (s.mode !== before) {
+          changes++
+          expect(s.stepCount).toBeGreaterThanOrEqual(cfg.demo.afterSteps)
+          expect(ev.map((e) => e.type)).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
+        }
+        if (s.mode === 'plane') expect(JSON.stringify(s.frame)).toBe(frame0) // the view frame never changes while flat
+      }
+      expect(changes).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test('a player who never touches the controls still leaves plane mode on step demo.afterSteps + 1 (cannot be stuck flat)', () => {
+    const cfg = cfgWith({ obstacles: { density: 0, stickiness: 0, clearRadius: 4, wallMargin: 1 } })
+    const s = createGame(cfg, 20, 5, true)
+    s.apple.x = s.apple.y = 0
+    s.apple.z = s.snake[0]!.z
     startGame(s)
-    expect(turnAxis(s, 'into')).toEqual([])
-    expect(turnAxis(s, 'out')).toEqual([])
-    expect(s.heading).toEqual(v(1, 0, 0))
+    for (let i = 0; i < cfg.demo.afterSteps; i++) expect(stepOnce(s, cfg).map((e) => e.type)).toEqual(['moved'])
+    expect(s.mode).toBe('plane')
+    expect(stepOnce(s, cfg).map((e) => e.type)).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
+    expect(s.mode).toBe('free')
+  })
+
+  test('a blocked demo turn is retried on the next step, not spent (both depth neighbours solid: stay flat until one is free)', () => {
+    const cfg = cfgWith({ demo: { afterSteps: 1 } })
+    const s = makeState({ size: 30, demoTurnPending: true, apple: v(0, 0, 0), snake: [v(10, 10, 10), v(9, 10, 10), v(8, 10, 10)] })
+    // after the first step the head is at x = 11; block z ± 1 at x = 11 only
+    s.obstacles.add(cellKey(11, 10, 9, 30))
+    s.obstacles.add(cellKey(11, 10, 11, 30))
+    expect(stepOnce(s, cfg).map((e) => e.type)).toEqual(['moved'])
+    expect(stepOnce(s, cfg).map((e) => e.type)).toEqual(['moved']) // the demo could not fire: the step went on
+    expect(s.mode).toBe('plane')
+    expect(s.demoTurnPending).toBe(true)
+    expect(stepOnce(s, cfg).map((e) => e.type)).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn']) // free sides at x = 13
+    expect(s.mode).toBe('free')
   })
 })
 
@@ -1027,8 +833,8 @@ describe('determinism', () => {
         turnInPlane(b, 'up')
       }
       if (i === 15) {
-        turnAxis(a, 'into')
-        turnAxis(b, 'into')
+        turnInPlane(a, 'left')
+        turnInPlane(b, 'left')
       }
       stepOnce(a)
       stepOnce(b)
@@ -1161,15 +967,13 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
     }
   })
 
-  test('before the step nothing moves: heading and frame stay, pendingTurn holds the target, no axisTurned', () => {
+  test('before the step nothing moves: heading and frame stay, pendingTurn holds the target', () => {
     for (const f of allFrames()) {
       const s = freeState(f)
-      const ev = turnInPlane(s, 'right')
-      expect(ev.some((e) => e.type === 'axisTurned')).toBe(false)
+      turnInPlane(s, 'right')
       expect(s.pendingTurn).toEqual(f.right)
       expect(s.heading).toEqual(f.heading)
       expect(cameraFrame(s)).toEqual({ right: f.right, up: f.up, depth: f.depth })
-      expect(s.rolledSinceStep).toBe(false)
     }
   })
 
@@ -1247,23 +1051,6 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
     }
   })
 
-  test('turnAxis in free is a no-op: empty events, state untouched (both directions, before and after a buffered turn)', () => {
-    for (const f of allFrames()) {
-      for (const dir of ['into', 'out'] as const) {
-        const s = freeState(f)
-        const before = snapshotTurnRelevant(s)
-        expect(turnAxis(s, dir)).toEqual([])
-        expect(snapshotTurnRelevant(s)).toBe(before)
-        expect(s.rolledSinceStep).toBe(false)
-        turnInPlane(s, 'left')
-        const buffered = snapshotTurnRelevant(s)
-        expect(turnAxis(s, dir)).toEqual([])
-        expect(snapshotTurnRelevant(s)).toBe(buffered)
-        stepOnce(s)
-        expect(s.heading).toEqual(neg(f.right))
-      }
-    }
-  })
 
   test('turnInPlane in free outside the running phase does nothing', () => {
     const f = allFrames()[0]!
@@ -1285,12 +1072,12 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
     expectFreeInvariant(s)
   })
 
-  test('free mode never emits axisTurned/modeChanged/demoTurn during ordinary play', () => {
+  test('free mode never emits modeChanged/demoTurn during ordinary play', () => {
     const f = allFrames()[3]!
     const s = freeState(f, { demoTurnPending: false })
     for (const dir of DIRS) {
       const evs = [...turnInPlane(s, dir), ...stepOnce(s)]
-      expect(evs.some((e) => e.type === 'axisTurned' || e.type === 'modeChanged' || e.type === 'demoTurn')).toBe(false)
+      expect(evs.some((e) => e.type === 'modeChanged' || e.type === 'demoTurn')).toBe(false)
     }
   })
 
@@ -1348,113 +1135,12 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
 describe('turn-in-place step: an axis turn is a separate step, the snake stands still', () => {
   const types = (evs: GameEvent[]) => evs.map((e) => e.type)
 
-  test('a turn-in-place step does not move, grow or eat and does not count as a step; the next step moves in the new direction', () => {
-    // the apple is straight along the new heading (into = -z) and there is still growth in reserve
-    const s = makeState({ apple: v(10, 10, 9), growth: 2 })
-    const bodyBefore = JSON.stringify(s.snake)
-    turnAxis(s, 'into')
-    const flip = tick(s, config, s.stepMs)
-    expect(types(flip)).toEqual(['turnedInPlace'])
-    expect(JSON.stringify(s.snake)).toBe(bodyBefore)
-    expect(s.snakeCells.size).toBe(3)
-    expect(s.growth).toBe(2) // growth untouched
-    expect(s.score).toBe(0)
-    expect(s.applesEaten).toBe(0)
-    expect(s.stepCount).toBe(0)
-    expect(s.heading).toEqual(v(0, 0, -1))
-    expect(s.pendingTurn).toBeNull()
-    expect(s.rolledSinceStep).toBe(false)
-    expect(s.phase).toBe('running')
-    // next step: it already goes in the new direction, eats the apple, grows
-    const go = tick(s, config, s.stepMs)
-    expect(types(go)).toEqual(['moved', 'ate', 'speedUp', 'appleSpawned'])
-    expect(s.snake[0]).toEqual(v(10, 10, 9))
-    expect(s.snake.length).toBe(4)
-    expect(s.stepCount).toBe(1)
-  })
 
-  test('time flows as usual: elapsedMs accumulates, a turn-in-place step spends exactly one stepMs', () => {
-    const s = makeState()
-    turnAxis(s, 'out')
-    tick(s, config, 100)
-    expect(s.elapsedMs).toBe(100)
-    expect(s.sinceStepMs).toBe(0)
-    // one tick call for two steps: the turn in place and then a step right away
-    const s2 = makeState({ stepMs: 50 })
-    turnAxis(s2, 'out')
-    const ev = tick(s2, config, 100)
-    expect(types(ev)).toEqual(['turnedInPlace', 'moved'])
-    expect(s2.snake[0]).toEqual(v(10, 10, 11))
-    expect(s2.stepCount).toBe(1)
-  })
 
-  test('near a wall the turn in place does not kill even though a step forward would; only the following step kills into the wall', () => {
-    const mk = () => makeState({ snake: [v(19, 10, 10), v(18, 10, 10), v(17, 10, 10)] })
-    const control = mk()
-    expect(types(stepOnce(control))).toContain('died') // a step forward runs into the wall
-    const s = mk()
-    turnAxis(s, 'into')
-    expect(types(stepOnce(s))).toEqual(['turnedInPlace'])
-    expect(s.phase).toBe('running')
-    expect(types(stepOnce(s))).toEqual(['moved']) // moved deeper along the wall
-    expect(s.snake[0]).toEqual(v(19, 10, 9))
-    // and if the new heading also points into the wall, it is the step that dies, not the turn in place
-    const w = makeState({ snake: [v(19, 10, 0), v(18, 10, 0), v(17, 10, 0)] })
-    turnAxis(w, 'into')
-    expect(types(stepOnce(w))).toEqual(['turnedInPlace'])
-    expect(w.phase).toBe('running')
-    expect(stepOnce(w)).toContainEqual({ type: 'died', cause: 'wall' })
-  })
 
-  test('an obstacle and body in the path of the new heading do not kill the turn in place', () => {
-    const obs = makeState({ obstacles: new Set([cellKey(10, 10, 9, 20), cellKey(11, 10, 10, 20)]) })
-    turnAxis(obs, 'into')
-    expect(types(stepOnce(obs))).toEqual(['turnedInPlace'])
-    expect(obs.phase).toBe('running')
-    expect(stepOnce(obs)).toContainEqual({ type: 'died', cause: 'obstacle' })
-    const body = makeState({ snake: [v(10, 10, 10), v(10, 10, 11), v(11, 10, 11), v(11, 10, 10), v(11, 10, 9), v(10, 10, 9)] })
-    turnAxis(body, 'into') // heading +x, into = -z, cell (10,10,9) is occupied by the tail body
-    expect(types(stepOnce(body))).toEqual(['turnedInPlace'])
-    expect(body.phase).toBe('running')
-  })
 
-  test('two turnAxis before the step make one turn-in-place step; two axis turns in a row make two steps in place', () => {
-    const s = makeState()
-    turnAxis(s, 'into')
-    turnAxis(s, 'out')
-    expect(types(stepOnce(s))).toEqual(['turnedInPlace'])
-    expect(s.heading).toEqual(v(0, 0, 1))
-    expect(types(stepOnce(s))).toEqual(['moved'])
-    const t = makeState()
-    turnAxis(t, 'into')
-    stepOnce(t)
-    expect(types(turnAxis(t, 'into'))).toEqual(['axisTurned'])
-    expect(types(stepOnce(t))).toEqual(['turnedInPlace'])
-    expect(t.snake[0]).toEqual(v(10, 10, 10))
-    expect(t.stepCount).toBe(0)
-    expectHeadingInScreenPlane(t)
-  })
 
-  test('turnedInPlace carries the new heading and is not emitted for ordinary in-plane turns', () => {
-    const s = makeState({ apple: v(0, 0, 0) })
-    turnInPlane(s, 'up')
-    expect(types(stepOnce(s))).toEqual(['moved']) // an in-plane turn is combined with the step
-    expect(s.snake[0]).toEqual(v(10, 11, 10))
-    turnAxis(s, 'out')
-    expect(stepOnce(s)).toEqual([{ type: 'turnedInPlace', heading: s.heading }])
-  })
 
-  test('after a turn in place, a swipe into the neck is ignored (heading no longer matches the last move)', () => {
-    const s = makeState() // heading +x, neck on the left
-    turnAxis(s, 'into')
-    stepOnce(s) // heading -z; frame: right=+x, up=+z; the neck at -x = left
-    expect(turnInPlane(s, 'left')).toEqual([])
-    expect(s.pendingTurn).toBeNull()
-    expect(turnInPlane(s, 'up')).toEqual([]) // opposite to heading (-z)
-    expect(turnInPlane(s, 'right')).toEqual([{ type: 'turned', heading: v(1, 0, 0) }])
-    stepOnce(s)
-    expect(s.snake[0]).toEqual(v(11, 10, 10))
-  })
 
   test('the demo transition is also a separate step: the snake stands still, does not grow or eat; the next step moves in the new direction', () => {
     const cfg = cfgWith({ demo: { afterSteps: 2 } })
@@ -1496,35 +1182,7 @@ describe('turn-in-place step: an axis turn is a separate step, the snake stands 
     expect(end.phase).toBe('running')
   })
 
-  test('the demo fires after afterSteps STEPS: manual turns in place do not shift it or bring it closer', () => {
-    const cfg = cfgWith({ demo: { afterSteps: 3 } })
-    const s = makeState({ size: 60, snake: [v(30, 30, 30), v(29, 30, 30), v(28, 30, 30)], demoTurnPending: true, apple: v(0, 0, 0) })
-    turnAxis(s, 'into')
-    expect(types(stepOnce(s, cfg))).toEqual(['turnedInPlace'])
-    expect(s.stepCount).toBe(0)
-    expect(s.demoTurnPending).toBe(true)
-    for (let i = 0; i < 3; i++) expect(types(stepOnce(s, cfg))).toEqual(['moved'])
-    expect(s.stepCount).toBe(3)
-    expect(s.mode).toBe('plane')
-    expect(types(stepOnce(s, cfg))).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
-    expect(s.stepCount).toBe(3)
-  })
 
-  test('a manual turn in place that falls on the demo deadline runs first, the demo on the next step', () => {
-    const cfg = cfgWith({ demo: { afterSteps: 1 } })
-    const s = makeState({ size: 30, demoTurnPending: true, apple: v(0, 0, 0) })
-    stepOnce(s, cfg) // 1st step, the demo is now "ripe"
-    turnAxis(s, 'into')
-    const first = stepOnce(s, cfg)
-    expect(types(first)).toEqual(['turnedInPlace']) // manual step, the mode is still plane
-    expect(s.mode).toBe('plane')
-    expect(s.heading).toEqual(v(0, 0, -1))
-    const second = stepOnce(s, cfg)
-    expect(types(second)).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
-    expect(s.mode).toBe('free')
-    expect(s.frame.depth).toEqual(neg(s.heading))
-    expect(s.snake[0]).toEqual(v(11, 10, 10))
-  })
 
   test('the demo resets the plane turn buffer (it belonged to the old frame)', () => {
     const cfg = cfgWith({ demo: { afterSteps: 1 } })
@@ -1687,16 +1345,6 @@ describe('setBoost: boost', () => {
     expect(s.sinceStepMs).toBe(30)
   })
 
-  test('turn-in-place tick is boosted too: costs one boosted step', () => {
-    const s = makeState()
-    turnAxis(s, 'into')
-    holdBoost(s)
-    expect(tick(s, boostCfg, 49).length).toBe(0)
-    const ev = [...tick(s, boostCfg, 1)]
-    expect(ev.map((e) => e.type)).toEqual(['turnedInPlace'])
-    expect(s.stepCount).toBe(0)
-    expect(s.snake[0]).toEqual(v(10, 10, 10)) // did not move
-  })
 
   test('demo turn happens on a boosted tick as well', () => {
     const s = makeState({ demoTurnPending: true, stepCount: 5 })
@@ -1906,27 +1554,7 @@ describe('setBoost: boost', () => {
       }
     })
 
-    test('turn-in-place tick: press during it applies to the next tick, not this one', () => {
-      const s = mk()
-      turnAxis(s, 'into')
-      tick(s, boostCfg, 30)
-      setBoost(s, true)
-      expect(tick(s, boostCfg, 60).length).toBe(0) // the turn-in-place step is still normal (100)
-      expect([...tick(s, boostCfg, 10)].map((e) => e.type)).toEqual(['turnedInPlace'])
-      expect(s.boosting).toBe(true) // turn-in-place step boundary
-      expect(tick(s, boostCfg, 49).length).toBe(0) // the next step is already 50 ms
-      expect(tick(s, boostCfg, 1).length).toBeGreaterThan(0)
-    })
 
-    test('turn-in-place tick: release during it — the tick stays boosted, the next is normal', () => {
-      const s = mk()
-      holdBoost(s)
-      turnAxis(s, 'into')
-      tick(s, boostCfg, 20)
-      setBoost(s, false)
-      expect([...tick(s, boostCfg, 30)].map((e) => e.type)).toEqual(['turnedInPlace'])
-      expect(s.boosting).toBe(false)
-    })
 
     test('demo-turn tick also applies the pending request at its boundary', () => {
       const s = makeState({ demoTurnPending: true, stepCount: 5 })

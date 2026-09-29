@@ -4,7 +4,7 @@
 import type { InputScheme } from '../input/index'
 
 /** One numbered line of the diagram legend. */
-export type ControlId = 'swipe' | 'tap' | 'doubleTap' | 'arrows' | 'axisButtons' | 'boost' | 'stick' | 'reset' | 'pause'
+export type ControlId = 'swipe' | 'arrows' | 'boost' | 'stick' | 'reset' | 'pause'
 
 /** What the device can do. Read from the browser's pointer media queries by the view (`any-pointer`). */
 export interface InputKinds {
@@ -15,8 +15,8 @@ export interface InputKinds {
 }
 
 const BY_SCHEME: Readonly<Record<InputScheme, readonly ControlId[]>> = {
-  swipes: ['swipe', 'tap', 'doubleTap', 'boost', 'stick', 'reset', 'pause'],
-  taps: ['arrows', 'axisButtons', 'boost', 'stick', 'reset', 'pause'],
+  swipes: ['swipe', 'boost', 'stick', 'reset', 'pause'],
+  taps: ['arrows', 'boost', 'stick', 'reset', 'pause'],
 }
 
 /** The numbered lines for a scheme, in reading order. The stick is dropped where it does not exist (no touch screen). */

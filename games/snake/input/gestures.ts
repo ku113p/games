@@ -1,6 +1,6 @@
 // Pure gesture-parsing logic, no DOM - so it can be tested
 // separately from the touch glue (input/touch.ts).
-import type { AxisDir, ScreenDir } from '../core/state'
+import type { ScreenDir } from '../core/state'
 
 /**
  * Swipe direction from the offset (dx, dy) in CSS pixels.
@@ -15,15 +15,6 @@ export function swipeDirection(dx: number, dy: number, minPx: number): ScreenDir
   return dy > 0 ? 'down' : 'up'
 }
 
-
-/**
- * true if a tap at time `now` is the second tap of a double tap relative to
- * the previous tap at time `lastTapAt` (ms, shared monotonic timeline).
- */
-export function isDoubleTap(lastTapAt: number | null, now: number, doubleTapMs: number): boolean {
-  if (lastTapAt === null) return false
-  return now - lastTapAt <= doubleTapMs
-}
 
 /** Camera tilt limit in radians per axis - an agreement with the view (setCameraTilt). */
 export const TILT_LIMIT_RAD = 1
@@ -67,17 +58,15 @@ export function tiltPointersNeeded(isMouse: boolean): number {
 
 // --- Corner pad ('taps' scheme) ------------------------------------------
 
-export type PadButton = ScreenDir | AxisDir
-export type PadCommand = { kind: 'turn'; dir: ScreenDir } | { kind: 'axis'; dir: AxisDir }
 export type PadSide = 'right' | 'left'
 
-export const PAD_BUTTONS: readonly string[] = ['left', 'right', 'up', 'down', 'into', 'out']
+/** The four arrow buttons of the pad (data-pad names). There is no third axis: classic snake has none. */
+export const PAD_BUTTONS: readonly string[] = ['left', 'right', 'up', 'down']
 
-/** Pad button name (data-pad) -> command. null - unknown button or the third axis is off right now. */
-export function padCommand(button: string | undefined, axisEnabled: boolean): PadCommand | null {
+/** Pad button name (data-pad) -> the turn it makes. null - unknown button. */
+export function padCommand(button: string | undefined): ScreenDir | null {
   if (button === undefined || !PAD_BUTTONS.includes(button)) return null
-  if (button === 'into' || button === 'out') return axisEnabled ? { kind: 'axis', dir: button } : null
-  return { kind: 'turn', dir: button as ScreenDir }
+  return button as ScreenDir
 }
 
 /** Pad side from a saved string; anything unclear is right (the default). */

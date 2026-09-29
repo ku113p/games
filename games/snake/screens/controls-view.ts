@@ -32,10 +32,7 @@ export function detectInputKinds(): InputKinds {
 
 const LINE_TEXT: Readonly<Record<ControlId, TextKey>> = {
   swipe: 'controls.swipe',
-  tap: 'controls.tap',
-  doubleTap: 'controls.doubleTap',
   arrows: 'controls.arrows',
-  axisButtons: 'controls.axisButtons',
   boost: 'controls.boost',
   stick: 'controls.stick',
   reset: 'controls.reset',
@@ -44,8 +41,6 @@ const LINE_TEXT: Readonly<Record<ControlId, TextKey>> = {
 
 const KEY_TEXT: Readonly<Record<KeyAction, TextKey>> = {
   turn: 'controls.key.turn',
-  into: 'controls.key.into',
-  out: 'controls.key.out',
   boost: 'controls.key.boost',
   cameraReset: 'controls.key.cameraReset',
   pause: 'controls.key.pause',
@@ -118,19 +113,12 @@ function drawDiagram(scheme: InputScheme, side: PadSide, num: Num): SVGSVGElemen
   }
 
   if (scheme === 'swipes') {
-    // Swipe: a plus of arrows in the field. Tap and double tap: two touch points.
+    // Swipe: a plus of arrows in the field.
     for (const angle of [0, 90, 180, 270]) {
       const rad = (angle * Math.PI) / 180
-      arrowGlyph(80 + Math.sin(rad) * 24, 88 - Math.cos(rad) * 24, angle, 6)
+      arrowGlyph(80 + Math.sin(rad) * 24, 110 - Math.cos(rad) * 24, angle, 6)
     }
-    badge(80, 46, 'swipe')
-    svg.append(s('circle', { cx: 52, cy: 150, r: 4 }, 'd-fill'))
-    svg.append(s('circle', { cx: 52, cy: 150, r: 11 }, 'd-ring'))
-    badge(52, 174, 'tap')
-    svg.append(s('circle', { cx: 108, cy: 150, r: 4 }, 'd-fill'))
-    svg.append(s('circle', { cx: 108, cy: 150, r: 10 }, 'd-ring'))
-    svg.append(s('circle', { cx: 108, cy: 150, r: 17 }, 'd-ring dashed'))
-    badge(108, 178, 'doubleTap')
+    badge(80, 68, 'swipe')
     // The boost is a corner button on the pad side; the crosshair above it.
     svg.append(s('circle', { cx: X(136), cy: 236, r: 16 }, 'd-boost'))
     badge(X(136), 236, 'boost', 'd-badge boost')
@@ -138,12 +126,10 @@ function drawDiagram(scheme: InputScheme, side: PadSide, num: Num): SVGSVGElemen
     badge(X(136), 206 - 10 - 9, 'reset')
     stick(stickX, 236)
   } else {
-    // The pad: a cross of four arrow buttons with the boost in its centre, the deeper/closer buttons on the outer edge.
-    // The left-hand pad (#pad.left, row-reverse) moves the whole pad and puts the axis column on the left; the cross itself is not mirrored.
+    // The pad: a cross of four arrow buttons with the boost in its centre, in the corner on the pad side.
     const cell = 22
     const y0 = 182
-    const crossX0 = right ? 57 : 33
-    const axisX = right ? 130 : 8
+    const crossX0 = right ? 82 : 8
     const cx = (col: number): number => crossX0 + col * (cell + 2)
     const cy = (row: number): number => y0 + row * (cell + 2)
     const cells: ReadonlyArray<{ id: string; col: number; row: number; angle: number }> = [
@@ -163,14 +149,10 @@ function drawDiagram(scheme: InputScheme, side: PadSide, num: Num): SVGSVGElemen
     badge(midX, y0 - 9, 'arrows')
     svg.append(s('circle', { cx: midX, cy: cy(1) + cell / 2, r: 10 }, 'd-boost'))
     badge(midX, cy(1) + cell / 2, 'boost', 'd-badge boost')
-    // Deeper / closer: two taller buttons, bottom-aligned, on the outer edge.
-    for (const top of [200, 227]) {
-      svg.append(s('rect', { x: axisX, y: top, width: cell, height: 25, rx: 5 }, 'd-ctl'))
-      svg.append(s('path', { d: `M${axisX + 6} ${top + 12.5} h10` }, 'd-line'))
-    }
-    badge(axisX + cell / 2, 191, 'axisButtons')
-    crosshair(axisX + cell / 2, 169, 9)
-    badge(axisX + cell / 2, 169 - 9 - 9, 'reset')
+    // The camera reset sits above the outer column of the cross, at the screen edge.
+    const edgeX = cx(right ? 2 : 0) + cell / 2
+    crosshair(edgeX, 169, 9)
+    badge(edgeX, 169 - 9 - 9, 'reset')
     stick(stickX, 217)
   }
   return svg
@@ -234,7 +216,7 @@ export function createControlsView(body: HTMLElement, deps: ControlsViewDeps): C
 
     const parts: Node[] = [tabs]
     if (shown !== mine) parts.push(el('p', 'ctl-other', t('controls.other')))
-    parts.push(main, el('p', 'ctl-note', t('controls.note.axis')))
+    parts.push(main)
     if (kinds.touch) parts.push(el('p', 'ctl-note', t('controls.note.fingers')))
     const placement = keyListPlacement(kinds)
     if (placement === 'first') parts.unshift(keyList())

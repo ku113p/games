@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { cellKey, type Vec3 } from './state'
+import { cellKey, type GameState, type ScreenDir, type Vec3 } from './state'
+import { startGame, tick, turnInPlane } from './commands'
 import {
   arenaHasObstacles,
+  arenaSizeFor,
   createGame,
   fillDeadZones,
   generateObstacles,
@@ -45,7 +47,6 @@ describe('createGame', () => {
     expect(s.snake[0]).toEqual(v(10, 10, 10))
     expect(s.snake[2]).toEqual(v(8, 10, 10))
     expect(s.stepCount).toBe(0)
-    expect(s.rolledSinceStep).toBe(false)
     expect(s.pendingTurn).toBeNull()
   })
 
@@ -109,12 +110,13 @@ describe('createGame', () => {
     expect(createGame(config, 20, 1, true).frame.right).toEqual(v(1, 0, 0))
   })
 
-  test('the snake, obstacles and apple do not depend on isFirstGameEver (same seed)', () => {
+  test('the snake and obstacles do not depend on isFirstGameEver (same seed); the apple does, only in the flat opening', () => {
     const a = createGame(config, 20, 21, true)
     const b = createGame(config, 20, 21, false)
     expect(b.snake).toEqual(a.snake)
     expect([...b.obstacles]).toEqual([...a.obstacles])
-    expect(b.apple).toEqual(a.apple)
+    expect(a.apple.z).toBe(a.snake[0]!.z) // flat opening: the head's layer
+    expect(b.apple).toEqual(v(2, 19, 2)) // free start: the general rule, as before
   })
 
   test('free start: the snake does not face a wall or obstacle (cells ahead free), clearRadius still holds', () => {
@@ -268,6 +270,7 @@ describe('spawnApple', () => {
         snake: [v(0, 0, 0)],
         obstacles,
         apple: v(0, 0, 0),
+        mode: 'free',
         rngState: seed * 7919,
       })
       const pos = spawnApple(s)
@@ -282,21 +285,21 @@ describe('spawnApple', () => {
     for (let k = 0; k < size ** 3 - 1; k++) snake.push(v(k % size, Math.floor(k / size) % size, Math.floor(k / 9)))
     // only the last cell (2,2,2) is free
     for (let seed = 0; seed < 30; seed++) {
-      const s = makeState({ size, snake, apple: v(0, 0, 0), rngState: seed * 104729 })
+      const s = makeState({ size, snake, apple: v(0, 0, 0), mode: 'free', rngState: seed * 104729 })
       spawnApple(s)
       expect(s.apple).toEqual(v(2, 2, 2))
     }
   })
 
   test('is deterministic for the same rngState and reaches varied cells', () => {
-    const a = makeState({ rngState: 5 })
-    const b = makeState({ rngState: 5 })
+    const a = makeState({ mode: 'free', rngState: 5 })
+    const b = makeState({ mode: 'free', rngState: 5 })
     spawnApple(a)
     spawnApple(b)
     expect(a.apple).toEqual(b.apple)
     const seen = new Set<number>()
     for (let seed = 0; seed < 20; seed++) {
-      const s = makeState({ rngState: seed })
+      const s = makeState({ mode: 'free', rngState: seed })
       spawnApple(s)
       seen.add(cellKey(s.apple.x, s.apple.y, s.apple.z, s.size))
     }
@@ -304,7 +307,7 @@ describe('spawnApple', () => {
   })
 
   test('mutates s.apple in place (no new object) and returns it', () => {
-    const s = makeState()
+    const s = makeState({ mode: 'free' })
     const ref = s.apple
     expect(spawnApple(s)).toBe(ref)
     expect(s.apple).toBe(ref)
@@ -314,9 +317,203 @@ describe('spawnApple', () => {
     const size = 2
     const snake: Vec3[] = []
     for (let k = 0; k < 8; k++) snake.push(v(k % 2, Math.floor(k / 2) % 2, Math.floor(k / 4)))
-    const s = makeState({ size, snake, apple: v(1, 1, 1) })
+    const s = makeState({ size, snake, apple: v(1, 1, 1), mode: 'free' })
     spawnApple(s)
     expect(s.apple).toEqual(v(1, 1, 1))
+  })
+})
+
+// --- the flat opening -------------------------------------------------------------------------------------------------
+// Mode 'plane' exists only in the player's very first game (createGame with isFirstGameEver). The apple rule below is the
+// behaviour of that opening, not a general placement rule: the free-mode tests above pin the general one.
+
+const DIRS4: ReadonlyArray<{ dx: number; dy: number; dir: ScreenDir }> = [
+  { dx: 1, dy: 0, dir: 'right' },
+  { dx: -1, dy: 0, dir: 'left' },
+  { dx: 0, dy: 1, dir: 'up' },
+  { dx: 0, dy: -1, dir: 'down' },
+]
+
+/** Independent reference: shortest path (in moves) from the head to (tx, ty) inside the head's layer z, never leaving it; -1 if none. Body and obstacles are solid. */
+function layerDistances(s: GameState): Map<number, number> {
+  const z = s.snake[0]!.z
+  const dist = new Map<number, number>()
+  const key = (x: number, y: number) => x + y * s.size
+  dist.set(key(s.snake[0]!.x, s.snake[0]!.y), 0)
+  const queue: Array<[number, number]> = [[s.snake[0]!.x, s.snake[0]!.y]]
+  for (let qi = 0; qi < queue.length; qi++) {
+    const [x, y] = queue[qi]!
+    const d = dist.get(key(x, y))!
+    for (const o of DIRS4) {
+      const nx = x + o.dx
+      const ny = y + o.dy
+      if (nx < 0 || ny < 0 || nx >= s.size || ny >= s.size) continue
+      const ck = cellKey(nx, ny, z, s.size)
+      if (s.obstacles.has(ck) || s.snakeCells.has(ck) || dist.has(key(nx, ny))) continue
+      dist.set(key(nx, ny), d + 1)
+      queue.push([nx, ny])
+    }
+  }
+  return dist
+}
+
+function expectFlatApple(s: GameState, maxSteps: number): void {
+  const h = s.snake[0]!
+  const a = s.apple
+  expect(a.z).toBe(h.z) // the head's own layer
+  const k = cellKey(a.x, a.y, a.z, s.size)
+  expect(s.obstacles.has(k)).toBe(false)
+  expect(s.snakeCells.has(k)).toBe(false)
+  const d = layerDistances(s).get(a.x + a.y * s.size)
+  expect(d).toBeDefined() // reachable without leaving the layer
+  expect(d!).toBeGreaterThanOrEqual(1)
+  expect(d!).toBeLessThanOrEqual(maxSteps)
+}
+
+describe('spawnApple: the flat opening (mode plane)', () => {
+  test('the first game puts the first apple in the head layer, on a free cell, within appleMaxSteps moves (many seeds)', () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      const s = createGame(config, 20, seed, true)
+      expect(s.mode).toBe('plane')
+      expectFlatApple(s, config.plane.appleMaxSteps)
+    }
+  })
+
+  test('the first game is always on the default arena, whatever was equipped; from the second game the equipped arena applies', () => {
+    for (const equipped of [5, 20, 50, 100]) {
+      expect(createGame(config, equipped, 3, true).size).toBe(config.cube.default)
+      expect(createGame(config, equipped, 3, false).size).toBe(equipped)
+    }
+    expect(arenaSizeFor(config, 50, true)).toBe(20)
+    expect(arenaSizeFor(config, 50, false)).toBe(50)
+  })
+
+  test('deterministic: the same seed gives the same apple; different seeds give different ones', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      expect(createGame(config, 20, seed, true).apple).toEqual(createGame(config, 20, seed, true).apple)
+    }
+    const seen = new Set<number>()
+    for (let seed = 1; seed <= 60; seed++) {
+      const a = createGame(config, 20, seed, true).apple
+      seen.add(cellKey(a.x, a.y, a.z, 20))
+    }
+    expect(seen.size).toBeGreaterThan(10)
+  })
+
+  test('the choice is one seeded draw: it advances rngState exactly once', () => {
+    const s = makeState({ mode: 'plane', rngState: 42 })
+    const t = makeState({ mode: 'free', rngState: 42 })
+    spawnApple(s)
+    spawnApple(t)
+    expect(s.rngState).toBe(t.rngState)
+  })
+
+  test('a walled-off pocket of the layer is never chosen, though its cells are free', () => {
+    // A full-height wall of obstacles at x = 13 in the head's layer, the head at x = 10: x > 13 is free but cut off in this layer.
+    const obstacles = new Set<number>()
+    for (let y = 0; y < 20; y++) obstacles.add(cellKey(13, y, 10, 20))
+    for (let seed = 0; seed < 200; seed++) {
+      const s = makeState({ mode: 'plane', obstacles, apple: v(0, 0, 0), planeAppleMaxSteps: 30, rngState: seed * 7919 })
+      spawnApple(s)
+      expect(s.apple.z).toBe(10)
+      expect(s.apple.x).toBeLessThan(13)
+    }
+  })
+
+  test('the body is solid for the search: the apple never lands on it and is never "reached" through it', () => {
+    // Snake 3 long, head (10,10,10): with appleMaxSteps 1 the candidates are exactly the free neighbours (not the neck).
+    const seen = new Set<string>()
+    for (let seed = 0; seed < 100; seed++) {
+      const s = makeState({ mode: 'plane', planeAppleMaxSteps: 1, rngState: seed * 104729 })
+      spawnApple(s)
+      seen.add(`${s.apple.x},${s.apple.y},${s.apple.z}`)
+    }
+    expect([...seen].sort()).toEqual(['10,11,10', '10,9,10', '11,10,10'])
+  })
+
+  test('nothing within reach: widened to the whole layer (still reachable); nothing at all: falls back to the free rule', () => {
+    // The head is boxed in by obstacles on the three open sides in its layer... with a snake behind: only the layer cells reachable count.
+    const boxed = new Set<number>([cellKey(11, 10, 10, 20), cellKey(10, 11, 10, 20), cellKey(10, 9, 10, 20)])
+    const s = makeState({ mode: 'plane', obstacles: boxed, apple: v(0, 0, 0), rngState: 3 })
+    spawnApple(s)
+    // the head cannot leave its cell, so the layer offers nothing: the free rule places the apple (possibly another layer)
+    const k = cellKey(s.apple.x, s.apple.y, s.apple.z, 20)
+    expect(s.obstacles.has(k) || s.snakeCells.has(k)).toBe(false)
+    // one exit left: the whole layer beyond it is reachable, so the apple is in the layer even beyond appleMaxSteps
+    const open = new Set<number>([cellKey(11, 10, 10, 20), cellKey(10, 11, 10, 20)])
+    for (let seed = 0; seed < 30; seed++) {
+      const t = makeState({ mode: 'plane', obstacles: open, apple: v(0, 0, 0), planeAppleMaxSteps: 1, rngState: seed })
+      spawnApple(t)
+      expect(t.apple).toEqual(v(10, 9, 10)) // the only cell within one move
+    }
+  })
+
+  test('flat rule is keyed on the mode: a free game never restricts the apple to a layer, and its apples are unchanged', () => {
+    // Values captured from the placement rule as it was before the flat opening existed (20 cubed, not the first game).
+    const pinned: Array<[number, Vec3]> = [
+      [1, v(11, 18, 6)],
+      [2, v(10, 1, 6)],
+      [21, v(2, 19, 2)],
+      [777, v(14, 3, 12)],
+    ]
+    for (const [seed, apple] of pinned) expect(createGame(config, 20, seed, false).apple).toEqual(apple)
+    const layers = new Set<number>()
+    for (let seed = 1; seed <= 60; seed++) layers.add(createGame(config, 20, seed, false).apple.z)
+    expect(layers.size).toBeGreaterThan(5)
+  })
+
+  test('a real first game: a player who only turns in the screen plane eats the first apple before the camera moves', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const s = createGame(config, 20, seed, true)
+      startGame(s)
+      const depth0 = s.snake[0]!.z
+      let guard = 0
+      while (s.score === 0 && s.mode === 'plane' && s.phase === 'running' && guard++ < 20) {
+        // Independent path: breadth-first search from the head to the apple in the layer, first move of a shortest path.
+        const h = s.snake[0]!
+        const prev = new Map<number, number>()
+        const key = (x: number, y: number) => x + y * 20
+        const queue: Array<[number, number]> = [[h.x, h.y]]
+        prev.set(key(h.x, h.y), -1)
+        for (let qi = 0; qi < queue.length; qi++) {
+          const [x, y] = queue[qi]!
+          if (x === s.apple.x && y === s.apple.y) break
+          for (const o of DIRS4) {
+            const nx = x + o.dx
+            const ny = y + o.dy
+            if (nx < 0 || ny < 0 || nx >= 20 || ny >= 20 || prev.has(key(nx, ny))) continue
+            const ck = cellKey(nx, ny, depth0, 20)
+            if (s.obstacles.has(ck) || s.snakeCells.has(ck)) continue
+            prev.set(key(nx, ny), key(x, y))
+            queue.push([nx, ny])
+          }
+        }
+        let cur = key(s.apple.x, s.apple.y)
+        expect(prev.has(cur)).toBe(true)
+        while (prev.get(cur) !== key(h.x, h.y)) cur = prev.get(cur)!
+        const step = DIRS4.find((o) => key(h.x + o.dx, h.y + o.dy) === cur)!
+        turnInPlane(s, step.dir)
+        for (let i = 0; i < 1000 && tick(s, config, 10).length === 0; i++) {
+          // feed time until the step happens (the loop caps one call at config.loop.maxFrameMs)
+        }
+        expect(s.snake[0]!.z).toBe(depth0) // never left the layer
+      }
+      expect(s.score).toBe(1) // eaten
+      expect(s.stepCount).toBeLessThanOrEqual(config.demo.afterSteps) // before the camera moved
+      expect(s.mode).toBe('plane')
+      expectFlatApple(s, config.plane.appleMaxSteps) // and the next apple is in reach too
+    }
+  })
+
+  test('after the demo turn the general rule is back: the next apple may be in any layer', () => {
+    const layers = new Set<number>()
+    for (let seed = 1; seed <= 60; seed++) {
+      const s = createGame(config, 20, seed, true)
+      s.mode = 'free' // what the demo turn does
+      spawnApple(s)
+      layers.add(s.apple.z)
+    }
+    expect(layers.size).toBeGreaterThan(5)
   })
 })
 

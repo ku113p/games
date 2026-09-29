@@ -3,9 +3,9 @@
 // Pure: no DOM, no i18n (the wording lives in the dictionaries; only key names are produced here).
 import type { ScreenDir } from '../core/state'
 import { BOOST_CODES, PAD_BUTTONS } from './gestures'
-import { AXIS_CODES, CAMERA_RESET_CODE, PAUSE_CODE, PLANE_CODES } from './keyboard'
+import { CAMERA_RESET_CODE, PAUSE_CODE, PLANE_CODES } from './keyboard'
 
-export type KeyAction = 'turn' | 'into' | 'out' | 'boost' | 'cameraReset' | 'pause'
+export type KeyAction = 'turn' | 'boost' | 'cameraReset' | 'pause'
 
 /** One line of the keyboard list: alternatives (groups) that do the same thing; each group is a set of key caps. */
 export interface KeyRow {
@@ -42,8 +42,6 @@ export function keyRows(): KeyRow[] {
   const letters = turnCodes.filter((c) => !c.startsWith('Arrow'))
   return [
     { action: 'turn', groups: [arrows.map(keyLabel), letters.map(keyLabel)] },
-    { action: 'into', groups: [codesFor(AXIS_CODES, 'into').map(keyLabel)] },
-    { action: 'out', groups: [codesFor(AXIS_CODES, 'out').map(keyLabel)] },
     { action: 'boost', groups: uniq(BOOST_CODES.map(keyLabel)).map((l) => [l]) },
     { action: 'cameraReset', groups: [[keyLabel(CAMERA_RESET_CODE)]] },
     { action: 'pause', groups: [[keyLabel(PAUSE_CODE)]] },

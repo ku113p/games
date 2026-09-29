@@ -3,20 +3,20 @@ import { attachKeyboard, keyAction } from './keyboard'
 
 describe('keyAction (by e.code, layout-independent)', () => {
   test('WASD by physical codes', () => {
-    expect(keyAction('KeyW')).toEqual({ plane: 'up', axis: null })
-    expect(keyAction('KeyA')).toEqual({ plane: 'left', axis: null })
-    expect(keyAction('KeyS')).toEqual({ plane: 'down', axis: null })
-    expect(keyAction('KeyD')).toEqual({ plane: 'right', axis: null })
+    expect(keyAction('KeyW')).toBe('up')
+    expect(keyAction('KeyA')).toBe('left')
+    expect(keyAction('KeyS')).toBe('down')
+    expect(keyAction('KeyD')).toBe('right')
   })
 
   test('arrows', () => {
-    expect(keyAction('ArrowUp')?.plane).toBe('up')
-    expect(keyAction('ArrowLeft')?.plane).toBe('left')
+    expect(keyAction('ArrowUp')).toBe('up')
+    expect(keyAction('ArrowLeft')).toBe('left')
   })
 
-  test('Q/E: third axis', () => {
-    expect(keyAction('KeyQ')).toEqual({ plane: null, axis: 'into' })
-    expect(keyAction('KeyE')).toEqual({ plane: null, axis: 'out' })
+  test('Q/E are not keys any more: there is no third axis', () => {
+    expect(keyAction('KeyQ')).toBeNull()
+    expect(keyAction('KeyE')).toBeNull()
   })
 
   test('Russian-layout characters are not codes, ignored', () => {
@@ -44,7 +44,7 @@ describe('attachKeyboard: boost Shift/Space', () => {
     }
     g['document'] = doc_
     const log: boolean[] = []
-    const detach = attachKeyboard({ onTurn() {}, onAxis() {}, onBoost: (on) => log.push(on), ...extra })
+    const detach = attachKeyboard({ onTurn() {}, onBoost: (on) => log.push(on), ...extra })
     const key = (code: string, extra: object = {}) => ({ code, preventDefault() {}, repeat: false, ...extra })
     return {
       log, win, doc, doc_, detach, key,
@@ -111,7 +111,7 @@ describe('attachKeyboard: R - camera reset', () => {
     const prevD = g['document']
     g['window'] = { addEventListener: (t: string, f: L) => void win.set(t, f), removeEventListener() {} }
     g['document'] = { hidden: false, addEventListener() {}, removeEventListener() {} }
-    const detach = attachKeyboard({ onTurn() {}, onAxis() {}, onCameraReset: () => resets++ })
+    const detach = attachKeyboard({ onTurn() {}, onCameraReset: () => resets++ })
     const key = (extra: object = {}) => ({ code: 'KeyR', repeat: false, preventDefault: () => prevented++, ...extra })
     win.get('keydown')?.(key())
     win.get('keydown')?.(key({ repeat: true }))
@@ -131,7 +131,7 @@ describe('attachKeyboard: R - camera reset', () => {
     const prevD = g['document']
     g['window'] = { addEventListener: (t: string, f: L) => void win.set(t, f), removeEventListener() {} }
     g['document'] = { hidden: false, addEventListener() {}, removeEventListener() {} }
-    const detach = attachKeyboard({ onTurn() {}, onAxis() {} })
+    const detach = attachKeyboard({ onTurn() {} })
     expect(() => win.get('keydown')?.({ code: 'KeyR', repeat: false, preventDefault() {} })).not.toThrow()
     detach()
     g['window'] = prevW

@@ -9,23 +9,35 @@ export interface Config {
   speed: { startStepMs: number; minStepMs: number; stepMsPerApple: number; boostFactor: number; boostFactors?: number[]; minEffectiveStepMs?: number }
   obstacles: { density: number; stickiness: number; clearRadius: number; wallMargin: number }
   camera: {
-    rollMs: number
-    microPauseMs: number
     glitchMs: number
-    distanceFactor: number
     followDistance: number
     followHeight: number
     lateralOffset: number
     lookAheadDistance: number
     lookDownOffset: number
     modeSwitchMs: number
+    /** Framing of the flat opening (view/camera-rig.ts). */
+    plane: {
+      /** How many cells of the layer fit across the screen at most (a bigger arena shows a window of this size around the head). */
+      visibleCells: number
+      /** Extra room around the visible cells, in cells (the board does not touch the screen edge). */
+      marginCells: number
+      /** Vertical field of view of the flat opening, degrees. Narrow: near-orthographic, cells stay square, no leaning walls. */
+      fovDeg: number
+      /** Portrait only: how far the board is moved up the screen, as a share of the screen height, so the pad and the buttons in the lower corners do not cover its bottom row. Eases to 0 as the camera leaves the plane view. */
+      raise: number
+      /** Share of the camera flight (0..1) over which the other depth layers are revealed, from the layer outward. */
+      revealShare: number
+    }
   }
   hints: { latticeAt: 'corners' | 'centers'; latticeStep: number; compassHideDist: number; compassFullDist: number }
   demo: { afterSteps: number }
+  /** The flat opening (the first game, mode 'plane'). */
+  plane: { appleMaxSteps: number }
   loop: { maxFrameMs: number }
   minimap: { windowCells: number; levelWindowCells: number }
   fog: { density: number; defaultOn: boolean }
-  input: { doubleTapMs: number; swipeMinPx: number; tiltRadPerPx: number }
+  input: { swipeMinPx: number; tiltRadPerPx: number }
 }
 
 // The 6 neighbors across cube faces are a geometric constant (not a balance value).
@@ -169,10 +181,18 @@ export function generateObstacles(
 }
 
 /**
-  * Places the apple on a random free cell. Mutates s.apple in place (no allocations):
-  * a deterministic search, a random start plus a linear ring walk over the cube cells.
+  * Places the apple. Mutates s.apple in place (no allocations on the free-mode path).
+  * - mode 'free': a random free cell of the whole cube (deterministic search: a random start plus a linear ring walk over the cells).
+  * - mode 'plane' (the flat opening): the apple lies in the head's own layer (see spawnApplePlane), so it can be
+  *   reached without ever changing depth.
  */
 export function spawnApple(s: GameState): Vec3 {
+  if (s.mode === 'plane' && spawnApplePlane(s, s.planeAppleMaxSteps)) return s.apple
+  return spawnAppleAnywhere(s)
+}
+
+/** The cube is completely full (a theoretical edge case): the apple stays where it was. */
+function spawnAppleAnywhere(s: GameState): Vec3 {
   const size = s.size
   const total = size * size * size
   const start = Math.floor(nextRandom(s) * total)
@@ -191,8 +211,84 @@ export function spawnApple(s: GameState): Vec3 {
     }
   }
 
-  // The cube is completely full (a theoretical edge case): the apple stays where it was.
   return s.apple
+}
+
+// Plane apple: scratch buffers of the breadth-first search, grown on demand (cold path: only the flat opening, a handful of calls).
+let planeDist = new Int16Array(0)
+let planeQueue = new Int32Array(0)
+
+/**
+  * The flat-opening apple rule. The apple goes on a cell of the head's own layer (the layer the head stands on, perpendicular to
+  * frame.depth) that the snake can reach WITHOUT leaving the layer: a breadth-first search from the head over the layer's free cells
+  * (not a wall, not an obstacle, not the body; the body is counted as solid, which is conservative because it moves).
+  * Only cells within `maxSteps` moves of the head are candidates, so the player can actually eat it before the camera moves (the demo turn is
+  * on step config.demo.afterSteps). The choice among the candidates is one seeded draw over the search order (fixed: layer rows/columns in
+  * the order right, left, up, down), so the same seed gives the same apple.
+  * If nothing is within reach, the search is widened to the whole layer; only when even that is empty does it return false
+  * (the caller then falls back to the free-mode rule).
+ */
+export function spawnApplePlane(s: GameState, maxSteps: number): boolean {
+  return placeInLayer(s, maxSteps) || placeInLayer(s, 2 * s.size)
+}
+
+function placeInLayer(s: GameState, maxSteps: number): boolean {
+  const size = s.size
+  const f = s.frame
+  const head = s.snake[0]!
+  const r = f.right
+  const u = f.up
+  const limit = Math.max(1, Math.min(Math.floor(maxSteps), 2 * size))
+  const w = 2 * limit + 1
+  if (planeDist.length < w * w) {
+    planeDist = new Int16Array(w * w)
+    planeQueue = new Int32Array(w * w)
+  }
+  const dist = planeDist
+  const queue = planeQueue
+  dist.fill(-1, 0, w * w)
+  const start = limit * w + limit
+  dist[start] = 0
+  queue[0] = start
+  let qh = 0
+  let qt = 1
+  let count = 0 // candidates found (reached cells other than the head's, not occupied by the body)
+
+  // Pass 1: search. The queue order is the deterministic candidate order.
+  while (qh < qt) {
+    const idx = queue[qh++]!
+    const a = Math.floor(idx / w) - limit
+    const b = (idx % w) - limit
+    const d = dist[idx]!
+    if (d >= limit) continue
+    for (let k = 0; k < 4; k++) {
+      const na = a + (k === 0 ? 1 : k === 1 ? -1 : 0)
+      const nb = b + (k === 2 ? 1 : k === 3 ? -1 : 0)
+      if (na < -limit || na > limit || nb < -limit || nb > limit) continue
+      const nidx = (na + limit) * w + (nb + limit)
+      if (dist[nidx]! >= 0) continue
+      const x = head.x + na * r.x + nb * u.x
+      const y = head.y + na * r.y + nb * u.y
+      const z = head.z + na * r.z + nb * u.z
+      if (!inBounds(x, y, z, size)) continue
+      const key = cellKey(x, y, z, size)
+      if (s.obstacles.has(key) || s.snakeCells.has(key)) continue
+      dist[nidx] = d + 1
+      queue[qt++] = nidx
+      count++
+    }
+  }
+  if (count === 0) return false
+
+  // Pass 2: one seeded draw over the found cells in search order (queue[0] is the head itself).
+  const pick = 1 + Math.floor(nextRandom(s) * count)
+  const idx = queue[pick]!
+  const a = Math.floor(idx / w) - limit
+  const b = (idx % w) - limit
+  s.apple.x = head.x + a * r.x + b * u.x
+  s.apple.y = head.y + a * r.y + b * u.y
+  s.apple.z = head.z + a * r.z + b * u.z
+  return true
 }
 
 function rotateVecInPlace(v: Vec3, axis: Vec3): void {
@@ -343,19 +439,30 @@ function defaultFrame(): Frame {
   }
 }
 
+/**
+  * The arena size of a game. The player's very first game (isFirstGameEver, the flat opening) ALWAYS runs on the default arena,
+  * config.cube.default (20), whatever is bought or equipped in the shop: the opening is designed and framed for that arena.
+  * From the second game on, the equipped size applies. A rule of its own, not a side effect of the shop being closed before the first game.
+ */
+export function arenaSizeFor(config: Config, equippedSize: number, isFirstGameEver: boolean): number {
+  return isFirstGameEver ? config.cube.default : equippedSize
+}
+
 /** Creates a new game: snake, apple, obstacles without dead zones. */
 /**
+  * size: the arena size the player has equipped (arenaSizeFor overrides it in the first game ever).
   * boostFactor: the boost factor of THIS game (chosen before the start; defaults to config.speed.boostFactor).
   * An invalid value (NaN, < 1) becomes ×1: boost simply does nothing.
  */
 export function createGame(
   config: Config,
-  size: number,
+  equippedSize: number,
   seed: number,
   isFirstGameEver: boolean,
   boostFactor: number = config.speed.boostFactor,
   options: GameOptions = {},
 ): GameState {
+  const size = arenaSizeFor(config, equippedSize, isFirstGameEver)
   const paceScale = sanitizePaceScale(options.paceScale ?? 1)
   const obstacleMult = sanitizeObstacleMult(options.obstacleMult ?? 1)
   const mid = Math.floor(size / 2)
@@ -381,7 +488,6 @@ export function createGame(
     heading,
     frame,
     pendingTurn: null,
-    rolledSinceStep: false,
     mode: isFirstGameEver ? 'plane' : 'free',
     stepCount: 0,
     growth: 0,
@@ -396,6 +502,7 @@ export function createGame(
     minBoostedStepMs: config.speed.minEffectiveStepMs !== undefined && config.speed.minEffectiveStepMs > 0 ? config.speed.minEffectiveStepMs : 0,
     sinceStepMs: 0,
     elapsedMs: 0,
+    planeAppleMaxSteps: config.plane.appleMaxSteps,
     demoTurnPending: isFirstGameEver, // plane start and camera transition happen once in the player's life; after that, straight to 'free'
     rngState: seed | 0,
   }

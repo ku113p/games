@@ -2,15 +2,14 @@
 // Pure TS, no Three.js. Hot path (tick, step, collision checks) is allocation-free:
 // events are written into the same array that is reused per GameState.
 
-import { enterFreeFrame, reorientFrameFree, rotateFrame, spawnApple, speedAfterApples, type Config } from './rules'
-import { boostedStepMs, cellKey, effectiveStepMs, nextRandom, type AxisDir, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
+import { enterFreeFrame, reorientFrameFree, spawnApple, speedAfterApples, type Config } from './rules'
+import { boostedStepMs, cellKey, effectiveStepMs, nextRandom, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
 
 export type GameEvent =
   | { type: 'started' }
   | { type: 'moved' }
   | { type: 'turned'; heading: Vec3 }
   | { type: 'turnedInPlace'; heading: Vec3 }
-  | { type: 'axisTurned'; rollAxis: Vec3; direction: AxisDir }
   | { type: 'ate'; apple: Vec3; score: number }
   | { type: 'appleSpawned'; apple: Vec3 }
   | { type: 'speedUp'; stepMs: number }
@@ -64,7 +63,7 @@ function signed(sign: -1 | 1, value: number): number {
 }
 
 /**
-  * The direction leads the head exactly into the second body cell (the neck). After a turn in place, heading
+  * The direction leads the head exactly into the second body cell (the neck). After the demo turn, heading
   * no longer matches the last move made, so isOpposite(heading) alone is not enough.
  */
 function pointsIntoNeck(s: GameState, dir: Vec3): boolean {
@@ -112,60 +111,12 @@ export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[] {
 
   const newHeading = screenDirToVec(dir, s.frame)
   if (isOpposite(newHeading, s.heading) || pointsIntoNeck(s, newHeading)) {
-    return buf // a 180° reversal (and a move into its own neck after a turn in place) is forbidden, so ignore it
+    return buf // a 180° reversal (and a move into its own neck after the demo turn) is forbidden, so ignore it
   }
 
   s.pendingTurn = newHeading
   buf.push({ type: 'turned', heading: newHeading })
   return buf
-}
-
-/**
-  * Axis turn: 'into' → -depth, 'out' → +depth (depth BEFORE the roll). Invariant: the frame
-  * is rolled IMMEDIATELY, at the moment of the command, and the axisTurned event is emitted exactly when
-  * the roll actually happened, so the camera (cameraFrame) and the world do not diverge. The new heading
-  * takes effect on the NEXT STEP, which is spent entirely on a turn in place (the snake does not
-  * move, grow, eat or die, stepCount does not grow; turnedInPlace event);
-  * it starts moving in the new direction only on the step after that. Subsequent turnInPlane calls pick a direction in the
-  * already rolled frame and do not cancel the roll. A second turnAxis before the step does not rotate the frame again,
-  * it only replaces the buffered heading (into/out swap places) and emits turned.
-  * Does nothing outside the running phase.
- */
-export function turnAxis(s: GameState, dir: AxisDir): GameEvent[] {
-  const buf = getEventBuffer(s)
-  buf.length = 0
-  if (s.phase !== 'running') return buf
-  if (s.mode === 'free') return buf // in 'free' four swipes cover every direction, so the third axis is not needed
-  queueAxisTurn(s, dir, buf)
-  return buf
-}
-
-function queueAxisTurn(s: GameState, dir: AxisDir, buf: GameEvent[]): void {
-  const sign = dir === 'into' ? -1 : 1
-  const h = s.heading
-
-  if (s.rolledSinceStep) {
-    // The frame is already rolled around h. The former depth = -(h × depth'), and that is what we aim at.
-    const d = s.frame.depth
-    const ox = -(h.y * d.z - h.z * d.y)
-    const oy = -(h.z * d.x - h.x * d.z)
-    const oz = -(h.x * d.y - h.y * d.x)
-    const newHeading: Vec3 = { x: signed(sign, ox), y: signed(sign, oy), z: signed(sign, oz) }
-    s.pendingTurn = newHeading
-    buf.push({ type: 'turned', heading: newHeading })
-    return
-  }
-
-  const axis: Vec3 = { x: h.x, y: h.y, z: h.z }
-  const newHeading: Vec3 = {
-    x: signed(sign, s.frame.depth.x),
-    y: signed(sign, s.frame.depth.y),
-    z: signed(sign, s.frame.depth.z),
-  }
-  rotateFrame(s, axis)
-  s.rolledSinceStep = true
-  s.pendingTurn = newHeading
-  buf.push({ type: 'axisTurned', rollAxis: axis, direction: dir })
 }
 
 /** The cell in front of the head at offset (dx,dy,dz) is free: not a wall, not an obstacle, not the body. */
@@ -213,24 +164,12 @@ function tryDemoTurn(s: GameState, buf: GameEvent[]): boolean {
 }
 
 /**
-  * One step. A turn-in-place step (manual axis turn or demo transition) only changes
+  * One step. The demo transition is a turn-in-place step: it only changes
   * heading: no movement, growth, eating or collision checks; stepCount does not grow. Otherwise a grid
   * step: apply the buffered turn, move, collisions, eating.
   * Returns true if the demo transition fired (tick breaks the loop; main.ts sets the pause).
  */
 function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
-  if (s.rolledSinceStep) {
-    // The frame was already rolled by the turnAxis command; this step applies the new heading, standing still.
-    if (s.pendingTurn) {
-      s.heading.x = s.pendingTurn.x
-      s.heading.y = s.pendingTurn.y
-      s.heading.z = s.pendingTurn.z
-      s.pendingTurn = null
-    }
-    s.rolledSinceStep = false
-    buf.push({ type: 'turnedInPlace', heading: { x: s.heading.x, y: s.heading.y, z: s.heading.z } })
-    return false
-  }
   if (s.demoTurnPending && s.stepCount >= config.demo.afterSteps && tryDemoTurn(s, buf)) {
     return true // demo transition is a separate turn-in-place step: the snake did not move
   }

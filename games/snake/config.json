@@ -102,10 +102,7 @@
     "wallMargin": 1
   },
   "camera": {
-    "rollMs": 260,
-    "microPauseMs": 90,
     "glitchMs": 180,
-    "distanceFactor": 1.6,
     "followDistance": 4,
     "followHeight": 2.4,
     "lateralOffset": 0.7,
@@ -116,7 +113,14 @@
     "zoomMax": 2,
     "zoomWheelPerPx": 0.0012,
     "zoomPinchGain": 1,
-    "zoomFollowMs": 120
+    "zoomFollowMs": 120,
+    "plane": {
+      "visibleCells": 20,
+      "marginCells": 1,
+      "fovDeg": 20,
+      "raise": 0.1,
+      "revealShare": 0.45
+    }
   },
   "hints": {
     "latticeAt": "corners",
@@ -131,6 +135,9 @@
   },
   "demo": {
     "afterSteps": 5
+  },
+  "plane": {
+    "appleMaxSteps": 4
   },
   "loop": {
     "maxFrameMs": 100
@@ -159,7 +166,6 @@
     "visibleMs": 4000
   },
   "input": {
-    "doubleTapMs": 240,
     "swipeMinPx": 24,
     "tiltRadPerPx": 0.005,
     "twoFingerLockPx": 10,

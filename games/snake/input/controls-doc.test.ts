@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { boostKeyLabels, keyLabel, keyRows, padButtons } from './controls-doc'
 import { isBoostCode, BOOST_CODES } from './gestures'
-import { AXIS_CODES, CAMERA_RESET_CODE, PAUSE_CODE, PLANE_CODES, keyAction } from './keyboard'
+import { CAMERA_RESET_CODE, PAUSE_CODE, PLANE_CODES, keyAction } from './keyboard'
 
 describe('keyLabel', () => {
   test('arrows, letters, Shift, Escape, Space', () => {
@@ -21,21 +21,21 @@ describe('keyRows are read out of the real key maps', () => {
 
   test('every key code the input layer accepts is shown, and nothing else', () => {
     const shown = new Set(rows.flatMap((r) => r.groups.flat()))
-    const codes = [...Object.keys(PLANE_CODES), ...Object.keys(AXIS_CODES), ...BOOST_CODES, CAMERA_RESET_CODE, PAUSE_CODE]
+    const codes = [...Object.keys(PLANE_CODES), ...BOOST_CODES, CAMERA_RESET_CODE, PAUSE_CODE]
     for (const c of codes) expect(shown.has(keyLabel(c))).toBe(true)
     expect(shown.size).toBe(new Set(codes.map(keyLabel)).size)
   })
 
   test('turn: arrows and WASD, each in up-left-down-right order', () => {
     expect(row('turn').groups).toEqual([['↑', '←', '↓', '→'], ['W', 'A', 'S', 'D']])
-    for (const c of Object.keys(PLANE_CODES)) expect(keyAction(c)?.plane).not.toBeNull()
+    for (const c of Object.keys(PLANE_CODES)) expect(keyAction(c)).not.toBeNull()
   })
 
-  test('Q is into (deeper), E is out (closer)', () => {
-    expect(row('into').groups).toEqual([['Q']])
-    expect(row('out').groups).toEqual([['E']])
-    expect(keyAction('KeyQ')?.axis).toBe('into')
-    expect(keyAction('KeyE')?.axis).toBe('out')
+  test('there is no third-axis row and no Q / E', () => {
+    expect(rows.map((r) => r.action)).toEqual(['turn', 'boost', 'cameraReset', 'pause'])
+    const shown = new Set(rows.flatMap((r) => r.groups.flat()))
+    expect(shown.has('Q')).toBe(false)
+    expect(shown.has('E')).toBe(false)
   })
 
   test('boost keys are the ones isBoostCode accepts', () => {

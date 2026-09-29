@@ -2,9 +2,13 @@
 // (viewFrame(s), head(s), the mode from game-mode), not from counting events: a missed,
 // cancelled or duplicated event repairs itself.
 //
-// plane: orientation from viewFrame(s); if the frame changed, a transition
-//   "current orientation -> target" (micro-pause, then a slerp over config.camera.rollMs).
-//   Position = center + depth * distance, looking at the center of the cube.
+// plane (the flat opening): orientation from viewFrame(s), which never changes while the game is flat.
+//   Position = center + depth * distance, looking at the center of the cube. The framing (planeDistance) fills the screen width with
+//   config.camera.plane.visibleCells cells of the head's layer (or the whole layer, if the arena is smaller) through a narrow
+//   field of view, so the layer reads as a flat board. The near and far clipping planes are put just in front of and behind that
+//   layer (updateClip): everything at another depth is clipped away, i.e. not drawn at all, whatever it is (obstacles, walls, hints).
+//   The tilt is not applied in plane mode (a tilted view would cut the layer at the wrong plane).
+//   On the mode change the clipping slab opens outward from the layer over the first config.camera.plane.revealShare of the flight.
 // free: the camera sits followDistance behind the head (along -heading = +depth),
 //   shifted lateralOffset to the right (frame.right), raised by followHeight
 //   (frame.up), looking at a point lookAheadDistance ahead of the head along the heading and lookDownOffset below the line of travel (-up).
@@ -25,14 +29,18 @@ import { PerspectiveCamera, Vector3, Quaternion, Matrix4, MathUtils } from 'thre
 import type { GameState } from '../core/state'
 import { viewFrame, cubeSize, head } from '../core/queries'
 import type { Config } from '../core/rules'
-import { cameraSettings, type CameraSettings } from './camera-config'
+import { cameraSettings, planeCameraDistance, type CameraSettings } from './camera-config'
 import { viewMode, type ViewMode } from './game-mode'
 
 const CAMERA_FOV_DEG = 55
 const CAMERA_NEAR = 0.1
 const CAMERA_FAR_PADDING = 4 // multiplier of size: margin beyond the far face of the cube
-// Quaternions of the same orientation have |dot| close to 1. The threshold is a numeric tolerance, not balance.
-const SAME_ORIENTATION_DOT = 1 - 1e-6
+// Half thickness of the slab of the plane view, in cells: a hair under half a cell, so the neighbouring layers' faces,
+// which lie exactly on the layer boundary, are on the clipped side (a numeric margin, not balance).
+const LAYER_HALF = 0.495
+const NO_LAYER_LIMIT = 1e6 // layerReach once everything is shown
+const PROJ_UNITS = 1000 // the size of the virtual full image for setViewOffset (only the ratios matter)
+const CLIP_EPS = 1e-3 // the clipping planes are re-applied to the projection only when they move by more than this
 
 // Styling constants for the flight and follow (not balance numbers).
 // Smoothing of the free camera following the head. Currently ON: the shown pose lags the
@@ -67,12 +75,9 @@ export function resetUserCamera(): void {
   userCamera.zoom = 1
 }
 
-type Phase = 'idle' | 'pause' | 'rolling'
-
 export class CameraRig {
   readonly camera: PerspectiveCamera
 
-  private cameraConfig: Config['camera']
   private settings: CameraSettings
   private aspect = 1
   private size = -1
@@ -85,14 +90,8 @@ export class CameraRig {
   private tmpUp = new Vector3()
   private tmpDepth = new Vector3()
 
-  private fromQ = new Quaternion()
-  private toQ = new Quaternion()
-  private curQ = new Quaternion()
-  private nextQ = new Quaternion()
-
-  private phase: Phase = 'idle'
-  private pauseElapsed = 0
-  private rollElapsed = 0
+  // Orientation of the plane view (from the frame; constant while the game is flat).
+  private planeQ = new Quaternion()
   private glitchRequested = false
 
   // The mode the camera "lives" in (or is flying to).
@@ -132,19 +131,33 @@ export class CameraRig {
 
   /** 0 is plane mode, 1 is fully free (for fading the near segments). */
   freeAmount = 0
+  /** How much of the world beyond the head's layer is shown: 0 in the flat opening (only the layer), 1 once the reveal is done. */
+  reveal = 0
+
+  /**
+   * How far from the head's layer, along the depth axis, things are drawn: LAYER_HALF in the flat opening, widening with the reveal,
+   * NO_LAYER_LIMIT in the game. Same number as the half thickness of the clipping slab; the views that cannot be clipped by the camera
+   * (the obstacles' custom shaders) apply it per cell.
+   */
+  layerReach = NO_LAYER_LIMIT
+
+  private fullFar = 1000
+  private projFov = NaN
+  private projAspect = NaN
+  private projRaise = NaN
 
   constructor(config: Config) {
-    this.cameraConfig = config.camera
     this.settings = cameraSettings(config)
     const zc = config.camera as { zoomFollowMs?: number; zoomMax?: number }
     this.zoomFollowMs = zc.zoomFollowMs ?? ZOOM_FOLLOW_FALLBACK_MS
     this.zoomMax = Math.max(1, zc.zoomMax ?? 1)
-    this.camera = new PerspectiveCamera(CAMERA_FOV_DEG, this.aspect, CAMERA_NEAR, 1000)
+    this.camera = new PerspectiveCamera(this.mode === 'plane' ? this.settings.planeFovDeg : CAMERA_FOV_DEG, this.aspect, CAMERA_NEAR, 1000)
   }
 
   resize(width: number, height: number): void {
     this.aspect = width > 0 && height > 0 ? width / height : 1
     this.camera.aspect = this.aspect
+    if (this.size > 0) this.updateFar()
     this.camera.updateProjectionMatrix()
   }
 
@@ -153,27 +166,26 @@ export class CameraRig {
     this.applySize(s)
     this.resetTurn()
     this.mode = viewMode(s)
-    this.readTarget(s, this.toQ)
-    this.curQ.copy(this.toQ)
-    this.fromQ.copy(this.toQ)
+    this.endFlightFov()
+    this.readTarget(s, this.planeQ)
     if (this.mode === 'free') {
       this.computeFreeTargets(s)
       this.fPos.copy(this.posT)
       this.fAim.copy(this.aimT)
       this.fUp.copy(this.upT)
       this.freeAmount = 1
+      this.reveal = 1
       this.placeFree()
     } else {
       this.freeAmount = 0
+      this.reveal = 0
       this.placePlane()
     }
+    this.applyProjection(s)
   }
 
   /** Cold path: reset animations (new game). Does not touch the pose. */
   resetTurn(): void {
-    this.phase = 'idle'
-    this.pauseElapsed = 0
-    this.rollElapsed = 0
     this.glitchRequested = false
     this.flying = false
     this.flightElapsed = 0
@@ -210,6 +222,7 @@ export class CameraRig {
       this.updatePlane(dtMs, s)
     }
     this.applyUserCamera(dtMs)
+    this.applyProjection(s)
   }
 
   /**
@@ -218,8 +231,11 @@ export class CameraRig {
    */
   private applyUserCamera(dtMs: number): void {
     const kTilt = 1 - Math.exp(-dtMs / TILT_FOLLOW_MS)
-    this.tiltYaw += (userCamera.yaw - this.tiltYaw) * kTilt
-    this.tiltPitch += (userCamera.pitch - this.tiltPitch) * kTilt
+    // Flat opening: no tilt (the slab that hides the other layers is perpendicular to the view axis). What the player asked for
+    // is kept in userCamera and catches up smoothly once the camera has left the plane view.
+    const lockTilt = this.mode === 'plane' && !this.flying
+    this.tiltYaw += ((lockTilt ? 0 : userCamera.yaw) - this.tiltYaw) * kTilt
+    this.tiltPitch += ((lockTilt ? 0 : userCamera.pitch) - this.tiltPitch) * kTilt
     const kZoom = 1 - Math.exp(-dtMs / Math.max(1, this.zoomFollowMs))
     this.zoom += (userCamera.zoom - this.zoom) * kZoom
     const tilted = Math.abs(this.tiltYaw) >= TILT_EPS || Math.abs(this.tiltPitch) >= TILT_EPS
@@ -246,50 +262,12 @@ export class CameraRig {
 
   // ---- plane ----
 
-  private updatePlane(dtMs: number, s: GameState): void {
-    // Truth from the core.
-    this.readTarget(s, this.nextQ)
-    if (Math.abs(this.nextQ.dot(this.toQ)) < SAME_ORIENTATION_DOT) {
-      this.toQ.copy(this.nextQ)
-      this.fromQ.copy(this.curQ)
-      this.rollElapsed = 0
-      this.pauseElapsed = 0
-      if (this.phase === 'rolling') {
-        // Already rolling: do not stall with a micro-pause, keep going toward the new target.
-        this.beginRolling()
-      } else {
-        this.phase = 'pause'
-      }
-    }
-
-    if (this.phase === 'pause') {
-      this.pauseElapsed += dtMs
-      if (this.pauseElapsed >= this.cameraConfig.microPauseMs) {
-        this.rollElapsed = this.pauseElapsed - this.cameraConfig.microPauseMs
-        this.beginRolling()
-      }
-    } else if (this.phase === 'rolling') {
-      this.rollElapsed += dtMs
-    }
-
-    if (this.phase === 'rolling') {
-      const t = Math.min(this.rollElapsed / this.cameraConfig.rollMs, 1)
-      if (t >= 1) {
-        this.curQ.copy(this.toQ)
-        this.phase = 'idle'
-      } else {
-        this.curQ.slerpQuaternions(this.fromQ, this.toQ, MathUtils.smootherstep(t, 0, 1))
-      }
-    } else if (this.phase === 'idle') {
-      this.curQ.copy(this.toQ)
-    }
+  private updatePlane(_dtMs: number, s: GameState): void {
+    // Truth from the core: the frame is constant while the game is flat, so this is a plain read, not a transition.
+    this.readTarget(s, this.planeQ)
     this.freeAmount = 0
+    this.reveal = 0
     this.placePlane()
-  }
-
-  private beginRolling(): void {
-    if (this.phase !== 'rolling') this.glitchRequested = true
-    this.phase = 'rolling'
   }
 
   private readTarget(s: GameState, out: Quaternion): void {
@@ -302,8 +280,8 @@ export class CameraRig {
   }
 
   private placePlane(): void {
-    this.camera.quaternion.copy(this.curQ)
-    this.offset.set(0, 0, this.distanceFor(this.size)).applyQuaternion(this.curQ)
+    this.camera.quaternion.copy(this.planeQ)
+    this.offset.set(0, 0, this.planeDistance()).applyQuaternion(this.planeQ)
     this.camera.position.copy(this.center).add(this.offset)
   }
 
@@ -364,7 +342,6 @@ export class CameraRig {
     this.flying = true
     this.flightElapsed = 0
     this.flightMidDone = false
-    this.phase = 'idle'
     this.glitchRequested = true
   }
 
@@ -385,10 +362,13 @@ export class CameraRig {
       this.freeAmount = e
     } else {
       this.readTarget(s, this.flightToQ)
-      this.offset.set(0, 0, this.distanceFor(this.size)).applyQuaternion(this.flightToQ)
+      this.offset.set(0, 0, this.planeDistance()).applyQuaternion(this.flightToQ)
       this.flightToPos.copy(this.center).add(this.offset)
       this.freeAmount = 1 - e
     }
+    // The other layers appear from the flat layer outward over the first share of the flight (the flight to free; going back is not used).
+    const revealT = MathUtils.smoothstep(t, 0, Math.max(1e-3, this.settings.planeRevealShare))
+    this.reveal = this.flightTo === 'free' ? revealT : 1 - revealT
 
     this.camera.position.lerpVectors(this.flightFromPos, this.flightToPos, e)
     // Sideways arc: the flight is not a straight line but approaches from the side, so the volume reads.
@@ -397,8 +377,8 @@ export class CameraRig {
     this.camera.position.addScaledVector(this.tmpV, swing)
     this.camera.quaternion.slerpQuaternions(this.flightFromQ, this.flightToQ, e)
 
-    this.camera.fov = CAMERA_FOV_DEG + FLIGHT_FOV_KICK_DEG * Math.sin(Math.PI * t)
-    this.camera.updateProjectionMatrix()
+    // The field of view widens from the narrow flat view to the game's own one, plus the kick at mid-flight.
+    this.camera.fov = MathUtils.lerp(this.settings.planeFovDeg, CAMERA_FOV_DEG, this.freeAmount) + FLIGHT_FOV_KICK_DEG * Math.sin(Math.PI * t)
 
     if (!this.flightMidDone && t >= FLIGHT_GLITCH_MID) {
       this.flightMidDone = true
@@ -410,37 +390,76 @@ export class CameraRig {
       this.mode = this.flightTo
       this.endFlightFov()
       if (this.mode === 'plane') {
-        this.toQ.copy(this.flightToQ)
-        this.curQ.copy(this.flightToQ)
-        this.fromQ.copy(this.flightToQ)
+        this.planeQ.copy(this.flightToQ)
         this.freeAmount = 0
+        this.reveal = 0
         this.placePlane()
       } else {
         this.freeAmount = 1
+        this.reveal = 1
         this.placeFree()
       }
     }
   }
 
+  /** The field of view of the mode the camera rests in: narrow in plane, the game's own in free. */
   private endFlightFov(): void {
-    if (this.camera.fov !== CAMERA_FOV_DEG) {
-      this.camera.fov = CAMERA_FOV_DEG
-      this.camera.updateProjectionMatrix()
-    }
+    this.camera.fov = this.mode === 'plane' ? this.settings.planeFovDeg : CAMERA_FOV_DEG
   }
 
   private applySize(s: GameState): void {
     this.size = cubeSize(s)
     const c = (this.size - 1) / 2
     this.center.set(c, c, c)
-    this.camera.far = this.size * CAMERA_FAR_PADDING + this.distanceFor(this.size) * this.zoomMax // zoom pushes the camera back
-    this.camera.near = CAMERA_NEAR
-    this.camera.updateProjectionMatrix()
+    this.updateFar()
+    this.endFlightFov()
+    this.applyProjection(s)
   }
 
-  private distanceFor(size: number): number {
-    // In portrait (aspect < 1) we move the camera back so the cube is not cropped
-    // horizontally; distanceFactor is the only number from the config.
-    return (size * this.cameraConfig.distanceFactor) / Math.min(this.aspect, 1)
+  private updateFar(): void {
+    this.fullFar = this.size * CAMERA_FAR_PADDING + this.planeDistance() * this.zoomMax // zoom pushes the camera back
+  }
+
+  /** Distance from the cube center to the camera in the plane view, see planeCameraDistance. */
+  private planeDistance(): number {
+    return planeCameraDistance(this.size, this.aspect, this.settings)
+  }
+
+  /**
+   * Field of view and clipping planes, once per frame, no allocations. Free mode: the whole cube. Plane mode: the near and far planes
+   * are the faces of the head's layer, so anything at another depth is clipped away (not drawn, not dimmed). While the mode
+   * changes the slab widens with `reveal` (0 - one layer, 1 - the whole cube), measured along the view axis from the layer.
+   */
+  private applyProjection(s: GameState): void {
+    let near = CAMERA_NEAR
+    let far = this.fullFar
+    this.layerReach = NO_LAYER_LIMIT
+    if (this.reveal < 1) {
+      const h = head(s)
+      const cam = this.camera
+      this.tmpV.set(0, 0, -1).applyQuaternion(cam.quaternion) // the view direction
+      const toLayer = (h.x - cam.position.x) * this.tmpV.x + (h.y - cam.position.y) * this.tmpV.y + (h.z - cam.position.z) * this.tmpV.z
+      const half = LAYER_HALF + this.reveal * this.size
+      this.layerReach = half
+      near = Math.max(CAMERA_NEAR, toLayer - half)
+      far = Math.min(this.fullFar, toLayer + half)
+      if (far <= near) far = near + CLIP_EPS
+    }
+    const cam = this.camera
+    // Portrait, flat opening: the board is moved up the screen (an off-axis view, the slab is unaffected); eases out with the flight.
+    const raise = this.aspect < 1 ? this.settings.planeRaise * (1 - this.freeAmount) : 0
+    if (
+      Math.abs(cam.near - near) > CLIP_EPS || Math.abs(cam.far - far) > CLIP_EPS ||
+      this.projFov !== cam.fov || this.projAspect !== cam.aspect || Math.abs(this.projRaise - raise) > CLIP_EPS
+    ) {
+      cam.near = near
+      cam.far = far
+      this.projFov = cam.fov
+      this.projAspect = cam.aspect
+      this.projRaise = raise
+      if (raise > CLIP_EPS) cam.setViewOffset(PROJ_UNITS * cam.aspect, PROJ_UNITS, 0, raise * PROJ_UNITS, PROJ_UNITS * cam.aspect, PROJ_UNITS)
+      else cam.clearViewOffset()
+      cam.updateProjectionMatrix()
+    }
   }
 }

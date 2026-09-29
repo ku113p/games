@@ -5,7 +5,7 @@ import {
   createBoostHold,
   isBoostCode,
   DEFAULT_TILT_RAD_PER_PX,
-  isDoubleTap,
+  PAD_BUTTONS,
   padCommand,
   parsePadSide,
   shouldFirePad,
@@ -49,24 +49,6 @@ describe('swipeDirection', () => {
   test('exactly at the threshold: already a swipe (non-strict inequality)', () => {
     expect(swipeDirection(24, 0, 24)).toBe('right')
     expect(swipeDirection(23, 0, 24)).toBeNull()
-  })
-})
-
-describe('isDoubleTap', () => {
-  test('first tap (lastTapAt = null): not a double tap', () => {
-    expect(isDoubleTap(null, 1000, 240)).toBe(false)
-  })
-
-  test('second tap within the window: a double tap', () => {
-    expect(isDoubleTap(1000, 1200, 240)).toBe(true)
-  })
-
-  test('exactly at the window boundary: still a double tap (non-strict inequality)', () => {
-    expect(isDoubleTap(1000, 1240, 240)).toBe(true)
-  })
-
-  test('outside the window: not a double tap', () => {
-    expect(isDoubleTap(1000, 1241, 240)).toBe(false)
   })
 })
 
@@ -121,27 +103,20 @@ describe('tiltPointersNeeded', () => {
 })
 
 describe('padCommand (corner pad)', () => {
-  test('four arrows are turns, regardless of the third axis', () => {
-    for (const dir of ['left', 'right', 'up', 'down'] as const) {
-      expect(padCommand(dir, true)).toEqual({ kind: 'turn', dir })
-      expect(padCommand(dir, false)).toEqual({ kind: 'turn', dir })
-    }
+  test('the four arrows are turns', () => {
+    for (const dir of ['left', 'right', 'up', 'down'] as const) expect(padCommand(dir)).toBe(dir)
   })
 
-  test('into/out are the third axis while it is enabled (plane mode)', () => {
-    expect(padCommand('into', true)).toEqual({ kind: 'axis', dir: 'into' })
-    expect(padCommand('out', true)).toEqual({ kind: 'axis', dir: 'out' })
-  })
-
-  test('in free mode the third axis is off: no command', () => {
-    expect(padCommand('into', false)).toBeNull()
-    expect(padCommand('out', false)).toBeNull()
+  test('there is no third axis: into/out are not pad buttons', () => {
+    expect(PAD_BUTTONS).toEqual(['left', 'right', 'up', 'down'])
+    expect(padCommand('into')).toBeNull()
+    expect(padCommand('out')).toBeNull()
   })
 
   test('unknown or empty button: null', () => {
-    expect(padCommand(undefined, true)).toBeNull()
-    expect(padCommand('center', true)).toBeNull()
-    expect(padCommand('', true)).toBeNull()
+    expect(padCommand(undefined)).toBeNull()
+    expect(padCommand('center')).toBeNull()
+    expect(padCommand('')).toBeNull()
   })
 })
 

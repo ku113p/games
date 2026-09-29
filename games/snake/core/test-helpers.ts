@@ -7,13 +7,14 @@ export const config: Config = {
   snake: { startLength: 3, growPerApple: 1 },
   speed: { startStepMs: 180, minStepMs: 60, stepMsPerApple: 4, boostFactor: 2 },
   obstacles: { density: 0.02, stickiness: 0.6, clearRadius: 4, wallMargin: 1 },
-  camera: { rollMs: 260, microPauseMs: 90, glitchMs: 180, distanceFactor: 1.6, followDistance: 4.5, followHeight: 2.5, lateralOffset: 0.7, lookAheadDistance: 10, lookDownOffset: 1.5, modeSwitchMs: 1400 },
+  camera: { glitchMs: 180, followDistance: 4.5, followHeight: 2.5, lateralOffset: 0.7, lookAheadDistance: 10, lookDownOffset: 1.5, modeSwitchMs: 1400, plane: { visibleCells: 20, marginCells: 1, fovDeg: 20, raise: 0.1, revealShare: 0.45 } },
   hints: { latticeAt: 'corners', latticeStep: 1, compassHideDist: 1.5, compassFullDist: 3 },
   demo: { afterSteps: 5 },
+  plane: { appleMaxSteps: 4 },
   loop: { maxFrameMs: 100 },
   minimap: { windowCells: 20, levelWindowCells: 10 },
   fog: { density: 0.05, defaultOn: true },
-  input: { doubleTapMs: 240, swipeMinPx: 24, tiltRadPerPx: 0.005 },
+  input: { swipeMinPx: 24, tiltRadPerPx: 0.005 },
 }
 
 export const V = {
@@ -46,7 +47,6 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
     heading: v(1, 0, 0),
     frame: baseFrame(),
     pendingTurn: null,
-    rolledSinceStep: false,
     stepCount: 0,
     mode: 'plane',
     growth: 0,
@@ -61,6 +61,7 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
     paceScale: 1,
     sinceStepMs: 0,
     elapsedMs: 0,
+    planeAppleMaxSteps: 4,
     demoTurnPending: false,
     rngState: 1,
   }

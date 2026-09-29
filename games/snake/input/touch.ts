@@ -1,6 +1,7 @@
 // Touch input: Pointer Events (no hover), element geometry is re-read
 // on every gesture - survives orientation changes without resubscribing.
 //
+// 'swipes' scheme: a swipe anywhere turns; a tap does nothing (there is no third axis).
 // 'taps' scheme: the canvas yields only camera tilt (two fingers / right button), everything else is the corner pad
 // (input/pad.ts, separate DOM buttons: a touch that starts on them never gets here at all).
 //
@@ -9,7 +10,6 @@
 // state is also reset on lostpointercapture / pointercancel.
 import type { Config } from '../core/rules'
 import {
-  isDoubleTap,
   pinchZoomFactor,
   pointerRole,
   swipeDirection,
@@ -66,7 +66,6 @@ export function attachTouch(
   function startTilt(isMouse: boolean): void {
     // A gesture begun with one finger is cancelled entirely: no turn now, and no swipe/tap on release.
     resetGesture()
-    flushPendingTap()
     tilting = true
     tiltIsMouse = isMouse
     fingerMode = isMouse ? 'tilt' : 'pending'
@@ -97,56 +96,9 @@ export function attachTouch(
   }
   let startX = 0
   let startY = 0
-  // A swipe was already sent in the current gesture - on pointerup this is not a tap.
-  let swiped = false
-
-  // Timer for a single/double tap at the center (into/out).
-  let pendingTapAt: number | null = null
-  let pendingTapTimer: ReturnType<typeof setTimeout> | null = null
-
-  function clearPendingTap(): void {
-    if (pendingTapTimer !== null) {
-      clearTimeout(pendingTapTimer)
-      pendingTapTimer = null
-    }
-    pendingTapAt = null
-  }
-
-  // Another gesture began (swipe, two fingers) while a single tap was still waiting for a second: it is no longer a double tap,
-  // but not a cancelled one either - flush it as "into" right away and in input order (the tap came before the swipe), rather than losing it.
-  function flushPendingTap(): void {
-    if (pendingTapTimer === null) return
-    clearPendingTap()
-    if (h.axisEnabled?.() === false) return
-    h.onAxis('into')
-  }
-
-  // Tap with no direction (anywhere in 'swipes'):
-  // single - into, but if a second tap arrives within doubleTapMs - out.
-  function handleAxisTap(now: number): void {
-    // 'free' mode: no third axis - the tap does nothing, no timers are started.
-    if (h.axisEnabled?.() === false) {
-      clearPendingTap()
-      return
-    }
-    if (isDoubleTap(pendingTapAt, now, config.input.doubleTapMs)) {
-      clearPendingTap()
-      h.onAxis('out')
-      return
-    }
-    clearPendingTap()
-    pendingTapAt = now
-    pendingTapTimer = setTimeout(() => {
-      pendingTapAt = null
-      pendingTapTimer = null
-      if (h.axisEnabled?.() === false) return // mode changed while waiting for the second tap
-      h.onAxis('into')
-    }, config.input.doubleTapMs)
-  }
 
   function resetGesture(): void {
     activePointerId = null
-    swiped = false
   }
 
   function onPointerDown(e: PointerEvent): void {
@@ -170,7 +122,6 @@ export function attachTouch(
     activePointerId = e.pointerId
     startX = e.clientX
     startY = e.clientY
-    swiped = false
     try {
       el.setPointerCapture(e.pointerId)
     } catch {
@@ -208,30 +159,20 @@ export function attachTouch(
       return
     }
     if (e.pointerId !== activePointerId) return
-    // In 'taps' the canvas does not read swipes and taps: turns and axis are on the pad (input/pad.ts).
+    // In 'taps' the canvas does not read swipes and taps: turns are on the pad (input/pad.ts).
     if (scheme === 'taps') return
     const dir = swipeDirection(e.clientX - startX, e.clientY - startY, config.input.swipeMinPx)
     if (dir === null) return
-    swiped = true
     startX = e.clientX
     startY = e.clientY
-    flushPendingTap()
     h.onTurn(dir)
   }
 
   function onPointerUp(e: PointerEvent): void {
     forgetPointer(e.pointerId)
     if (e.pointerId !== activePointerId) return
-    const wasSwipe = swiped
     resetGesture()
     if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
-
-    if (wasSwipe) return
-    const now = e.timeStamp
-
-    // Threshold not passed (otherwise onPointerMove would have fired) - this is a tap anywhere.
-    // In 'taps', taps on the canvas mean nothing.
-    if (scheme === 'swipes') handleAxisTap(now)
   }
 
   function onPointerCancel(e: PointerEvent): void {
@@ -272,7 +213,6 @@ export function attachTouch(
     el.removeEventListener('pointercancel', onPointerCancel)
     el.removeEventListener('lostpointercapture', onLostCapture)
     el.removeEventListener('contextmenu', onContextMenu)
-    clearPendingTap()
     resetGesture()
     down.clear()
     endTilt()

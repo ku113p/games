@@ -119,8 +119,8 @@ function copyVec(to: Vec3, from: Vec3): void {
  * In 'free' the camera looks along heading (depth = -heading), so a turn (swipe) rolls the frame
  * by the same +90° around heading × pendingTurn that the step will do (rules.reorientFrameFree), but right away,
  * without waiting for the step. On the step the core frame becomes exactly this one, so there is no second jump.
- * In 'plane' the camera does not depend on heading, and the core does the axis roll (turnAxis) at the moment of
- * the command, so the frame is already current. Returns a shared reused object (do not keep it between frames or mutate it);
+ * In 'plane' the camera does not depend on heading and the frame never changes (it only changes on the demo turn,
+ * which sets it at once). Returns a shared reused object (do not keep it between frames or mutate it);
  * with nothing queued, returns s.frame itself.
  */
 export function viewFrame(s: GameState): Frame {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { cellKey } from './state'
-import { tick, turnAxis, turnInPlane } from './commands'
+import { tick, turnInPlane } from './commands'
 import {
   appleOnCourse,
   applePos,
@@ -223,15 +223,6 @@ describe('intendedHeading / viewFrame: the turn is visible right from input, the
     expect(intendedHeading(s)).not.toEqual(s.heading)
     expect(viewFrame(s)).toBe(s.frame)
     expect(JSON.stringify(s.frame)).toBe(frameBefore)
-  })
-
-  test('plane: axis turn: the core rolled the frame at the moment of the command, view and direction are current before the step', () => {
-    const s = makeState()
-    const bodyBefore = JSON.stringify(s.snake)
-    turnAxis(s, 'into')
-    expect(intendedHeading(s)).toEqual(s.pendingTurn!)
-    expect(viewFrame(s)).toBe(s.frame)
-    expect(JSON.stringify(s.snake)).toBe(bodyBefore)
   })
 
   test('repeated calls give the same result and accumulate no state (no allocations: the same object)', () => {

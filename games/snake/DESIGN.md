@@ -5,7 +5,7 @@
 > and we'll bring the code into line. Quotes in quotation marks are your own words from the work sessions.
 
 ## One sentence
-A snake that looks like an ordinary 2D snake, but has two more directions along a third axis, and the camera rolls around after it.
+A snake that looks like an ordinary 2D snake, until on step 5 the camera moves behind its head and the flat board turns out to be one layer of a cube.
 
 ## First impression
 At first the game must look like an **ordinary snake**. The volume reveals itself later, in one moment (the twist).
@@ -16,14 +16,12 @@ Death: **your own body**, **a cube wall**, **an obstacle**. Moving into a cell t
 
 ## Controls
 
-Six directions: the four usual ones in the current plane + two along the third axis. The scheme is chosen in settings and remembered.
+Four turns: left, right, up, down. There is no third axis in the controls: classic snake has none, and the flat opening is selling exactly that illusion; in the 3D game the four turns already cover every direction. The scheme is chosen in settings and remembered.
 
-| Scheme | Turns in the plane | Third axis (plane mode only) |
-| --- | --- | --- |
-| Swipes | swipe anywhere on the screen | tap - into the screen (waits 240 ms to see whether a second tap follows), double tap - toward the viewer |
-| Taps | four arrow buttons of the pad in the bottom corner | two pad buttons: "into" and "out" |
-
-In free mode there is no separate third axis: the four turns already cover all directions (the axis buttons on the pad are hidden).
+| Scheme | Turns |
+| --- | --- |
+| Swipes | swipe anywhere on the screen (a tap does nothing) |
+| Taps | four arrow buttons of the pad in the bottom corner |
 
 **The pad.** A cross-shaped pad in the bottom corner, each button at least 44 px. The command fires on touch; holding does not repeat it.
 A command that has been accepted but not yet executed is highlighted. The pad side (left/right, for left-handed players) is in settings.
@@ -42,7 +40,7 @@ the camera stick (it sets the turn speed). Tilt and zoom do not carry over into 
 the missed time. On pause boost is off, you can change sound, fog and quality, continue or leave to the menu.
 Leaving to the menu in the middle of a game counts what was earned: the score goes to the leaderboard and the coins go to the wallet.
 
-**PC:** arrows/WASD - the plane, Q ("deeper", `into`) and E ("closer", `out`) - the third axis, Shift/Space - boost, R - camera reset,
+**PC:** arrows/WASD - turn, Shift/Space - boost, R - camera reset,
 Escape - pause (and resume). Keys are read by physical position, so WASD works on a Russian layout too; Ctrl/Cmd/Alt combinations are left to the browser.
 Mouse: the right (or middle) button dragged - camera tilt, wheel - zoom, left button - swipes and taps exactly as on a phone.
 
@@ -63,7 +61,7 @@ Now, in the player's **first game only**, a small prompt appears next to the boo
 **Controls screen.** A "Controls" button on the menu (under Play, in the lower half) opens a screen that explains the controls with a drawing first and words second:
 a diagram of the screen with the pad, boost, stick, camera reset and pause drawn where the game puts them (mirrored for the left-hand pad), numbered, with a one-line legend beside it.
 - **Both schemes.** It opens on the scheme the player has selected; two tabs (Swipes / Taps) let them look at the other one, and a line says so when they do ("Not your current scheme").
-- **Read from the code.** The lines, the key names, the pad buttons and the third-axis rule are taken from `input/` (`controls-doc.ts` reads `keyboard.ts` and `gestures.ts`; tests fail if a key is rebound and the screen is not); only the wording is in the dictionaries.
+- **Read from the code.** The lines, the key names, the pad buttons are taken from `input/` (`controls-doc.ts` reads `keyboard.ts` and `gestures.ts`; tests fail if a key is rebound and the screen is not); only the wording is in the dictionaries.
 - **Device.** The stick and the two-finger gesture appear only on a touch device; the keyboard and mouse list only where there is a mouse or trackpad (first on a desktop, after the diagram on a touch laptop).
 - It is a base screen like Records and Shop: reachable from the menu only, Back/Escape return to the menu, never over a game, pause or the legal screens.
 
@@ -114,7 +112,7 @@ Chosen in the shop before the start (see "Shop"). They cannot be changed inside 
 - Boost also speeds up earning: score and coins come for apples, not for time.
 
 ## Hints
-The game is hard to read in volume, so the hints are part of the mechanics. In plane mode (the first game) they are hidden or weakened:
+The game is hard to read in volume, so the hints are part of the mechanics. In plane mode (the first game) they are hidden or weakened, and anything at another depth than the snake's layer is not drawn at all:
 the first game must look like an ordinary flat snake.
 
 **Head signals - four states shown by color.** This is a mechanic, not decoration:
@@ -221,19 +219,36 @@ The camera transition itself is the twist.
 
 | | "Plane" mode | "Free" mode |
 | --- | --- | --- |
-| Camera | from the side, the screen plane | from behind the head, flying after it |
-| Movement | 4 sides in a slice + the third axis by tap | 4 turns cover the whole volume |
+| Camera | straight on, far away, through a narrow lens (a flat board) | from behind the head, flying after it |
+| Movement | 4 turns in the board's layer, nothing else | 4 turns cover the whole volume |
 | Look | indistinguishable from a 2D snake | honest 3D, hints, maps, fog available |
 
 **Only in the player's very first game.** All following games start right away in free mode: the flat start is a one-time intro
 device. If the player dies before the transition, the intro is not used up and will repeat in the next game.
 
+**The first game is always on the 20³ arena** (designer decision: "the first game always starts on 20*20, bought and equipped or not"). Whatever is bought
+and equipped in the shop, the very first game of a player's life is 20³; the equipped arena applies from the second game on (`arenaSizeFor` in `core/rules.ts`, tested
+against a wallet with 50³ bought and equipped). The opening is framed for 20³ and only for it.
+
+**What the flat opening looks like.** It has to read as ordinary flat snake, so that the reveal lands:
+- **A flat board that fills the screen.** The camera is far from the cube and looks through a narrow lens (`camera.plane.fovDeg`), so cells stay square and nothing leans. The head's layer
+  (20×20) plus half a cell of margin on each side fills the screen width, the board is raised up the screen by `camera.plane.raise` of the screen height so that the pad and the
+  buttons in the lower corners do not cover it. It has a grid and a bright border of its own (`view/plane-board.ts`); the cube's walls, the wall grids and the edge frame are not drawn.
+- **Only the snake's own layer is drawn.** Obstacles, walls, hints, everything at another depth is not drawn at all - not dimmed, not faded. The camera's near and far clipping planes are put on the faces
+  of the head's layer, and the obstacles (whose shader cannot be clipped that way) drop every cell outside the layer themselves. The layer's obstacles are drawn as solid squares from a shell of their own. Tilting the camera is off
+  while flat (a tilted view would cut the layer at the wrong plane); zoom still works.
+- **The apple is in the snake's own layer.** In the flat opening (core, mode `plane`, and only there) every apple lands on a free cell of the head's layer that the snake can reach without leaving it,
+  at most `plane.appleMaxSteps` (4) moves from the head, so it can be eaten before the camera moves (the demo turn is on step 5). One seeded draw, deterministic. The general rule (a random free cell of the whole cube)
+  is untouched and is what every later apple and every later game uses.
+- **The reveal.** When the camera moves, the other layers appear outward from the board's layer over the first `camera.plane.revealShare` of the flight, while the lens widens from the narrow one to the game's own.
+
 **Demo turn (first game):** on step 5 the snake turns by itself along the third axis - into a random free side (not into a wall
 and not into an obstacle); the camera moves behind the head with a glitch and a roll, the game pauses and shows the explainer screen.
-After that the player does the turning.
+After that the player does the turning. This is the **only** way out of plane mode (the third axis used to be in the controls, but it never left the mode: it only rolled the flat camera). If both sides are blocked
+the demo turn is not spent and is tried again on the next step, so a player cannot be stuck flat.
 
 ## Game feel
-Neon and volume. The camera roll: a smooth turn with a micro-pause + a glitch (under "reduced motion" the glitch noise is muted, the turn stays).
+Neon and volume. The camera flight at the twist: a glitch at the start and at the midpoint, the lens widening, the world appearing from the board outward (under "reduced motion" the glitch noise is muted, the flight stays).
 The snake slides into the cell in a jerk at the start of the step and stands until the next one.
 
 **Sound.** Turns on only after the first touch. Music - *Cyber Runner* (Luis Zuno, CC0), quiet, looped. The sounds are
@@ -291,13 +306,8 @@ returned on another day. Nothing personal (no scores, no symbols, no identifier)
 - **The color distinguishability bar** is approved: between the four head states ΔE ≥ 30 normally and ≥ 20 under deuteranopia/protanopia.
 - **Leaving to the menu from pause counts the game** (score to the leaderboard, coins to the wallet) - that is how it should be.
 - **Growth per apple is one cell** - confirmed.
-- **Double tap in "Swipes":** the designer did not understand whether there is a problem and left the decision to the agent. Investigated in a real browser: a single tap
-  in plane mode waits exactly `input.doubleTapMs` = 240 ms (measured: 240-241 ms ten times out of ten), in free mode there is nothing to wait for - a tap does nothing.
-  Plane mode is the first 5 steps of the player's first game (about 5.4 s at a 1080 ms step), so the delay only concerns the
-  optional "into" tap during those seconds: the reaction is 240 ms late, and with a probability of about 22% (240/1080) the tap misses
-  the nearest step and the turn goes one step later. Deemed minor, the value 240 does not change (shorter - and the double taps of
-  slow fingers will start to get lost; a double tap with a 80-200 ms gap fires as `out` immediately on the second touch). A real bug was found and fixed: a tap followed
-  within the same 240 ms by a swipe (or a two-finger touch) silently vanished. Now such a tap goes out at once, before the swipe.
+- **The third axis is removed from the controls** (tap = deeper, double tap = closer, the pad's two buttons, Q and E, `turnAxis`, `input.doubleTapMs`). It only ever worked during the flat opening and never left plane mode. Now the
+  opening is a proper 2D board with the apple in reach, the controls have no purpose, and classic snake has none. This also closes the old question about the 240 ms wait of a single tap.
 
 **Boost and arena (2026-09-30)**
 - **×8 - remove** (the reason is in the "Speed and boost" section). The top tier is ×4.

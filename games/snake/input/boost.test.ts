@@ -26,7 +26,7 @@ function setup() {
     setPointerCapture() {},
   } as unknown as HTMLElement
   const log: boolean[] = []
-  const b = attachBoostButton(el, { onTurn() {}, onAxis() {}, onBoost: (on) => log.push(on) })
+  const b = attachBoostButton(el, { onTurn() {}, onBoost: (on) => log.push(on) })
   const down = (id = 1) => btn.get('pointerdown')?.({ pointerId: id, pointerType: 'touch', button: 0, preventDefault() {} })
   return {
     btn, win, doc, docObj, log, b, down,

@@ -37,14 +37,13 @@ export function attachPad(root: HTMLElement, h: InputHandlers): Pad {
     } catch {
       // The pointer is already gone: pointerup/lostpointercapture will reset everything.
     }
-    const cmd = padCommand(btn.dataset['pad'], h.axisEnabled?.() !== false)
-    if (cmd === null) return
+    const dir = padCommand(btn.dataset['pad'])
+    if (dir === null) return
     active.set(e.pointerId, btn)
     btn.classList.add('pressed')
     clearQueued()
     btn.classList.add('queued')
-    if (cmd.kind === 'turn') h.onTurn(cmd.dir)
-    else h.onAxis(cmd.dir)
+    h.onTurn(dir)
     // Haptic feedback where available (Android); with a step a second long it shows the command was accepted.
     if (typeof navigator.vibrate === 'function') navigator.vibrate(8)
   }

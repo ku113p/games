@@ -91,6 +91,7 @@ export class CubeFrame {
   private markY = NaN
   private markZ = NaN
   private currentSize = -1
+  private flat = false
 
   constructor(scene: Scene) {
     this.scene = scene
@@ -103,6 +104,7 @@ export class CubeFrame {
     this.disposeAll()
     this.buildEdges(size)
     if (SHOW_HEAD_PROJECTION) this.buildMarks(size)
+    this.flat = false
   }
 
   /** Twelve edges: four along each axis, outer frame from -0.5 to size - 0.5. */
@@ -212,6 +214,7 @@ export class CubeFrame {
    * Frame, allocation-free. Plane mode (freeAmount < 0.5): the camera is outside the cube,
    * the walls between it and the field are hidden so they do not draw over the snake.
    * Free mode: nothing is hidden. hx/hy/hz is the head cell (from queries.head).
+   * flat (the flat opening, before the reveal starts): nothing of the cube is drawn, the flat board (plane-board.ts) is the only field.
    */
   update(
     camX: number,
@@ -221,7 +224,14 @@ export class CubeFrame {
     hx: number,
     hy: number,
     hz: number,
+    flat: boolean,
   ): void {
+    if (flat !== this.flat) {
+      this.flat = flat
+      for (let i = 0; i < this.edges.length; i++) this.edges[i]!.visible = !flat
+      if (flat) for (let i = 0; i < this.marks.length; i++) this.marks[i]!.visible = false
+    }
+    if (flat) return
     if (this.edges.length === 0 || !SHOW_HEAD_PROJECTION) return
     const hi = this.currentSize - 0.5
     const canHide = freeAmount < 0.5

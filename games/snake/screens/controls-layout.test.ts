@@ -6,11 +6,11 @@ const desktop = { touch: false, keyboard: true }
 const hybrid = { touch: true, keyboard: true }
 
 describe('controlLines', () => {
-  test('swipes: swipe, tap, double tap, then the common controls; no pad lines', () => {
-    expect(controlLines('swipes', phone)).toEqual(['swipe', 'tap', 'doubleTap', 'boost', 'stick', 'reset', 'pause'])
+  test('swipes: swipe, then the common controls; no pad lines, no taps (there is no third axis)', () => {
+    expect(controlLines('swipes', phone)).toEqual(['swipe', 'boost', 'stick', 'reset', 'pause'])
   })
-  test('taps: pad arrows and axis buttons, then the common controls; no swipe or tap lines', () => {
-    expect(controlLines('taps', phone)).toEqual(['arrows', 'axisButtons', 'boost', 'stick', 'reset', 'pause'])
+  test('taps: pad arrows, then the common controls; no swipe line, no axis buttons', () => {
+    expect(controlLines('taps', phone)).toEqual(['arrows', 'boost', 'stick', 'reset', 'pause'])
   })
   test('boost, camera reset and pause are in both schemes', () => {
     for (const scheme of ['swipes', 'taps'] as const) {

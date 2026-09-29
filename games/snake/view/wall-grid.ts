@@ -92,9 +92,16 @@ export class WallGrid {
     }
   }
 
-  /** Frame, allocation-free. Wall index: axis * 2 + side (0 is the lower, 1 the upper). */
-  update(camX: number, camY: number, camZ: number, freeAmount: number): void {
+  /**
+   * Frame, allocation-free. Wall index: axis * 2 + side (0 is the lower, 1 the upper).
+   * flat (the flat opening, before the reveal starts): no wall is drawn, the flat board (plane-board.ts) is the only field.
+   */
+  update(camX: number, camY: number, camZ: number, freeAmount: number, flat: boolean): void {
     if (this.walls.length === 0) return
+    if (flat) {
+      for (let i = 0; i < this.walls.length; i++) this.walls[i]!.visible = false
+      return
+    }
     const hi = this.currentSize - 0.5
     const canHide = freeAmount < 0.5
     for (let axis = 0; axis < 3; axis++) {

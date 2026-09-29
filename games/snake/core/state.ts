@@ -16,7 +16,6 @@ export interface Frame {
 export type Mode = 'plane' | 'free'
 export type Phase = 'ready' | 'running' | 'dead'
 export type ScreenDir = 'left' | 'right' | 'up' | 'down'
-export type AxisDir = 'into' | 'out'
 export type DeathCause = 'body' | 'wall' | 'obstacle'
 
 export interface GameState {
@@ -28,8 +27,7 @@ export interface GameState {
   heading: Vec3
   frame: Frame
   pendingTurn: Vec3 | null // input buffer: the new heading, applied on the next step
-  rolledSinceStep: boolean // frame was rolled by turnAxis, the next step is a turn in place (no movement); a second roll before it is forbidden
-  mode: Mode // 'plane': flat snake; 'free': camera behind the head (heading = -depth). Switches plane → free once, on the demo turn
+  mode: Mode // 'plane': flat snake; 'free': camera behind the head (heading = -depth). Switches plane → free once, on the demo turn (the only way out of plane)
   stepCount: number // how many steps (successful moves) were made in the game
   growth: number // how many cells are still to be grown
   phase: Phase
@@ -43,6 +41,7 @@ export interface GameState {
   minBoostedStepMs: number // floor on the duration of a BOOSTED step (config.speed.minEffectiveStepMs; 0 = no floor)
   sinceStepMs: number
   elapsedMs: number
+  planeAppleMaxSteps: number // flat opening: the apple is placed at most this many moves from the head, inside the head's layer (config.plane.appleMaxSteps)
   demoTurnPending: boolean // demo turn: once, on step demo.afterSteps of the first game
   rngState: number
 }

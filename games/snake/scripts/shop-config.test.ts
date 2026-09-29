@@ -2,6 +2,7 @@
 // Lives in scripts/ because shop/ may not import anything outside itself (including config.json).
 import { describe, expect, test } from 'bun:test'
 import configJson from '../config.json'
+import { createGame, type Config } from '../core/rules'
 import { gameSetup, catalog, initialState, parse, selectedBoostFactor, serialize, buy, equip, beginSession, earn, canBuy, type Item } from '../shop'
 
 const items = catalog(configJson)
@@ -116,5 +117,38 @@ describe('save with the ×8 boost removed', () => {
   test('a game for such a player is set up with a valid boost', () => {
     const f = gameSetup(parse(legacy, configJson), configJson).boostFactor
     expect(configJson.speed.boostFactors).toContain(f)
+  })
+})
+
+describe('the first game is always on the default arena (designer decision: "whatever is bought or equipped")', () => {
+  const coreConfig = configJson as unknown as Config
+
+  // The case that would otherwise break: a wallet where 50³ is bought AND equipped, and the first-game flag is still set
+  // (partly cleared browser data, an edited save, a future gift item). The shop hands the core 50; the core must still play 20.
+  const rich = { ...initialState(configJson), balance: 1000 }
+  const bought = buy(rich, items.find((i) => i.id === 'arena-50')!, configJson)
+  const wallet = equip(bought, items.find((i) => i.id === 'arena-50')!, configJson)
+
+  test('the wallet really has 50³ equipped', () => {
+    expect(gameSetup(wallet, configJson).size).toBe(50)
+  })
+
+  test('first game ever: 20³ regardless, and it is the flat opening', () => {
+    const size = gameSetup(wallet, configJson).size
+    const first = createGame(coreConfig, size, 7, true)
+    expect(first.size).toBe(configJson.cube.default)
+    expect(first.size).toBe(20)
+    expect(first.mode).toBe('plane')
+  })
+
+  test('the second game respects the equipped arena: 50³ was not taken away', () => {
+    const size = gameSetup(wallet, configJson).size
+    const second = createGame(coreConfig, size, 7, false)
+    expect(second.size).toBe(50)
+    expect(second.mode).toBe('free')
+  })
+
+  test('the default arena in the core config is the shop default arena (one 20, not two)', () => {
+    expect(configJson.cube.default).toBe(configJson.shop.defaultArenaSize)
   })
 })

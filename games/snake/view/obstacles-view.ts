@@ -32,7 +32,7 @@ import {
   type Scene,
 } from 'three'
 import type { GameState } from '../core/state'
-import { cubeSize, forEachObstacle } from '../core/queries'
+import { cameraFrame, cubeSize, forEachObstacle, gameMode, head } from '../core/queries'
 import { computeShell } from './obstacle-shell'
 import { chunkShell } from './obstacle-chunks'
 import {
@@ -79,6 +79,7 @@ uniform sampler2D uGhostTex;
 uniform float uTexW;
 uniform vec3 uDepthAxis;
 uniform float uFree;
+uniform float uLayerReach;
 uniform float uEdgeGhostAlpha;
 varying float vAlpha;
 uniform vec2 uRes;
@@ -89,11 +90,20 @@ ${COMMON}
 void main() {
   // Ghost level of the owner cell (same as for faces): edges of fading cubes fade with the faces,
   // otherwise all the cube's edges show through a transparent face, including the back side.
+  // Flat opening: only the head's layer is drawn (uLayerReach is about half a cell); the reveal widens it, in the game it is huge.
+  // Done per cell here rather than by the camera's clipping planes: this shader clamps edge ribbons that reach the near plane onto it
+  // (so they are not eaten close to the camera), which would draw the edges of nearer layers instead of dropping them.
+  float layerDist = dot(floor(aCenter + 0.5) - uHead, uDepthAxis);
+  if (abs(layerDist) > uLayerReach) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vAlpha = 0.0;
+    return;
+  }
   int id = int(aId + 0.5);
   int wtex = int(uTexW);
   int row = id / wtex;
   float g = texelFetch(uGhostTex, ivec2(id - row * wtex, row), 0).r;
-  float front = step(0.5, dot(floor(aCenter + 0.5) - uHead, uDepthAxis));
+  float front = step(0.5, layerDist);
   g = max(g, front * (1.0 - uFree));
   vAlpha = mix(1.0, uEdgeGhostAlpha, g);
   vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
@@ -171,6 +181,7 @@ uniform sampler2D uGhostTex;
 uniform float uTexW;
 uniform vec3 uDepthAxis;
 uniform float uFree;
+uniform float uLayerReach;
 uniform float uGhostPass;   // 0 - opaque pass, 1 - transparent
 uniform float uGhostAlpha;
 uniform vec3 uShade;        // brightness multipliers per axis x, y, z
@@ -183,11 +194,19 @@ float reachOf(float st) {
   return st < 0.5 ? uHalf : (st < 1.5 ? 0.5 : 1.0 - uHalf);
 }
 void main() {
+  // Flat opening: only the head's layer is drawn, see uLayerReach in the edge shader.
+  float layerDist = dot(aCell - uHead, uDepthAxis);
+  if (abs(layerDist) > uLayerReach) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vShade = 0.0;
+    vAlpha = 0.0;
+    return;
+  }
   int id = int(aId + 0.5);
   int w = int(uTexW);
   int row = id / w;
   float g = texelFetch(uGhostTex, ivec2(id - row * w, row), 0).r;
-  float front = step(0.5, dot(aCell - uHead, uDepthAxis));
+  float front = step(0.5, layerDist);
   g = max(g, front * (1.0 - uFree));
   bool isGhost = g > 0.001;
   if (isGhost != (uGhostPass > 0.5)) {
@@ -275,6 +294,11 @@ export class ObstaclesView {
   // Shell chunks: edge/opaque/transparent face meshes and the count of fading cells in each.
   private chunks: ObstacleChunk[] = []
   private chunkOfCell = new Int32Array(0)
+  // The flat opening's own shell of the head's layer (see buildFlat): drawn instead of the chunks while flat, absent in the game.
+  private flatMeshes: Mesh[] = []
+  private flatGeometries: BufferGeometry[] = []
+  private flatMaterials: ShaderMaterial[] = []
+  private flatTex: DataTexture | null = null
   private solid = new Set<number>()
   private solidSize = 1
 
@@ -293,6 +317,7 @@ export class ObstaclesView {
   private readonly frameUniforms = {
     uDepthAxis: { value: this.uDepthAxis },
     uFree: { value: 1 },
+    uLayerReach: { value: 1e6 },
   }
 
   /** How many faces and edges are in the shell of the last build (for measurements). */
@@ -378,6 +403,7 @@ export class ObstaclesView {
       uDepthK: { value: OBSTACLE_EDGE_DEPTH_K },
       uDepthAxis: this.frameUniforms.uDepthAxis,
       uFree: this.frameUniforms.uFree,
+      uLayerReach: this.frameUniforms.uLayerReach,
       uGhostTex: { value: tex },
       uTexW: { value: GHOST_TEX_W },
       uEdgeGhostAlpha: { value: OBSTACLE_EDGE_GHOST_ALPHA },
@@ -396,6 +422,7 @@ export class ObstaclesView {
       ...uniforms,
       uDepthAxis: this.frameUniforms.uDepthAxis,
       uFree: this.frameUniforms.uFree,
+      uLayerReach: this.frameUniforms.uLayerReach,
       uGhostTex: { value: tex },
       uTexW: { value: GHOST_TEX_W },
       uGhostAlpha: { value: OBSTACLE_GHOST_ALPHA },
@@ -479,23 +506,116 @@ export class ObstaclesView {
       this.scene.add(edges, opaque, ghost)
       this.chunks.push({ edges, opaque, ghost, geometries: geoms, active: 0 })
     }
+
+    if (gameMode(s) === 'plane') this.buildFlat(s, n, half, edgeUniforms, shared, beforeEdges)
+  }
+
+  /**
+   * The flat opening draws the head's layer as a flat board, so its obstacles have to read as solid squares. The shell of the whole arena
+   * cannot give that: a cell whose neighbour toward the viewer is also an obstacle has no front face in it (it is an inner face of the
+   * 3D volume), and with that neighbour not drawn it would show as a hollow square. So while the game is flat, the layer's cells get a shell of their own
+   * (computed from the layer's cells alone, every cell with its front face), and the arena's chunks are hidden; when the reveal starts
+   * the chunks take over (update). Cold path; a layer holds a few dozen cells at most.
+   */
+  private buildFlat(
+    s: GameState,
+    n: number,
+    half: number,
+    edgeUniforms: Record<string, { value: unknown }>,
+    faceUniforms: Record<string, { value: unknown }>,
+    beforeEdges: (renderer: { getDrawingBufferSize(t: Vector2): Vector2; getPixelRatio(): number }) => void,
+  ): void {
+    const d = cameraFrame(s).depth
+    const h = head(s)
+    const ax = Math.abs(d.x)
+    const ay = Math.abs(d.y)
+    const az = Math.abs(d.z)
+    const layer = ax * h.x + ay * h.y + az * h.z
+    const layerSolid = new Set<number>()
+    forEachObstacle(s, (x, y, z) => {
+      if (ax * x + ay * y + az * z === layer) layerSolid.add(x + n * (y + n * z))
+    })
+    if (layerSolid.size === 0) return
+    const raw = computeShell(layerSolid, n, half)
+    const parts = chunkShell(raw.faces, raw.faceCount, raw.edges, raw.edgeCount, n, n)
+    // No ghost levels in the flat opening: a texture of zeros, so the shared shaders see g = 0 everywhere.
+    const tex = new DataTexture(new Uint8Array(GHOST_TEX_W), GHOST_TEX_W, 1, RedFormat, UnsignedByteType)
+    tex.minFilter = NearestFilter
+    tex.magFilter = NearestFilter
+    tex.generateMipmaps = false
+    tex.needsUpdate = true
+    this.flatTex = tex
+    const edgeMat = new ShaderMaterial({
+      uniforms: { ...edgeUniforms, uGhostTex: { value: tex } },
+      vertexShader: VERT,
+      fragmentShader: FRAG,
+      fog: true,
+      side: DoubleSide,
+      transparent: true,
+      depthWrite: false,
+    })
+    const faceMat = new ShaderMaterial({
+      uniforms: { ...faceUniforms, uGhostTex: { value: tex }, uGhostPass: { value: 0 } },
+      vertexShader: FACE_VERT,
+      fragmentShader: FACE_FRAG,
+      fog: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    })
+    this.flatMaterials = [edgeMat, faceMat]
+    const edgeQuad = new Float32BufferAttribute([-0.5, -1, 0, 0.5, -1, 0, 0.5, 1, 0, -0.5, 1, 0], 3)
+    const faceQuad = new Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3)
+    for (const part of parts) {
+      const sphere = new Sphere(new Vector3(part.cx, part.cy, part.cz), part.radius)
+      const edgeGeometry = new InstancedBufferGeometry()
+      edgeGeometry.setAttribute('position', edgeQuad)
+      edgeGeometry.setIndex(new BufferAttribute(new Uint16Array(QUAD_INDEX), 1))
+      const edgeBuf = new InstancedInterleavedBuffer(part.edges, 4)
+      edgeGeometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
+      edgeGeometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
+      edgeGeometry.setAttribute('aId', new InstancedBufferAttribute(new Float32Array(part.edgeCount), 1))
+      edgeGeometry.instanceCount = part.edgeCount
+      edgeGeometry.boundingSphere = sphere
+      const edges = new Mesh(edgeGeometry as BufferGeometry, edgeMat)
+      edges.renderOrder = EDGES_ORDER
+      edges.onBeforeRender = beforeEdges
+
+      const fillGeometry = new InstancedBufferGeometry()
+      fillGeometry.setAttribute('position', faceQuad)
+      fillGeometry.setIndex(new BufferAttribute(new Uint16Array(QUAD_INDEX), 1))
+      const faceBuf = new InstancedInterleavedBuffer(part.faces, 4)
+      fillGeometry.setAttribute('aCell', new InterleavedBufferAttribute(faceBuf, 3, 0))
+      fillGeometry.setAttribute('aFace', new InterleavedBufferAttribute(faceBuf, 1, 3))
+      fillGeometry.setAttribute('aId', new InstancedBufferAttribute(new Float32Array(part.faceCount), 1))
+      fillGeometry.instanceCount = part.faceCount
+      fillGeometry.boundingSphere = sphere
+      const fill = new Mesh(fillGeometry as BufferGeometry, faceMat)
+
+      this.scene.add(edges, fill)
+      this.flatMeshes.push(edges, fill)
+      this.flatGeometries.push(edgeGeometry as BufferGeometry, fillGeometry as BufferGeometry)
+    }
   }
 
   /**
    * Frame, allocation-free: which cubes obstruct the view and how transparent they are.
    * (cx,cy,cz) - camera, (hx,hy,hz) - head, (px,py,pz) - screen depth axis,
    * freeAmount - 0 in plane mode, 1 in free mode.
+   * layerReach - how far from the head's layer (cells, along the depth axis) obstacles are drawn: about half a cell in the flat opening
+   * (only the layer), widening during the reveal, huge in the game (view/camera-rig.ts layerReach).
    *
    * "Obstructs" is geometric: the cell center is closer than OCCLUDER_RADIUS to the segment from
    * the point OCCLUDER_START from the head toward the camera. The segment is walked with step
    * OCCLUDER_STEP, at each point the 27 neighbouring cells are checked via the cellId array
    * (O(1)), not all obstacles. Level g is pulled toward the target exponentially.
    */
-  update(dtMs: number, cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, px: number, py: number, pz: number, freeAmount: number): void {
+  update(dtMs: number, cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, px: number, py: number, pz: number, freeAmount: number, layerReach: number): void {
     if (!this.ghostTex) return
     this.uHead.set(hx, hy, hz)
     this.uDepthAxis.set(px, py, pz)
     this.frameUniforms.uFree.value = freeAmount
+    this.frameUniforms.uLayerReach.value = layerReach
     this.frameNo++
     const n = this.solidSize
     const frameNo = this.frameNo
@@ -575,9 +695,14 @@ export class ObstaclesView {
     // (g == 0 everywhere) and plane mode gives no weight, it draws nothing. Meshes per chunk: the transparent pass goes
     // only over chunks that have fading cells (before - over the whole shell, as soon as even one was fading).
     const allGhost = GHOST_PASS_ALWAYS || freeAmount < 1
+    // Flat opening (layerReach under one cell: only the head's layer): the layer's own shell is drawn, not the arena's chunks.
+    const flat = layerReach < 1 && this.flatMeshes.length > 0
+    for (let i = 0; i < this.flatMeshes.length; i++) this.flatMeshes[i]!.visible = flat
     for (let i = 0; i < this.chunks.length; i++) {
       const c = this.chunks[i]!
-      c.ghost.visible = allGhost || c.active > 0
+      c.edges.visible = !flat
+      c.opaque.visible = !flat
+      c.ghost.visible = !flat && (allGhost || c.active > 0)
     }
   }
 
@@ -591,6 +716,14 @@ export class ObstaclesView {
       for (const g of c.geometries) g.dispose()
     }
     this.chunks = []
+    this.scene.remove(...this.flatMeshes)
+    for (const g of this.flatGeometries) g.dispose()
+    for (const m of this.flatMaterials) m.dispose()
+    this.flatTex?.dispose()
+    this.flatMeshes = []
+    this.flatGeometries = []
+    this.flatMaterials = []
+    this.flatTex = null
     this.chunkOfCell = new Int32Array(0)
     this.material?.dispose()
     this.material = null

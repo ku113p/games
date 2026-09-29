@@ -19,6 +19,7 @@ import type { GameState } from '../core/state'
 import type { GameEvent } from '../core/commands'
 import type { Config } from '../core/rules'
 import { viewFrame, cubeSize, head } from '../core/queries'
+import { viewMode } from './game-mode'
 import { BACKGROUND_COLOR, applyPaletteById, createFog, type PalettesConfig } from './palette'
 import { resolveCosmetics, type CosmeticsInput } from './cosmetics'
 import { CameraRig } from './camera-rig'
@@ -30,6 +31,7 @@ import { AppleView } from './apple-view'
 import { CompassView, COMPASS_ENABLED, type CompassHints } from './compass-view'
 import { createDirectionHint } from './direction-hint'
 import { WallGrid } from './wall-grid'
+import { PlaneBoard } from './plane-board'
 import { MiniMap } from './minimap'
 import { MAX_PIXEL_RATIO, currentAa, perf, type PerfSnapshot } from './perf-settings'
 import { readGpuInfo, type GpuInfo } from './perf-env'
@@ -106,6 +108,8 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   const cameraRig = new CameraRig(config)
   const cubeFrame = new CubeFrame(scene)
   const wallGrid = new WallGrid(scene)
+  // The flat board exists only in a game that starts flat (the player's first game); the 3D game never builds it.
+  const planeBoard = viewMode(s) === 'plane' ? new PlaneBoard(scene, s) : null
   const miniMap = new MiniMap(config.minimap.windowCells, config.minimap.levelWindowCells)
   const snakeView = new SnakeView(scene, undefined, look.snakeSkin)
   const obstaclesView = new ObstaclesView(scene)
@@ -243,15 +247,18 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       // viewFrame, not cameraFrame: the core frame rolls only on a step, and the obstacles' depth
       // axis would lag one step behind the camera after a turn input.
       const fr = viewFrame(state)
-      obstaclesView.update(dtMs, cam.x, cam.y, cam.z, h.x, h.y, h.z, fr.depth.x, fr.depth.y, fr.depth.z, cameraRig.freeAmount)
+      obstaclesView.update(dtMs, cam.x, cam.y, cam.z, h.x, h.y, h.z, fr.depth.x, fr.depth.y, fr.depth.z, cameraRig.freeAmount, cameraRig.layerReach)
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)
       // Fog appears together with volume (in plane mode the camera is far outside, where it is off); 0 means the toggle is off.
       fog.density = fogOn && perf.fog ? config.fog.density * MathUtils.smoothstep(cameraRig.freeAmount, 0, 1) : 0
-      appleView.update(state, aheadRay.appleTargeted)
+      appleView.update(state)
       compass?.update(state, cameraRig.camera, dtMs, cameraRig.freeAmount)
-      cubeFrame.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, h.x, h.y, h.z)
-      wallGrid.update(cam.x, cam.y, cam.z, cameraRig.freeAmount)
+      // Flat opening: only the head's layer is drawn (the camera clips the rest), the cube's walls stay hidden until the reveal starts.
+      const flat = cameraRig.reveal <= 0
+      cubeFrame.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, h.x, h.y, h.z, flat)
+      wallGrid.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, flat)
+      planeBoard?.update(cameraRig.reveal)
       fx.render(dtMs)
       if (perf.miniMap) miniMap.render(renderer, state, cameraRig.freeAmount)
     },
@@ -262,6 +269,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       fx.detach()
       cubeFrame.dispose()
       wallGrid.dispose()
+      planeBoard?.dispose()
       miniMap.dispose()
       snakeView.dispose()
       obstaclesView.dispose()

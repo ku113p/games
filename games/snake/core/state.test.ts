@@ -15,7 +15,6 @@ function makeMinimalState(rngState: number): GameState {
       depth: { x: 0, y: 0, z: 1 },
     },
     pendingTurn: null,
-    rolledSinceStep: false,
     mode: 'plane',
     stepCount: 0,
     growth: 0,
@@ -30,6 +29,7 @@ function makeMinimalState(rngState: number): GameState {
     paceScale: 1,
     sinceStepMs: 0,
     elapsedMs: 0,
+    planeAppleMaxSteps: 4,
     demoTurnPending: false,
     rngState,
   }

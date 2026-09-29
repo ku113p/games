@@ -46,8 +46,8 @@ export class AppleView {
   }
 
   /** Frame: no new objects, mutates the position/scale/color of the existing mesh. */
-  /** The apple color does not depend on aiming: the "apple on course" signal comes from the head (SnakeView). The second parameter is old and ignored. */
-  update(s: GameState, _targeted?: boolean): void {
+  /** The apple color does not depend on aiming: the "apple on course" signal comes from the head (SnakeView). */
+  update(s: GameState): void {
     const apple = applePos(s)
     this.mesh.position.set(apple.x, apple.y, apple.z)
     const phase = ((elapsedMs(s) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS) * Math.PI * 2

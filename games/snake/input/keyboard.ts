@@ -1,9 +1,9 @@
-// PC keyboard: arrows/WASD - turn in the plane, Q/E - third axis, Shift/Space (hold) - boost,
+// PC keyboard: arrows/WASD - turn, Shift/Space (hold) - boost,
 // R - camera reset (tilt and zoom).
 // Works in both control schemes (swipes and taps).
 // We read e.code (the physical key), not e.key: on a Russian layout WASD
 // yields ц/ф/ы/в, and e.key would break the controls.
-import type { AxisDir, ScreenDir } from '../core/state'
+import type { ScreenDir } from '../core/state'
 import { createBoostHold, isBoostCode } from './gestures'
 import type { InputHandlers } from './index'
 
@@ -18,21 +18,13 @@ export const PLANE_CODES: Readonly<Record<string, ScreenDir>> = {
   KeyD: 'right',
 }
 
-export const AXIS_CODES: Readonly<Record<string, AxisDir>> = {
-  KeyQ: 'into',
-  KeyE: 'out',
-}
-
-/** Physical keys (e.code) of the two single-key commands. The controls screen reads them from here. */
+/** Physical keys (e.code) of the two single-key commands (pause, camera reset). The controls screen reads them from here. */
 export const PAUSE_CODE = 'Escape'
 export const CAMERA_RESET_CODE = 'KeyR'
 
-/** Pure parsing function: null - not our key. Kept separate so it can be tested without a DOM. */
-export function keyAction(code: string): { plane: ScreenDir | null; axis: AxisDir | null } | null {
-  const plane = PLANE_CODES[code] ?? null
-  const axis = AXIS_CODES[code] ?? null
-  if (plane === null && axis === null) return null
-  return { plane, axis }
+/** Pure parsing function: the turn a key makes, null - not a turn key. Kept separate so it can be tested without a DOM. */
+export function keyAction(code: string): ScreenDir | null {
+  return PLANE_CODES[code] ?? null
 }
 
 export function attachKeyboard(h: InputHandlers): () => void {
@@ -62,14 +54,13 @@ export function attachKeyboard(h: InputHandlers): () => void {
     }
     // Ctrl/Cmd/Alt+key is a browser shortcut (Ctrl+S, Ctrl+A, Cmd+D...), not the game.
     if (e.ctrlKey || e.metaKey || e.altKey) return
-    const action = keyAction(e.code)
-    if (action === null) return
+    const dir = keyAction(e.code)
+    if (dir === null) return
     // Arrows would otherwise scroll the page; harmless for our other keys too.
     e.preventDefault()
     // Auto-repeat while held must not spam commands.
     if (e.repeat) return
-    if (action.plane !== null) h.onTurn(action.plane)
-    else if (action.axis !== null && h.axisEnabled?.() !== false) h.onAxis(action.axis)
+    h.onTurn(dir)
   }
 
   // keyup without a modifier check: releasing is always allowed.
