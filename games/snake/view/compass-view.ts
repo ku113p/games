@@ -17,7 +17,7 @@
 // работает только у самой оси взгляда, в остальных ракурсах стрелка целит точно.
 //
 // Яркость: гаснет при близком яблоке (оно и так перед носом), полностью видна с
-// COMPASS_FULL_DIST; в фазе plane скрыта (первая игра должна выглядеть обычной
+// hints.compassFullDist (расстояние по прямой); в фазе plane скрыта (первая игра должна выглядеть обычной
 // плоской змейкой), плавно проявляется вместе с freeAmount.
 // Всегда поверх сцены: глубина стрелки сжата к ближней плоскости камеры (шейдер), поэтому
 // препятствия её не закрывают, а грани самой стрелки друг друга сортируют правильно.
@@ -58,9 +58,20 @@ export const COMPASS_HEAD_FRACTION = 0.5
 export const COMPASS_TURN_MS = 160
 /** Сглаживание положения у головы, мс (голова прыгает по клеткам, компас плывёт следом). */
 export const COMPASS_FOLLOW_MS = 90
-/** Яблоко ближе — компас погашен; дальше COMPASS_FULL_DIST — виден полностью (клетки). */
-export const COMPASS_HIDE_DIST = 3
-export const COMPASS_FULL_DIST = 8
+/**
+ * Окно яркости по расстоянию до яблока ПО ПРЯМОЙ, клетки: ближе hide — компас погашен (яблоко и так у самой головы),
+ * от full — виден полностью, между — плавно. Живёт в config.hints (compassHideDist / compassFullDist, числа баланса
+ * подсказок, AGENTS.md §4.5). Пути в обход препятствия и хвоста длиннее прямой, поэтому окно узкое: гасим только вплотную.
+ * Значения ниже — запасные, пока ключей нет в config.json; после вмержа конфиг главнее.
+ */
+export const COMPASS_HIDE_DIST_FALLBACK = 1.5
+export const COMPASS_FULL_DIST_FALLBACK = 3
+
+/** Часть Config, которую читает компас (тип Config в core/rules.ts узкий, пока туда не добавлены ключи). */
+export interface CompassHints {
+  compassHideDist?: number
+  compassFullDist?: number
+}
 /** Максимальная непрозрачность и яркость цвета (линейная яркость яблока ~1, bloom-порог 0.8). */
 export const COMPASS_ALPHA = 0.95
 export const COMPASS_BRIGHTNESS = 0.9
@@ -99,6 +110,11 @@ void main() {
 }
 `
 
+/** Непрозрачность компаса: окно по расстоянию до яблока (по прямой) x включённость объёма (0 в plane, 1 в free, между — полёт камеры). */
+export function compassAlpha(dist: number, hideDist: number, fullDist: number, freeAmount: number): number {
+  return COMPASS_ALPHA * MathUtils.smoothstep(dist, hideDist, fullDist) * MathUtils.smoothstep(freeAmount, 0, 1)
+}
+
 export class CompassView {
   private scene: Scene
   private mesh: Mesh
@@ -116,9 +132,13 @@ export class CompassView {
   private readonly minCos = Math.cos(MathUtils.degToRad(COMPASS_MIN_ANGLE))
   private readonly minSin = Math.sin(MathUtils.degToRad(COMPASS_MIN_ANGLE))
   private ready = false
+  private readonly hideDist: number
+  private readonly fullDist: number
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, hints?: CompassHints) {
     this.scene = scene
+    this.hideDist = hints?.compassHideDist ?? COMPASS_HIDE_DIST_FALLBACK
+    this.fullDist = hints?.compassFullDist ?? COMPASS_FULL_DIST_FALLBACK
     // Стрелка вдоль +Y единичной длины, центр в начале: древко снизу, конус сверху.
     const headLen = COMPASS_HEAD_FRACTION
     const shaftLen = 1 - headLen
@@ -161,8 +181,7 @@ export class CompassView {
     const ap = applePos(s)
     this.target.set(ap.x - h.x, ap.y - h.y, ap.z - h.z)
     const dist = this.target.length()
-    const alpha =
-      COMPASS_ALPHA * MathUtils.smoothstep(dist, COMPASS_HIDE_DIST, COMPASS_FULL_DIST) * MathUtils.smoothstep(freeAmount, 0, 1)
+    const alpha = compassAlpha(dist, this.hideDist, this.fullDist, freeAmount)
     if (alpha <= 0.003 || dist < 1e-6) {
       this.mesh.visible = false
       this.ready = false

@@ -8,7 +8,7 @@ export const config: Config = {
   speed: { startStepMs: 180, minStepMs: 60, stepMsPerApple: 4, boostFactor: 2 },
   obstacles: { density: 0.02, stickiness: 0.6, clearRadius: 4, wallMargin: 1 },
   camera: { rollMs: 260, microPauseMs: 90, glitchMs: 180, distanceFactor: 1.6, followDistance: 4.5, followHeight: 2.5, lateralOffset: 0.7, lookAheadDistance: 10, lookDownOffset: 1.5, modeSwitchMs: 1400 },
-  hints: { latticeAt: 'corners', latticeStep: 1 },
+  hints: { latticeAt: 'corners', latticeStep: 1, compassHideDist: 1.5, compassFullDist: 3 },
   demo: { afterSteps: 5 },
   loop: { maxFrameMs: 100 },
   minimap: { windowCells: 20, levelWindowCells: 10 },

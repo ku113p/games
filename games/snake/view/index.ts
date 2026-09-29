@@ -26,7 +26,7 @@ import { CubeFrame } from './cube-frame'
 import { SnakeView } from './snake-view'
 import { ObstaclesView } from './obstacles-view'
 import { AppleView } from './apple-view'
-import { CompassView, COMPASS_ENABLED } from './compass-view'
+import { CompassView, COMPASS_ENABLED, type CompassHints } from './compass-view'
 import { createDirectionHint } from './direction-hint'
 import { WallGrid } from './wall-grid'
 import { MiniMap } from './minimap'
@@ -103,7 +103,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   const fog = createFog()
   scene.fog = fog
   let fogOn = config.fog.defaultOn
-  const compass = COMPASS_ENABLED ? new CompassView(scene) : null
+  const compass = COMPASS_ENABLED ? new CompassView(scene, config.hints as typeof config.hints & CompassHints) : null
   const aheadRay = createDirectionHint(scene, config)
 
   const initialWidth = canvas.clientWidth || canvas.width || 1

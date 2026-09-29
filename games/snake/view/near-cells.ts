@@ -21,12 +21,22 @@
 // Считается отдельно для каждой клетки. Яблоко — свободная клетка.
 // 5 клеток x 2 заранее выделены; в кадре мутируются позиции и виды, объектов нет.
 // Яркость ниже порога bloom.
+//
+// ГЛУБИНА. Метка стоит в центре клетки, а клетка может быть препятствием (крестик именно там и
+// стоит), поэтому «просто depthTest» съел бы её собственной гранью. И «вообще без depthTest» врало:
+// метка за стеной рисовалась на полной яркости поверх стены, как наклейка на её лице. Поэтому два
+// прохода по одной геометрии с одним и тем же тестом глубины, но в разные стороны:
+//   открытый  — depthTest LessEqual, полная яркость;
+//   за стеной — depthTest Greater, яркость NEAR_OCCLUDED_ALPHA (метка читается «она за стеной»).
+// Глубина метки для теста подтянута к камере на NEAR_DEPTH_BIAS клетки вдоль луча зрения (экранное
+// положение и размер не меняются): собственная клетка метки и её грани метку не закрывают,
+// закрывает только то, что стоит заметно ближе к камере. Проходы не пересекаются (тест общий).
 
-import { BufferAttribute, BufferGeometry, Color, Points, ShaderMaterial, type Scene } from 'three'
+import { BufferAttribute, BufferGeometry, Color, GreaterDepth, LessEqualDepth, Points, ShaderMaterial, type DepthModes, type IUniform, type Scene } from 'three'
 import type { GameState } from '../core/state'
 import { viewFrame, head } from '../core/queries'
 import { HeadTrace, HitKind, type SolidTest } from './head-trace'
-import { NEAR_FAR_ALPHA, NEAR_FAR_SIZE, NEAR_BLOCKED_BRIGHTNESS, NEAR_FORWARD_BRIGHTNESS, NEAR_SIDE_BRIGHTNESS, RAY_DANGER_COLOR } from './palette'
+import { NEAR_DEPTH_BIAS, NEAR_FAR_ALPHA, NEAR_FAR_SIZE, NEAR_BLOCKED_BRIGHTNESS, NEAR_OCCLUDED_ALPHA, NEAR_FORWARD_BRIGHTNESS, NEAR_SIDE_BRIGHTNESS, RAY_DANGER_COLOR } from './palette'
 
 // Итог put: свободна / закрыта (препятствие, тело) / стенка куба.
 const PUT_OPEN = 0
@@ -55,6 +65,8 @@ uniform float uFarAlpha;
 uniform float uArrowMinPx;
 uniform float uBlockedMinPx;
 uniform float uBlockedSizeK;
+uniform float uDepthBias;
+uniform float uPassAlpha;
 uniform vec3 uForwardColor;
 uniform vec3 uSideColor;
 uniform vec3 uBlockedColor;
@@ -73,7 +85,9 @@ void main() {
   }
   vec4 mv = viewMatrix * vec4(position, 1.0);
   vec4 clip = projectionMatrix * mv;
-  gl_Position = clip;
+  // Глубина для теста: точка на луче зрения ближе к камере на uDepthBias (xy/w те же, что у clip).
+  float mvLen = max(length(mv.xyz), 1e-4);
+  gl_Position = projectionMatrix * vec4(mv.xyz * (max(mvLen - uDepthBias, 0.05) / mvLen), 1.0);
   // Экранное направление шага: проекция клетки и клетки + пол-шага по aDir.
   vec4 clip2 = projectionMatrix * (mv + viewMatrix * vec4(aDir * 0.5, 0.0));
   float aspect = projectionMatrix[1][1] / projectionMatrix[0][0];
@@ -90,7 +104,7 @@ void main() {
   gl_PointSize = clamp(sz, mix(uArrowMinPx, uBlockedMinPx, blocked), uMaxPx);
   float nearFade = smoothstep(0.5, 1.5, length(mv.xyz));
   vColor = aKind > 1.5 ? uBlockedColor : (aKind > 0.5 ? uSideColor : uForwardColor);
-  vAlpha = nearFade * (aFar > 0.5 ? uFarAlpha : 1.0);
+  vAlpha = nearFade * (aFar > 0.5 ? uFarAlpha : 1.0) * uPassAlpha;
 }
 `
 
@@ -132,7 +146,9 @@ void main() {
 export class NearCells {
   private scene: Scene
   private points: Points
+  private hidden: Points
   private material: ShaderMaterial
+  private hiddenMaterial: ShaderMaterial
   private pos: BufferAttribute
   private kind: BufferAttribute
   private far: BufferAttribute
@@ -153,38 +169,46 @@ export class NearCells {
     geometry.setAttribute('aFar', this.far)
     geometry.setAttribute('aDir', this.dir)
     const c = (k: number): Color => new Color(k, k, k)
-    this.material = new ShaderMaterial({
-      uniforms: {
-        uPxScale: { value: 400 },
-        uSize: { value: DOT_SIZE },
-        uMaxPx: { value: MAX_PX },
-        uFarSize: { value: NEAR_FAR_SIZE },
-        uFarAlpha: { value: NEAR_FAR_ALPHA },
-        uArrowMinPx: { value: ARROW_MIN_PX },
-        uBlockedMinPx: { value: BLOCKED_MIN_PX },
-        uBlockedSizeK: { value: BLOCKED_SIZE_K },
-        uCrossHalf: { value: CROSS_HALF },
-        uCrossWidth: { value: CROSS_WIDTH },
-        uForwardColor: { value: c(NEAR_FORWARD_BRIGHTNESS) },
-        uSideColor: { value: c(NEAR_SIDE_BRIGHTNESS) },
-        uBlockedColor: { value: RAY_DANGER_COLOR.clone().multiplyScalar(NEAR_BLOCKED_BRIGHTNESS) },
-      },
-      vertexShader: VERT,
-      fragmentShader: FRAG,
-      transparent: true,
-      depthWrite: false,
-      // Метка стоит в центре клетки; клетка-препятствие непрозрачна, и метка внутри
-      // неё пропала бы. Подсказка рисуется поверх (метки — единицы, у головы).
-      depthTest: false,
-    })
+    // Общие униформы двух проходов (по ссылке); своя у каждого только uPassAlpha.
+    const shared: Record<string, IUniform> = {
+      uPxScale: { value: 400 },
+      uSize: { value: DOT_SIZE },
+      uMaxPx: { value: MAX_PX },
+      uFarSize: { value: NEAR_FAR_SIZE },
+      uFarAlpha: { value: NEAR_FAR_ALPHA },
+      uArrowMinPx: { value: ARROW_MIN_PX },
+      uBlockedMinPx: { value: BLOCKED_MIN_PX },
+      uBlockedSizeK: { value: BLOCKED_SIZE_K },
+      uDepthBias: { value: NEAR_DEPTH_BIAS },
+      uCrossHalf: { value: CROSS_HALF },
+      uCrossWidth: { value: CROSS_WIDTH },
+      uForwardColor: { value: c(NEAR_FORWARD_BRIGHTNESS) },
+      uSideColor: { value: c(NEAR_SIDE_BRIGHTNESS) },
+      uBlockedColor: { value: RAY_DANGER_COLOR.clone().multiplyScalar(NEAR_BLOCKED_BRIGHTNESS) },
+    }
+    const make = (passAlpha: number, depthFunc: DepthModes): ShaderMaterial =>
+      new ShaderMaterial({
+        uniforms: { ...shared, uPassAlpha: { value: passAlpha } },
+        vertexShader: VERT,
+        fragmentShader: FRAG,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        depthFunc,
+      })
+    this.material = make(1, LessEqualDepth)
+    this.hiddenMaterial = make(NEAR_OCCLUDED_ALPHA, GreaterDepth)
     this.points = new Points(geometry, this.material)
     this.points.frustumCulled = false
     this.points.renderOrder = 2
-    this.scene.add(this.points)
+    this.hidden = new Points(geometry, this.hiddenMaterial)
+    this.hidden.frustumCulled = false
+    this.hidden.renderOrder = 2
+    this.scene.add(this.points, this.hidden)
   }
 
   setViewportHeight(pixels: number): void {
-    this.material.uniforms['uPxScale']!.value = pixels * 0.5
+    this.material.uniforms['uPxScale']!.value = pixels * 0.5 // униформа общая с проходом «за стеной»
   }
 
   /**
@@ -240,8 +264,9 @@ export class NearCells {
   }
 
   dispose(): void {
-    this.scene.remove(this.points)
+    this.scene.remove(this.points, this.hidden)
     this.points.geometry.dispose()
     this.material.dispose()
+    this.hiddenMaterial.dispose()
   }
 }

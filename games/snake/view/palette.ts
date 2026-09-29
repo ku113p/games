@@ -168,6 +168,11 @@ export const NEAR_SIDE_BRIGHTNESS = 0.72
 export const NEAR_BLOCKED_BRIGHTNESS = 0.75
 export const NEAR_FAR_SIZE = 0.4
 export const NEAR_FAR_ALPHA = 0.38
+// Метка за препятствием (по глубине дальше того, что перед ней): доля обычной альфы. Читается «за стеной»,
+// а не «на стене»; не мигает, статично. NEAR_DEPTH_BIAS — на сколько клеток метка для теста глубины
+// подтянута к камере (полудиагональ клетки ~0.87): собственную клетку/грань метки это не считает преградой.
+export const NEAR_OCCLUDED_ALPHA = 0.3
+export const NEAR_DEPTH_BIAS = 0.9
 
 // Мини-карта: препятствия тише головы и яблока (фон, а не фигура).
 export const MINIMAP_OBSTACLE_COLOR = new Color(0x8f5cff)

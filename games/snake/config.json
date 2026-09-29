@@ -111,7 +111,9 @@
   },
   "hints": {
     "latticeAt": "corners",
-    "latticeStep": 4
+    "latticeStep": 4,
+    "compassHideDist": 1.5,
+    "compassFullDist": 3
   },
   "headSignal": {
     "dangerHorizon": 2,

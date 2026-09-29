@@ -20,7 +20,7 @@ export interface Config {
     lookDownOffset: number
     modeSwitchMs: number
   }
-  hints: { latticeAt: 'corners' | 'centers'; latticeStep: number }
+  hints: { latticeAt: 'corners' | 'centers'; latticeStep: number; compassHideDist: number; compassFullDist: number }
   demo: { afterSteps: number }
   loop: { maxFrameMs: number }
   minimap: { windowCells: number; levelWindowCells: number }
