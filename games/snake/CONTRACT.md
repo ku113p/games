@@ -1,9 +1,9 @@
 # Контракт слоёв — games/snake
 
 Три агента пишут слои параллельно. Сигнатуры ниже — закон, менять нельзя.
-Проект: /home/ubuntu/docs/games/games/snake
-Правила репозитория: /home/ubuntu/docs/games/AGENTS.md (прочитать целиком)
-Дизайн: /home/ubuntu/docs/games/games/snake/DESIGN.md (прочитать целиком)
+Проект: games/snake (пути от корня репозитория)
+Правила репозитория: AGENTS.md (прочитать целиком)
+Дизайн: games/snake/DESIGN.md (прочитать целиком)
 Стек: bun 1.4.2, TypeScript strict, three@0.186.1 (API этой версии, не по памяти).
 
 ## Система координат и кадр камеры

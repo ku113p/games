@@ -1,4 +1,4 @@
-// Линтер границ между слоями (/home/ubuntu/docs/games/AGENTS.md, раздел 4; CONTRACT.md).
+// Линтер границ между слоями (AGENTS.md, раздел 4; CONTRACT.md).
 // Запуск: `bun scripts/check-layers.ts` (ненулевой код выхода при нарушении).
 //
 // Правила:

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 *.log
+pid
+*.pid
+.claude/
 .DS_Store
 
 # Личные файлы машины и песочницы — не код проекта
@@ -21,7 +24,19 @@ dist/
 .env.*
 
 # Песочница подменяет эти пути символами-устройствами, git на них спотыкается.
+# /scripts — только корневой каталог; games/<игра>/scripts (линтер границ) не затрагивается.
 # Когда появятся настоящие каталоги (например .github/workflows для деплоя) —
 # убрать отсюда и добавить в репозиторий.
 /scripts
 /.github
+
+# Пустышки нулевого размера, попавшие в репозиторий базовым снимком. На диске их держит
+# песочница (удалить нельзя, «Device or resource busy»), поэтому просто не отслеживаем.
+# Пустой корневой package.json и lock-файлы иначе сбивают Bun и CI: у игры свой package.json
+# в games/snake.
+/package.json
+/package-lock.json
+/pnpm-lock.yaml
+/yarn.lock
+/bunfig.toml
+/.gitmodules
