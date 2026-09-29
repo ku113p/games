@@ -2,7 +2,7 @@
 // Вызывается из view/ каждый кадр (рендер и препятствия через InstancedMesh) — без аллокаций.
 
 import { rotateFrameOf } from './rules'
-import { effectiveStepMs, type GameState, type Mode, type Vec3, type Frame } from './state'
+import { cellKey, effectiveStepMs, type GameState, type Mode, type Vec3, type Frame } from './state'
 
 export function head(s: GameState): Vec3 {
   return s.snake[0]!
@@ -137,4 +137,66 @@ export function viewFrame(s: GameState): Frame {
   copyVec(VIEW_FRAME.depth, s.frame.depth)
   rotateFrameOf(VIEW_FRAME, VIEW_AXIS)
   return VIEW_FRAME
+}
+
+/**
+ * Занята ли клетка (x,y,z) в момент, когда голова входит в неё на j-м ходу (j >= 1) по прямой:
+ * стена куба, препятствие или тело. Хвост освобождается по ходу: к j-му входу из тела ушли
+ * последние max(0, j - growth) сегментов (ядро пускает и в вот-вот уходящую клетку хвоста, если
+ * growth исчерпан, см. commands.isFreeAhead). Ядро при этом не трогается: только чтение, без аллокаций.
+ */
+function isBlockedAtStep(s: GameState, x: number, y: number, z: number, j: number): boolean {
+  const size = s.size
+  if (x < 0 || y < 0 || z < 0 || x >= size || y >= size || z >= size) return true
+  const key = cellKey(x, y, z, size)
+  if (s.obstacles.has(key)) return true
+  if (!s.snakeCells.has(key)) return false
+  const snake = s.snake
+  const gone = Math.min(j - s.growth, snake.length - 1)
+  for (let i = snake.length - 1; i > snake.length - 1 - gone; i--) {
+    const seg = snake[i]!
+    if (seg.x === x && seg.y === y && seg.z === z) return false
+  }
+  return true
+}
+
+/**
+ * Через сколько ходов змейка врежется (в стену, препятствие или своё тело), если не повернёт:
+ * идёт по intendedHeading (учитывает введённый, но ещё не исполненный поворот). 1 — следующий же ход
+ * смертелен, 2 — через один, и так до horizon включительно. 0 — в пределах horizon ничего нет.
+ * horizon приходит снаружи (config.headSignal.dangerHorizon). Вне фазы running всегда 0.
+ * Не мутирует состояние, без аллокаций; стоит O(horizon).
+ */
+export function stepsToCrash(s: GameState, horizon: number): number {
+  if (s.phase !== 'running') return 0
+  const h = s.snake[0]!
+  const d = intendedHeading(s)
+  for (let j = 1; j <= horizon; j++) {
+    if (isBlockedAtStep(s, h.x + d.x * j, h.y + d.y * j, h.z + d.z * j, j)) return j
+  }
+  return 0
+}
+
+/**
+ * Идёт ли змейка прямо на яблоко: яблоко лежит на луче из головы по intendedHeading, и до него по
+ * пути нет стены, препятствия и тела (иначе змейка до него не дойдёт и «на верном пути» было бы ложью:
+ * яблоко за препятствием НЕ на курсе). Дальность не ограничена, кроме размера куба.
+ * Вне фазы running — false. Не мутирует состояние, без аллокаций; O(size).
+ */
+export function appleOnCourse(s: GameState): boolean {
+  if (s.phase !== 'running') return false
+  const h = s.snake[0]!
+  const a = s.apple
+  const d = intendedHeading(s)
+  const dx = a.x - h.x
+  const dy = a.y - h.y
+  const dz = a.z - h.z
+  // Яблоко на оси движения: две другие координаты совпадают, вдоль оси — впереди (не позади и не в голове).
+  const along = dx * d.x + dy * d.y + dz * d.z
+  if (along < 1) return false
+  if (dx - d.x * along !== 0 || dy - d.y * along !== 0 || dz - d.z * along !== 0) return false
+  for (let j = 1; j < along; j++) {
+    if (isBlockedAtStep(s, h.x + d.x * j, h.y + d.y * j, h.z + d.z * j, j)) return false
+  }
+  return true
 }

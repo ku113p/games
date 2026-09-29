@@ -27,7 +27,7 @@ export const HINT_RAY_SIDES = false
 export const HINT_NEAR = true
 
 export interface DirectionHint {
-  /** true, если луч вперёд упирается в яблоко (читает AppleView). */
+  /** true, если луч вперёд упирается в яблоко (яблоко цвет не меняет; поле оставлено для совместимости). */
   appleTargeted: boolean
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest, freeAmount: number): void
   /** Высота буфера кадра в пикселях; нужна только точкам. */

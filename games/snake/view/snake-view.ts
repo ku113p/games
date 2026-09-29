@@ -23,7 +23,8 @@ import {
   type Scene,
 } from 'three'
 import type { GameState } from '../core/state'
-import { snakeLength, forEachSnakeSegment, elapsedMs, intendedHeading, stepProgress } from '../core/queries'
+import { snakeLength, forEachSnakeSegment, elapsedMs, intendedHeading, stepProgress, stepsToCrash, appleOnCourse } from '../core/queries'
+import configJson from '../config.json'
 import { InstancedPool } from './pool'
 import { beamGeometry, cubeEdgeSegments } from './outline'
 import {
@@ -33,6 +34,10 @@ import {
   SNAKE_HEAD_BOOST,
   SNAKE_STRIPE_DIM,
   SNAKE_BODY_GLOW_BOOST,
+  HEAD_GOAL_COLOR,
+  HEAD_GOAL_BOOST,
+  HEAD_DANGER_COLOR_FAR,
+  HEAD_DANGER_COLOR_NEAR,
 } from './palette'
 
 // Оформительские константы, не числа баланса.
@@ -45,6 +50,20 @@ const SLIDE_FRACTION = 0.4
 const SEGMENT_BEAM = 0.1
 const HEAD_PULSE = 0.06
 const HEAD_PULSE_PERIOD_MS = 600
+// Пульс головы в опасности: чем ближе удар, тем чаще и сильнее (urgency 0..1 линейно между значениями).
+const DANGER_PERIOD_FAR_MS = 560
+const DANGER_PERIOD_NEAR_MS = 220
+const DANGER_PULSE_FAR = 0.09
+const DANGER_PULSE_NEAR = 0.2
+// Яркость мигает вместе с размером лишь в опасности (доля от базовой яркости).
+const DANGER_FLICKER = 0.25
+
+/** Числа сигналов головы (config.headSignal): горизонт опасности в ходах и время перехода цвета. */
+export interface HeadSignalConfig {
+  dangerHorizon: number
+  riseMs: number
+  fallMs: number
+}
 // Fade ближних к камере сегментов: расстояния в клетках (не от followDistance,
 // камера вплотную: шея ~1.7 клетки от камеры должна остаться видимой, а всё,
 // что ближе ~1 клетки, схлопывается).
@@ -64,6 +83,27 @@ export class SnakeView {
   private headMesh: Mesh
   private headMaterial: MeshBasicMaterial
   private headDir = new Vector3(1, 0, 0)
+
+  // Сигналы головы. Ядро считает их раз в такт (между тактами состояние не меняется), поэтому результат
+  // кэшируется по ключу (состояние, шаг, курс, яблоко); в кадре остаётся только плавный переход цвета.
+  private readonly signalCfg: HeadSignalConfig
+  private sigState: GameState | null = null
+  private sigStep = -1
+  private sigHx = 0
+  private sigHy = 0
+  private sigHz = 0
+  private sigAx = -1
+  private sigAy = -1
+  private sigAz = -1
+  private sigRolled = false
+  private crashIn = 0
+  private goal = false
+  private goalAmount = 0
+  private dangerAmount = 0
+  private urgency = 0
+  private lastElapsed = -1
+  private readonly headColor = new Color()
+  private readonly tint = new Color()
 
   /**
    * Единичное направление головы, обновляется в update(): то, куда змейка повёрнута сейчас, включая уже
@@ -132,7 +172,8 @@ export class SnakeView {
     this.pool.mesh.setColorAt(idx, this.color)
   }
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, signalCfg: HeadSignalConfig = configJson.headSignal) {
+    this.signalCfg = signalCfg
     const geometry = beamGeometry(cubeEdgeSegments(SEGMENT_SCALE / 2), SEGMENT_BEAM)
     const material = new MeshBasicMaterial()
     this.pool = new InstancedPool(scene, geometry, material, 8)
@@ -182,9 +223,67 @@ export class SnakeView {
     // Направление головы берётся из ядра и меняется мгновенно по вводу, без сглаживания: змейка тактовая.
     const dir = intendedHeading(s)
     this.headDir.set(dir.x, dir.y, dir.z)
-    const phase = ((elapsedMs(s) % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2
-    this.headMesh.scale.setScalar(1 + HEAD_PULSE * Math.sin(phase))
+    this.updateSignals(s, dir.x, dir.y, dir.z)
     this.headMesh.position.set(this.headX, this.headY, this.headZ)
+  }
+
+  /**
+   * Цвет и пульс головы. Опасность (удар через 1..dangerHorizon ходов) ПЕРЕБИВАЕТ цель (яблоко на курсе).
+   * Запросы ядра пересчитываются только когда изменился такт, курс (ввод) или яблоко; переход цвета
+   * сглажен (быстро загорается, медленнее гаснет), поэтому на высокой скорости голова не мигает на каждом такте.
+   */
+  private updateSignals(s: GameState, dx: number, dy: number, dz: number): void {
+    const a = s.apple
+    if (
+      s !== this.sigState || s.stepCount !== this.sigStep || dx !== this.sigHx || dy !== this.sigHy || dz !== this.sigHz ||
+      a.x !== this.sigAx || a.y !== this.sigAy || a.z !== this.sigAz || s.rolledSinceStep !== this.sigRolled
+    ) {
+      this.sigState = s
+      this.sigStep = s.stepCount
+      this.sigHx = dx
+      this.sigHy = dy
+      this.sigHz = dz
+      this.sigAx = a.x
+      this.sigAy = a.y
+      this.sigAz = a.z
+      this.sigRolled = s.rolledSinceStep
+      const horizon = this.signalCfg.dangerHorizon
+      this.crashIn = stepsToCrash(s, horizon)
+      this.goal = this.crashIn === 0 && appleOnCourse(s)
+      // Срочность: удар на следующем ходу = 1, на последнем ходу горизонта = 1/horizon.
+      if (this.crashIn > 0) this.urgency = (horizon - this.crashIn + 1) / horizon
+    }
+
+    const now = elapsedMs(s)
+    const dt = this.lastElapsed < 0 ? 0 : Math.max(0, now - this.lastElapsed)
+    this.lastElapsed = now
+    const rise = dt / Math.max(1, this.signalCfg.riseMs)
+    const fall = dt / Math.max(1, this.signalCfg.fallMs)
+    const danger = this.crashIn > 0
+    this.dangerAmount = danger ? Math.min(1, this.dangerAmount + rise) : Math.max(0, this.dangerAmount - fall)
+    const goalTarget = this.goal && !danger
+    this.goalAmount = goalTarget ? Math.min(1, this.goalAmount + rise) : Math.max(0, this.goalAmount - fall)
+    if (this.dangerAmount === 0 && !danger) this.urgency = 0
+
+    const hot = this.urgency
+    const period = MathUtils.lerp(DANGER_PERIOD_FAR_MS, DANGER_PERIOD_NEAR_MS, hot)
+    const dangerPhase = ((now % period) / period) * Math.PI * 2
+    const dangerWave = Math.sin(dangerPhase)
+    const idlePhase = ((now % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2
+    const idleWave = Math.sin(idlePhase)
+    const pulse = MathUtils.lerp(HEAD_PULSE * idleWave, MathUtils.lerp(DANGER_PULSE_FAR, DANGER_PULSE_NEAR, hot) * dangerWave, this.dangerAmount)
+    this.headMesh.scale.setScalar(1 + pulse)
+
+    const c = this.headColor.copy(SNAKE_HEAD_COLOR).multiplyScalar(SNAKE_HEAD_BOOST)
+    if (this.goalAmount > 0) {
+      c.lerp(this.tint.copy(HEAD_GOAL_COLOR).multiplyScalar(HEAD_GOAL_BOOST), this.goalAmount)
+    }
+    if (this.dangerAmount > 0) {
+      const flicker = 1 + DANGER_FLICKER * hot * dangerWave
+      this.tint.copy(HEAD_DANGER_COLOR_FAR).lerp(HEAD_DANGER_COLOR_NEAR, MathUtils.clamp(hot * 2 - 1, 0, 1)).multiplyScalar(flicker)
+      c.lerp(this.tint, this.dangerAmount)
+    }
+    this.headMaterial.color.copy(c)
   }
 
   dispose(): void {

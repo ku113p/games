@@ -44,6 +44,11 @@
     "latticeAt": "corners",
     "latticeStep": 4
   },
+  "headSignal": {
+    "dangerHorizon": 2,
+    "riseMs": 110,
+    "fallMs": 320
+  },
   "demo": {
     "afterSteps": 5
   },

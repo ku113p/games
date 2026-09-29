@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { cellKey } from './state'
 import { tick, turnAxis, turnInPlane } from './commands'
 import {
+  appleOnCourse,
   applePos,
   cameraFrame,
   cubeSize,
@@ -15,6 +16,7 @@ import {
   score,
   snakeLength,
   stepProgress,
+  stepsToCrash,
   viewFrame,
 } from './queries'
 import { config, makeState, v } from './test-helpers'
@@ -240,5 +242,156 @@ describe('intendedHeading / viewFrame — поворот виден сразу �
     const b = viewFrame(s)
     expect(b).toBe(a)
     expect(JSON.stringify(b)).toBe(snapshot)
+  })
+})
+
+// Голова (10,10,10) едет вправо (+x), тело сзади; куб 20.
+describe('stepsToCrash — через сколько ходов врежется', () => {
+  const H = 2
+  test('чистый путь — 0', () => {
+    expect(stepsToCrash(makeState(), H)).toBe(0)
+  })
+
+  test('стена: вплотную — 1, через клетку — 2, дальше горизонта — 0', () => {
+    const at = (x: number) => makeState({ snake: [v(x, 10, 10), v(x - 1, 10, 10), v(x - 2, 10, 10)] })
+    expect(stepsToCrash(at(19), H)).toBe(1)
+    expect(stepsToCrash(at(18), H)).toBe(2)
+    expect(stepsToCrash(at(17), H)).toBe(0)
+  })
+
+  test('горизонт — число снаружи: при 3 виден удар через три хода', () => {
+    const s = makeState({ snake: [v(17, 10, 10), v(16, 10, 10), v(15, 10, 10)] })
+    expect(stepsToCrash(s, 3)).toBe(3)
+    expect(stepsToCrash(s, 2)).toBe(0)
+  })
+
+  test('стена по каждой из шести осей', () => {
+    for (const [d, head] of [
+      [v(-1, 0, 0), v(0, 10, 10)],
+      [v(0, 1, 0), v(10, 19, 10)],
+      [v(0, -1, 0), v(10, 0, 10)],
+      [v(0, 0, 1), v(10, 10, 19)],
+      [v(0, 0, -1), v(10, 10, 0)],
+    ] as const) {
+      const s = makeState({ heading: d, snake: [head, v(head.x - d.x, head.y - d.y, head.z - d.z)] })
+      expect(stepsToCrash(s, H)).toBe(1)
+    }
+  })
+
+  test('препятствие вплотную — 1, через клетку — 2', () => {
+    const near = makeState({ obstacles: new Set([cellKey(11, 10, 10, 20)]) })
+    const far = makeState({ obstacles: new Set([cellKey(12, 10, 10, 20)]) })
+    expect(stepsToCrash(near, H)).toBe(1)
+    expect(stepsToCrash(far, H)).toBe(2)
+  })
+
+  test('препятствие вне курса не считается', () => {
+    const s = makeState({ obstacles: new Set([cellKey(11, 11, 10, 20)]) })
+    expect(stepsToCrash(s, H)).toBe(0)
+  })
+
+  test('собственное тело: петля, голова упирается в свой сегмент', () => {
+    // голова (10,10,10) идёт +x; тело обходит вокруг и стоит в (11,10,10)
+    const snake = [v(10, 10, 10), v(10, 11, 10), v(11, 11, 10), v(11, 10, 10), v(12, 10, 10), v(13, 10, 10)]
+    const s = makeState({ snake })
+    expect(stepsToCrash(s, H)).toBe(1)
+  })
+
+  test('уходящий хвост не считается препятствием (как в ядре), пока рост не исчерпан', () => {
+    // хвост стоит впереди головы, на (11,10,10): к первому ходу он ещё не ушёл только при росте
+    const snake = [v(10, 10, 10), v(10, 11, 10), v(11, 11, 10), v(11, 10, 10)]
+    expect(stepsToCrash(makeState({ snake, growth: 0 }), H)).toBe(0)
+    expect(stepsToCrash(makeState({ snake, growth: 1 }), H)).toBe(1)
+  })
+
+  test('сегмент тела через клетку освободится к моменту прихода — не удар', () => {
+    // последние два сегмента стоят на (11,10,10) и (12,10,10)? нет: хвост на (12,10,10), сосед на (11,10,10)
+    const snake = [v(10, 10, 10), v(10, 11, 10), v(11, 11, 10), v(12, 11, 10), v(12, 10, 10), v(11, 10, 10)]
+    // клетка (11,10,10) — хвост (последний): ушёл к 1-му ходу; (12,10,10) — предпоследний: ушёл ко 2-му
+    expect(stepsToCrash(makeState({ snake }), H)).toBe(0)
+    // с ростом 1 хвост держится на 1-м ходу
+    expect(stepsToCrash(makeState({ snake, growth: 1 }), H)).toBe(1)
+  })
+
+  test('учитывает введённый, но не исполненный поворот (pendingTurn)', () => {
+    const s = makeState({ snake: [v(19, 10, 10), v(18, 10, 10), v(17, 10, 10)], pendingTurn: v(0, 1, 0) })
+    expect(stepsToCrash(s, H)).toBe(0)
+    s.pendingTurn = null
+    expect(stepsToCrash(s, H)).toBe(1)
+  })
+
+  test('фаза free (heading вдоль depth): стена и препятствие по третьей оси', () => {
+    const frame = { right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) }
+    const wall = makeState({ mode: 'free', frame, heading: v(0, 0, -1), snake: [v(10, 10, 1), v(10, 10, 2), v(10, 10, 3)] })
+    expect(stepsToCrash(wall, H)).toBe(2)
+    const obs = makeState({ mode: 'free', frame, heading: v(0, 0, -1), snake: [v(10, 10, 8), v(10, 10, 9), v(10, 10, 10)], obstacles: new Set([cellKey(10, 10, 7, 20)]) })
+    expect(stepsToCrash(obs, H)).toBe(1)
+  })
+
+  test('не в фазе running — 0; состояние не меняется', () => {
+    const s = makeState({ snake: [v(19, 10, 10), v(18, 10, 10), v(17, 10, 10)] })
+    const before = JSON.stringify([s.snake, s.pendingTurn, s.stepCount, s.phase])
+    expect(stepsToCrash(s, H)).toBe(1)
+    expect(JSON.stringify([s.snake, s.pendingTurn, s.stepCount, s.phase])).toBe(before)
+    s.phase = 'dead'
+    expect(stepsToCrash(s, H)).toBe(0)
+    s.phase = 'ready'
+    expect(stepsToCrash(s, H)).toBe(0)
+  })
+})
+
+describe('appleOnCourse — яблоко на текущем курсе', () => {
+  test('яблоко ровно по курсу, любая дальность', () => {
+    expect(appleOnCourse(makeState({ apple: v(11, 10, 10) }))).toBe(true)
+    expect(appleOnCourse(makeState({ apple: v(19, 10, 10) }))).toBe(true)
+  })
+
+  test('яблоко сбоку, позади или не на оси — нет', () => {
+    expect(appleOnCourse(makeState({ apple: v(15, 11, 10) }))).toBe(false)
+    expect(appleOnCourse(makeState({ apple: v(10, 15, 10) }))).toBe(false)
+    expect(appleOnCourse(makeState({ apple: v(5, 10, 10), snake: [v(10, 10, 10), v(9, 9, 10), v(8, 9, 10)] }))).toBe(false)
+  })
+
+  test('яблоко за препятствием — НЕ на курсе (змейка туда не дойдёт)', () => {
+    const s = makeState({ apple: v(15, 10, 10), obstacles: new Set([cellKey(13, 10, 10, 20)]) })
+    expect(appleOnCourse(s)).toBe(false)
+    s.obstacles.clear()
+    expect(appleOnCourse(s)).toBe(true)
+  })
+
+  test('яблоко за собственным телом — не на курсе', () => {
+    const snake = [v(10, 10, 10), v(10, 11, 10), v(11, 11, 10), v(12, 11, 10), v(12, 10, 10), v(13, 10, 10), v(14, 10, 10), v(15, 10, 10), v(16, 10, 10)]
+    // (12,10,10) занята сегментом, который к 2-му ходу не освободится (хвост далеко)
+    expect(appleOnCourse(makeState({ snake, apple: v(14, 10, 10) }))).toBe(false)
+  })
+
+  test('препятствие ПОСЛЕ яблока не мешает', () => {
+    const s = makeState({ apple: v(13, 10, 10), obstacles: new Set([cellKey(15, 10, 10, 20)]) })
+    expect(appleOnCourse(s)).toBe(true)
+  })
+
+  test('учитывает введённый поворот', () => {
+    const s = makeState({ apple: v(10, 15, 10), pendingTurn: v(0, 1, 0) })
+    expect(appleOnCourse(s)).toBe(true)
+    s.pendingTurn = null
+    expect(appleOnCourse(s)).toBe(false)
+  })
+
+  test('яблоко по курсу и одновременно удар через два хода невозможен без препятствия перед ним; с препятствием — false', () => {
+    const s = makeState({ apple: v(15, 10, 10), obstacles: new Set([cellKey(12, 10, 10, 20)]) })
+    expect(stepsToCrash(s, 2)).toBe(2)
+    expect(appleOnCourse(s)).toBe(false)
+  })
+
+  test('фаза free: по оси depth', () => {
+    const frame = { right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) }
+    const s = makeState({ mode: 'free', frame, heading: v(0, 0, -1), snake: [v(10, 10, 10), v(10, 10, 11), v(10, 10, 12)], apple: v(10, 10, 4) })
+    expect(appleOnCourse(s)).toBe(true)
+    s.apple = v(10, 10, 14)
+    expect(appleOnCourse(s)).toBe(false)
+  })
+
+  test('не в фазе running — false', () => {
+    expect(appleOnCourse(makeState({ apple: v(15, 10, 10), phase: 'dead' }))).toBe(false)
   })
 })
