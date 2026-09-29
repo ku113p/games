@@ -1,0 +1,50 @@
+# ПЕРЕНЕСТИ в .github/workflows/deploy.yml (см. отчёт: в песочнице .github — файл-заглушка, каталог создать нельзя).
+# Деплой на GitHub Pages при пуше в main. Один раз в репозитории: Settings -> Pages -> Source: "GitHub Actions".
+# Base path в workflow не нужен: сборка целиком на относительных путях (см. tools/build.ts),
+# поэтому сайт работает по /<репозиторий>/ и /<репозиторий>/<игра>/ с любым именем репозитория.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install, test, lint every game
+        run: |
+          for d in games/*/; do
+            [ -f "$d/package.json" ] || continue
+            echo "== $d"
+            (cd "$d" && bun install --frozen-lockfile && bun test && bun run lint:layers)
+          done
+      - name: Build all games and the landing
+        run: bun tools/build.ts
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

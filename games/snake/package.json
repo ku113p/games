@@ -6,7 +6,7 @@
     "dev": "bun --hot index.html",
     "test": "bun test",
     "lint:layers": "bun scripts/check-layers.ts",
-    "build": "bun build index.html --outdir ../../dist/snake --minify"
+    "build": "bun build index.html --outdir ../../dist/snake --minify --banner '/*! three.js (c) 2010-2026 three.js authors, MIT License. Full notice: THIRD_PARTY.md next to this build. */'"
   },
   "dependencies": {
     "three": "0.186.1"

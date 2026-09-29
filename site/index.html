@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Small browser games for phone and desktop. Free, no install." />
+    <title>Tiny Games</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05060a;
+        --fg: #d9fbff;
+        --muted: #8fb3b8;
+        --neon: #39ffe0;
+        --accent: #ff2fb0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(ellipse at 50% 0%, rgba(57, 255, 224, 0.1), transparent 55%), var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+          max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 8px 0 4px;
+        font-size: clamp(30px, 9vw, 48px);
+        color: var(--neon);
+        text-shadow: 0 0 18px rgba(57, 255, 224, 0.55);
+        letter-spacing: 0.02em;
+      }
+      .lead {
+        margin: 0 0 24px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.4;
+      }
+      .games {
+        display: grid;
+        gap: 20px;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+      }
+      .card {
+        border: 1px solid rgba(57, 255, 224, 0.35);
+        border-radius: 16px;
+        overflow: hidden;
+        background: rgba(10, 16, 22, 0.8);
+        box-shadow: 0 0 24px rgba(57, 255, 224, 0.08);
+      }
+      .card .media {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        object-fit: cover;
+        object-position: center;
+        background: #000;
+      }
+      .card .body {
+        padding: 16px;
+      }
+      .card h2 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+      .card p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      .play {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        border-radius: 12px;
+        background: var(--neon);
+        color: #021412;
+        font-size: 18px;
+        font-weight: 700;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .play:active {
+        transform: scale(0.98);
+        background: #7dffee;
+      }
+      .play:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+      footer {
+        margin-top: 28px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      footer a {
+        color: var(--neon);
+        display: inline-block;
+        padding: 12px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Tiny Games</h1>
+      <p class="lead">Small browser games for phone and desktop. Free, no install, tap and play.</p>
+      <ul class="games" id="games"></ul>
+      <footer><a href="./THIRD_PARTY.md">Third-party licenses</a></footer>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
