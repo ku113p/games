@@ -1,0 +1,11 @@
+{
+  "cube": { "sizes": [20, 50, 100], "default": 20 },
+  "snake": { "startLength": 3, "growPerApple": 1 },
+  "speed": { "startStepMs": 1080, "minStepMs": 360, "stepMsPerApple": 24, "boostFactor": 2 },
+  "obstacles": { "density": 0.03, "stickiness": 0.6, "clearRadius": 4, "wallMargin": 1 },
+  "camera": { "rollMs": 260, "microPauseMs": 90, "glitchMs": 180, "distanceFactor": 1.6, "followDistance": 4.5, "followHeight": 2.5, "lateralOffset": 0.7, "lookAheadDistance": 10, "lookDownOffset": 1.5, "modeSwitchMs": 1400 },
+  "hints": { "latticeAt": "corners", "latticeStep": 4 },
+  "demo": { "afterSteps": 5 },
+  "loop": { "maxFrameMs": 100 },
+  "input": { "doubleTapMs": 240, "swipeMinPx": 24, "tiltRadPerPx": 0.005 }
+}

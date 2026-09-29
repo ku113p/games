@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <title>Змейка 3D</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05060a;
+        --fg: #d9fbff;
+        --neon: #39ffe0;
+        --neon-dim: #1c8f80;
+        --accent: #ff2fb0;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        overflow: hidden;
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+        /* iOS: без выделения текста и системного меню при долгом нажатии */
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      #app {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #game-canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      .screen {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 16px;
+        padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+          max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+        text-align: center;
+        background: radial-gradient(ellipse at 50% 30%, rgba(57, 255, 224, 0.08), transparent 60%), var(--bg);
+      }
+
+      .screen.hidden {
+        display: none;
+      }
+
+      .screen h1 {
+        margin: 0 0 4px;
+        font-size: clamp(28px, 8vw, 44px);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--neon);
+        text-shadow: 0 0 12px var(--neon), 0 0 32px var(--neon-dim);
+      }
+
+      .screen h2 {
+        margin: 0;
+        font-size: clamp(22px, 6vw, 32px);
+        color: var(--accent);
+        text-shadow: 0 0 12px var(--accent);
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        max-width: 420px;
+      }
+
+      .field > span {
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+
+      .options {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 100%;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--neon-dim);
+        background: rgba(57, 255, 224, 0.06);
+        color: var(--fg);
+        border-radius: 10px;
+        padding: 12px 18px;
+        min-height: 44px;
+        min-width: 44px;
+        font-size: 16px;
+        font-family: inherit;
+        cursor: pointer;
+      }
+
+      button:active {
+        background: rgba(57, 255, 224, 0.18);
+      }
+
+      button.selected {
+        border-color: var(--neon);
+        background: rgba(57, 255, 224, 0.22);
+        box-shadow: 0 0 10px rgba(57, 255, 224, 0.5);
+      }
+
+      .record {
+        font-size: 14px;
+        opacity: 0.85;
+        letter-spacing: 0.04em;
+      }
+
+      .tap-to-play {
+        width: min(100%, 420px);
+        min-height: 56px;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--bg);
+        background: var(--neon);
+        border: none;
+        box-shadow: 0 0 24px var(--neon-dim);
+      }
+
+      .tap-to-play:active {
+        background: var(--neon-dim);
+      }
+
+      #hud {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      #hud.hidden {
+        display: none;
+      }
+
+      #hud .score-pill {
+        padding: 6px 18px;
+        border-radius: 999px;
+        background: rgba(5, 6, 10, 0.6);
+        border: 1px solid var(--neon-dim);
+        font-size: 20px;
+        letter-spacing: 0.05em;
+        text-shadow: 0 0 8px var(--neon);
+      }
+
+      #game-over p {
+        margin: 2px 0;
+        font-size: 16px;
+        opacity: 0.9;
+      }
+
+      .screen.overlay {
+        background: rgba(5, 6, 10, 0.82);
+        justify-content: center;
+      }
+
+      .screen.overlay p {
+        margin: 0;
+        max-width: 420px;
+        font-size: 17px;
+        line-height: 1.45;
+      }
+
+      .screen.overlay .hint {
+        font-size: 14px;
+        opacity: 0.7;
+      }
+
+      button.secondary {
+        background: transparent;
+        min-width: 120px;
+      }
+
+      /* Схема «Тапы»: компактный пульт в нижнем углу (по умолчанию справа, в меню можно слева).
+         Кнопка не меньше 44 px (на телефоне ~15vmin), поля — безопасные зоны выреза и домашней полоски.
+         Мини-карта живёт слева сверху, поле по центру — пульт их не закрывает. */
+      #pad {
+        --btn: clamp(48px, 15vmin, 72px);
+        position: absolute;
+        bottom: max(12px, env(safe-area-inset-bottom));
+        right: max(12px, env(safe-area-inset-right));
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        gap: 10px;
+        touch-action: none;
+      }
+
+      #pad.left {
+        right: auto;
+        left: max(12px, env(safe-area-inset-left));
+        flex-direction: row-reverse;
+      }
+
+      #pad.hidden {
+        display: none;
+      }
+
+      #pad .cross {
+        display: grid;
+        grid-template-columns: repeat(3, var(--btn));
+        grid-template-rows: repeat(3, var(--btn));
+        gap: 4px;
+      }
+
+      #pad .axis {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      /* Фаза 'free': третьей оси нет, её кнопки не показываются. */
+      #pad.no-axis .axis {
+        display: none;
+      }
+
+      #pad button {
+        padding: 0;
+        width: var(--btn);
+        height: var(--btn);
+        min-width: 44px;
+        min-height: 44px;
+        font-size: calc(var(--btn) * 0.42);
+        line-height: 1;
+        border-radius: 14px;
+        background: rgba(5, 6, 10, 0.55);
+        border: 1px solid rgba(57, 255, 224, 0.45);
+        color: rgba(57, 255, 224, 0.85);
+        touch-action: none;
+        transition: background 60ms, box-shadow 60ms;
+      }
+
+      #pad button:active,
+      #pad button.pressed {
+        background: rgba(57, 255, 224, 0.35);
+        transform: scale(0.94);
+      }
+
+      /* Команда принята, змейка её ещё не выполнила (шаг может длиться больше секунды). */
+      #pad button.queued {
+        border-color: var(--neon);
+        color: var(--bg);
+        background: var(--neon);
+        box-shadow: 0 0 14px var(--neon);
+      }
+
+      #pad button.up {
+        grid-area: 1 / 2;
+      }
+      #pad button.left {
+        grid-area: 2 / 1;
+      }
+      #pad button.right {
+        grid-area: 2 / 3;
+      }
+      #pad button.down {
+        grid-area: 3 / 2;
+      }
+
+      #pad .axis button {
+        height: calc(var(--btn) * 1.15);
+        font-size: calc(var(--btn) * 0.22);
+        letter-spacing: 0.02em;
+      }
+
+      /* Кнопка ускорения (обе схемы): зажать — змейка идёт быстрее. Внизу, напротив пульта:
+         жмётся другим большим пальцем. Не меньше 44 px, поля — безопасные зоны. */
+      #boost {
+        --boost: clamp(64px, 20vmin, 96px);
+        position: absolute;
+        bottom: max(12px, env(safe-area-inset-bottom));
+        left: max(12px, env(safe-area-inset-left));
+        width: var(--boost);
+        height: var(--boost);
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: calc(var(--boost) * 0.34);
+        font-weight: 700;
+        line-height: 1;
+        background: rgba(5, 6, 10, 0.55);
+        border: 2px solid rgba(255, 47, 176, 0.55);
+        color: rgba(255, 47, 176, 0.9);
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        transition: background 60ms, box-shadow 60ms;
+      }
+      #boost.right {
+        left: auto;
+        right: max(12px, env(safe-area-inset-right));
+      }
+      #boost.hidden {
+        display: none;
+      }
+      #boost.pressed {
+        transform: scale(0.94);
+      }
+      /* Ускорение включено (в т.ч. с клавиатуры): кнопка горит. */
+      #boost.boosting {
+        border-color: var(--accent);
+        color: var(--bg);
+        background: var(--accent);
+        box-shadow: 0 0 22px var(--accent);
+      }
+
+      /* Ручная пауза: правый верхний угол — подальше от больших пальцев внизу (не нажать случайно),
+         мини-карта слева сверху, счёт по центру. Иконка без подписи. */
+      #pause-btn {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        right: max(12px, env(safe-area-inset-right));
+        width: 48px;
+        height: 48px;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: 20px;
+        line-height: 1;
+        letter-spacing: -0.1em;
+        background: rgba(5, 6, 10, 0.6);
+        border: 1px solid var(--neon);
+        color: var(--neon);
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #pause-btn.hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+
+      <div id="pad" class="hidden" role="group" aria-label="Пульт управления">
+        <div class="cross">
+          <button type="button" class="up" data-pad="up" tabindex="-1" aria-label="Вверх">▲</button>
+          <button type="button" class="left" data-pad="left" tabindex="-1" aria-label="Влево">◀</button>
+          <button type="button" class="right" data-pad="right" tabindex="-1" aria-label="Вправо">▶</button>
+          <button type="button" class="down" data-pad="down" tabindex="-1" aria-label="Вниз">▼</button>
+        </div>
+        <div class="axis">
+          <button type="button" data-pad="into" tabindex="-1" aria-label="Вглубь">вглубь</button>
+          <button type="button" data-pad="out" tabindex="-1" aria-label="На себя">на себя</button>
+        </div>
+      </div>
+
+      <button type="button" id="boost" class="hidden" tabindex="-1" aria-label="Ускорение: зажми, чтобы ехать быстрее">×2</button>
+
+      <button type="button" id="pause-btn" class="hidden" tabindex="-1" aria-label="Пауза">❚❚</button>
+
+      <div id="hud" class="hidden">
+        <div class="score-pill">Счёт: <span id="score">0</span></div>
+      </div>
+
+      <div id="menu" class="screen">
+        <h1>Змейка 3D</h1>
+
+        <div class="field">
+          <span>Размер куба</span>
+          <div id="size-options" class="options" role="radiogroup" aria-label="Размер куба">
+            <button type="button" data-size="20">20³</button>
+            <button type="button" data-size="50">50³</button>
+            <button type="button" data-size="100">100³</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Управление</span>
+          <div id="scheme-options" class="options" role="radiogroup" aria-label="Схема управления">
+            <button type="button" data-scheme="swipes">Свайпы</button>
+            <button type="button" data-scheme="taps">Тапы</button>
+          </div>
+        </div>
+
+        <div class="field" id="pad-side-field">
+          <span>Сторона пульта</span>
+          <div id="pad-side-options" class="options" role="radiogroup" aria-label="Сторона пульта">
+            <button type="button" data-side="left">Слева</button>
+            <button type="button" data-side="right">Справа</button>
+          </div>
+        </div>
+
+        <div class="record">Рекорд: <span id="high-score">0</span></div>
+
+        <button type="button" id="tap-to-play" class="tap-to-play">Тапни, чтобы играть</button>
+      </div>
+
+      <div id="game-over" class="screen hidden">
+        <h2>Игра окончена</h2>
+        <p>Счёт: <span id="final-score">0</span></p>
+        <p>Рекорд: <span id="final-high-score">0</span></p>
+        <button type="button" id="play-again" class="tap-to-play">Ещё раз</button>
+        <button type="button" id="to-menu" class="secondary">В меню</button>
+      </div>
+
+      <div id="pause" class="screen overlay hidden">
+        <h2>Пауза</h2>
+        <button type="button" id="resume" class="tap-to-play">Продолжить</button>
+      </div>
+
+      <div id="demo-explainer" class="screen overlay hidden">
+        <h2>Камера уехала за голову</h2>
+        <p>Это была плоская змейка, а теперь поле стало объёмным: ты смотришь из-за головы.</p>
+        <p>Свайпы влево, вправо, вверх и вниз ведут змейку в объёме. Тело остаётся на месте.</p>
+        <p class="hint">Дальше поворачиваешь только ты.</p>
+        <button type="button" id="demo-continue" class="tap-to-play">Понятно, играем</button>
+      </div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
