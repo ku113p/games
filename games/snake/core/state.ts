@@ -39,6 +39,8 @@ export interface GameState {
   boostRequested: boolean // запрошенное ускорение: кнопка зажата прямо сейчас (setBoost); на темп не влияет
   boosting: boolean // действующее ускорение: шаг длится stepMs / boostFactor; берёт boostRequested на границе шага (tick)
   boostFactor: number // множитель ускорения партии (выбран до старта, createGame; ≥ 1, ×1 — ускорение ничего не даёт)
+  paceScale: number // масштаб всей кривой темпа партии (выбран до старта; 1 — как в config.speed, 1.5 спокойнее, 0.5 вдвое быстрее)
+  minBoostedStepMs: number // пол на длительность УСКОРЕННОГО шага (config.speed.minEffectiveStepMs; 0 — пола нет)
   sinceStepMs: number
   elapsedMs: number
   demoTurnPending: boolean // демо-доворот: один раз, на demo.afterSteps-м ходу первой игры
@@ -65,7 +67,16 @@ export function nextRandom(s: GameState): number {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
-/** Длительность идущего шага: stepMs / boostFactor, пока действует ускорение (boosting, не boostRequested). */
+/**
+ * Длительность шага при ускорении: stepMs / boostFactor, но не короче пола minBoostedStepMs
+ * (иначе сигналы головы не успевают показаться). Пол режет только ускоренный шаг: обычный темп не трогает.
+ */
+export function boostedStepMs(s: GameState): number {
+  const raw = s.boostFactor > 0 ? s.stepMs / s.boostFactor : s.stepMs
+  return raw < s.minBoostedStepMs ? Math.min(s.stepMs, s.minBoostedStepMs) : raw
+}
+
+/** Длительность идущего шага: boostedStepMs, пока действует ускорение (boosting, не boostRequested). */
 export function effectiveStepMs(s: GameState): number {
-  return s.boosting && s.boostFactor > 0 ? s.stepMs / s.boostFactor : s.stepMs
+  return s.boosting ? boostedStepMs(s) : s.stepMs
 }

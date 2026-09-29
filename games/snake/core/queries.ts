@@ -2,7 +2,7 @@
 // Вызывается из view/ каждый кадр (рендер и препятствия через InstancedMesh) — без аллокаций.
 
 import { rotateFrameOf } from './rules'
-import { cellKey, effectiveStepMs, type GameState, type Mode, type Vec3, type Frame } from './state'
+import { boostedStepMs, cellKey, effectiveStepMs, type GameState, type Mode, type Vec3, type Frame } from './state'
 
 export function head(s: GameState): Vec3 {
   return s.snake[0]!
@@ -204,4 +204,13 @@ export function appleOnCourse(s: GameState): boolean {
 /** Множитель ускорения этой партии (выбран до старта): для подписи кнопки и экрана выбора. */
 export function getBoostFactor(s: GameState): number {
   return s.boostFactor
+}
+
+/**
+ * Во сколько раз ускоренный шаг реально короче обычного с учётом пола (config.speed.minEffectiveStepMs).
+ * Равен getBoostFactor, пока пол не мешает; меньше — когда ×8 упёрся в пол. Для подписи «×8 → ×4.0».
+ */
+export function effectiveBoostFactor(s: GameState): number {
+  const b = boostedStepMs(s)
+  return b > 0 ? s.stepMs / b : s.boostFactor
 }

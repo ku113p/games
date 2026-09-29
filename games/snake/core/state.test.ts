@@ -26,6 +26,8 @@ function makeMinimalState(rngState: number): GameState {
     boostRequested: false,
     boosting: false,
     boostFactor: 2,
+    minBoostedStepMs: 0,
+    paceScale: 1,
     sinceStepMs: 0,
     elapsedMs: 0,
     demoTurnPending: false,

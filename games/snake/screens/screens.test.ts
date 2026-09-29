@@ -105,6 +105,81 @@ describe('меню, настройки, рекорды', () => {
   })
 })
 
+describe('магазин', () => {
+  test('меню -> магазин -> назад', () => {
+    const { screens } = fresh()
+    screens.openShop()
+    expect(seen(screens.state)).toEqual(['shop'])
+    expect(topScreen(screens.state)).toBe('shop')
+    screens.back()
+    expect(seen(screens.state)).toEqual(['menu'])
+  })
+
+  test('из магазина «играть» сразу начинает партию, назад из партии магазина нет', () => {
+    const { screens } = fresh()
+    screens.openShop()
+    screens.startGame()
+    expect(seen(screens.state)).toEqual(['hud'])
+    screens.back() // Escape в игре не должен вернуть магазин
+    expect(seen(screens.state)).toEqual(['hud'])
+  })
+
+  test('с экрана проигрыша в магазин и оттуда в новую партию', () => {
+    const { screens } = fresh()
+    screens.startGame()
+    screens.died()
+    screens.openShop()
+    expect(seen(screens.state)).toEqual(['shop'])
+    screens.startGame()
+    expect(seen(screens.state)).toEqual(['hud'])
+  })
+
+  test('из настроек и рекордов магазин напрямую не открывается', () => {
+    const { screens } = fresh()
+    screens.openSettings()
+    screens.openShop()
+    expect(screens.state.base).toBe('settings')
+    screens.back()
+    screens.openRecords()
+    screens.openShop()
+    expect(screens.state.base).toBe('records')
+  })
+
+  test('в партии, на паузе и на демо магазин недоступен', () => {
+    const { screens } = fresh()
+    screens.startGame()
+    screens.openShop()
+    expect(screens.state.base).toBe('game')
+    screens.pause()
+    screens.openShop()
+    expect(screens.state.base).toBe('game')
+    screens.resume()
+    screens.openDemo()
+    screens.openShop()
+    expect(screens.state.base).toBe('game')
+  })
+
+  test('под юридическим экраном магазин не открывается, после него — да', () => {
+    const { screens } = fresh()
+    screens.start()
+    screens.openShop()
+    expect(screens.state.base).toBe('menu')
+    expect(seen(screens.state)).toEqual(['menu', 'warning'])
+    screens.confirmLegal()
+    screens.openShop()
+    expect(seen(screens.state)).toEqual(['shop'])
+  })
+
+  test('выход в меню из любого места закрывает магазин; повторное открытие не шумит', () => {
+    const { screens, changes } = fresh()
+    screens.openShop()
+    screens.openShop()
+    expect(changes.length).toBe(1)
+    screens.toMenu()
+    expect(screens.state.base).toBe('menu')
+  })
+})
+
 describe('партия', () => {
   test('старт: виден только hud; смерть: только экран проигрыша; в меню: меню', () => {
     const { screens } = fresh()
@@ -209,5 +284,7 @@ describe('topScreen', () => {
     expect(topScreen({ legal: null, base: 'game', paused: false, demo: false })).toBe('hud')
     expect(topScreen({ legal: null, base: 'over', paused: false, demo: false })).toBe('over')
     expect(topScreen({ legal: null, base: 'records', paused: false, demo: false })).toBe('records')
+    expect(topScreen({ legal: null, base: 'shop', paused: false, demo: false })).toBe('shop')
+    expect(topScreen({ legal: 'warning', base: 'shop', paused: false, demo: false })).toBe('warning')
   })
 })

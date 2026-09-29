@@ -3,7 +3,7 @@
 // события пишутся в один и тот же переиспользуемый на GameState массив.
 
 import { enterFreeFrame, reorientFrameFree, rotateFrame, spawnApple, speedAfterApples, type Config } from './rules'
-import { cellKey, effectiveStepMs, nextRandom, type AxisDir, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
+import { boostedStepMs, cellKey, effectiveStepMs, nextRandom, type AxisDir, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
 
 export type GameEvent =
   | { type: 'started' }
@@ -300,7 +300,7 @@ function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
 
     buf.push({ type: 'ate', apple: { x: nx, y: ny, z: nz }, score: s.score })
 
-    const newStepMs = speedAfterApples(config, s.applesEaten)
+    const newStepMs = speedAfterApples(config, s.applesEaten, s.paceScale)
     if (newStepMs !== s.stepMs) {
       s.stepMs = newStepMs
       buf.push({ type: 'speedUp', stepMs: newStepMs })
@@ -333,7 +333,7 @@ export function tick(s: GameState, config: Config, dtMs: number): GameEvent[] {
 
   // Потолок шагов за вызов: даже при испорченном sinceStepMs цикл конечен.
   // Запрошенное ускорение включится на границе шага внутри этого вызова: потолок — по ускоренному шагу.
-  const ceilingMs = s.boostRequested && s.boostFactor > 1 ? s.stepMs / s.boostFactor : effectiveStepMs(s)
+  const ceilingMs = s.boostRequested && s.boostFactor > 1 ? boostedStepMs(s) : effectiveStepMs(s)
   const maxSteps = Math.ceil(config.loop.maxFrameMs / ceilingMs) + 1
   let steps = 0
   // Длительность шага берётся заново на каждой итерации: до границы она не меняется задним числом.

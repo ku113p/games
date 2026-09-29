@@ -6,7 +6,7 @@
 // строки не даёт ложных срабатываний), а потом ищет импорты и запрещённые API регулярками
 // по оставшемуся коду. Хитрые обходы (алиасы глобалов через переменные и т.п.) он не ловит.
 
-export type Layer = 'core' | 'view' | 'input'
+export type Layer = 'core' | 'view' | 'input' | 'shop'
 
 export interface Violation {
   file: string
@@ -186,7 +186,7 @@ export function resolveSpecifier(fileRelPath: string, spec: string): string {
 
 function layerOfPath(relPath: string): Layer | 'other' {
   const first = relPath.split('/')[0]
-  return first === 'core' || first === 'view' || first === 'input' ? first : 'other'
+  return first === 'core' || first === 'view' || first === 'input' || first === 'shop' ? first : 'other'
 }
 
 // --- запрещённое в ядре (правило 4 AGENTS.md: ядро детерминировано) -----
@@ -227,17 +227,17 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
   const checkSpec = (spec: string, how: string, at: number): void => {
     const where = `${fileRelPath}:${lineAt(at)}`
     if (!spec.startsWith('.')) {
-      if (layer === 'core') {
-        // В тестах ядра разрешён только раннер.
+      if (layer === 'core' || layer === 'shop') {
+        // В тестах чистых слоёв разрешён только раннер.
         if (isTest && spec === 'bun:test') return
-        add(`${where} core/ ${how} "${spec}" — ядро может импортировать только свои файлы (никаких three/node/npm-пакетов)`)
+        add(`${where} ${layer}/ ${how} "${spec}" — ${layer}/ может импортировать только свои файлы (никаких three/node/npm-пакетов)`)
       }
       return
     }
     const resolved = resolveSpecifier(fileRelPath, spec)
     const target = layerOfPath(resolved)
-    if (layer === 'core' && target !== 'core') {
-      add(`${where} core/ ${how} файл вне core/: "${spec}"`)
+    if ((layer === 'core' || layer === 'shop') && target !== layer) {
+      add(`${where} ${layer}/ ${how} файл вне ${layer}/: "${spec}"`)
     } else if (layer === 'view' && target === 'input') {
       add(`${where} view/ ${how} input/: "${spec}"`)
     } else if (layer === 'input' && target === 'view') {
@@ -283,10 +283,10 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
     add(`${fileRelPath}:${lineAt(m.index)} import.meta.${m[1] as string} — обход проверки импортов`)
   }
 
-  if (layer === 'core' && !isTest) {
+  if ((layer === 'core' || layer === 'shop') && !isTest) {
     for (const { re, what } of CORE_BANNED) {
       const m = re.exec(code)
-      if (m !== null) add(`${fileRelPath}:${lineAt(m.index)} core/ использует ${what} — ядро обязано быть детерминированным (AGENTS.md, правило 4)`)
+      if (m !== null) add(`${fileRelPath}:${lineAt(m.index)} ${layer}/ использует ${what} — ядро обязано быть детерминированным (AGENTS.md, правило 4)`)
     }
   }
   return violations

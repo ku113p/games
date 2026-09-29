@@ -15,8 +15,76 @@
     "startStepMs": 1080,
     "minStepMs": 360,
     "stepMsPerApple": 24,
-    "boostFactor": 2,
-    "boostFactors": [1.5, 2, 3, 4, 8]
+    "boostFactor": 1.5,
+    "boostFactors": [1.5, 2, 3, 4, 8],
+    "minEffectiveStepMs": 90
+  },
+  "shop": {
+    "coinPerApple": 1,
+    "defaultBoost": 1.5,
+    "defaultArenaSize": 20,
+    "maxTemporaryGames": 50,
+    "defaults": {
+      "balance": 0,
+      "owned": ["boost-1.5", "palette-neon", "palette-contrast", "snake-classic", "apple-diamond", "compass-default", "arena-20", "density-1", "pace-1"],
+      "equipped": {
+        "boost": "boost-1.5",
+        "palette": "palette-neon",
+        "snakeSkin": "snake-classic",
+        "appleSkin": "apple-diamond",
+        "compassSkin": "compass-default",
+        "arenaSize": "arena-20",
+        "obstacles": "density-1",
+        "pace": "pace-1"
+      }
+    },
+    "items": [
+      { "id": "boost-1.5", "kind": "boost", "price": 0, "payload": { "factor": 1.5 } },
+      { "id": "boost-2", "kind": "boost", "price": 40, "payload": { "factor": 2 } },
+      { "id": "boost-3", "kind": "boost", "price": 100, "payload": { "factor": 3 } },
+      { "id": "boost-4", "kind": "boost", "price": 250, "payload": { "factor": 4 } },
+      { "id": "boost-8", "kind": "boost", "price": 600, "payload": { "factor": 8 } },
+
+      { "id": "score-perm-1.25", "kind": "scoreMultPermanent", "price": 80, "payload": { "mult": 1.25 } },
+      { "id": "score-perm-1.5", "kind": "scoreMultPermanent", "price": 240, "payload": { "mult": 1.5 } },
+      { "id": "score-temp-2", "kind": "scoreMultTemporary", "price": 60, "payload": { "mult": 2 }, "games": 5 },
+      { "id": "score-temp-3", "kind": "scoreMultTemporary", "price": 150, "payload": { "mult": 3 }, "games": 5 },
+      { "id": "score-temp-5", "kind": "scoreMultTemporary", "price": 200, "payload": { "mult": 5 }, "games": 3 },
+
+      { "id": "palette-neon", "kind": "palette", "price": 0, "payload": { "palette": "neon" } },
+      { "id": "palette-contrast", "kind": "palette", "price": 0, "payload": { "palette": "contrast" } },
+      { "id": "palette-synthwave", "kind": "palette", "price": 250, "payload": { "palette": "synthwave" } },
+      { "id": "palette-ice", "kind": "palette", "price": 250, "payload": { "palette": "ice" } },
+      { "id": "palette-terminal", "kind": "palette", "price": 250, "payload": { "palette": "terminal" } },
+
+      { "id": "snake-classic", "kind": "snakeSkin", "price": 0, "payload": { "skin": "classic" } },
+      { "id": "snake-tail-guides", "kind": "snakeSkin", "price": 100, "payload": { "skin": "tailGuides" } },
+      { "id": "snake-soon", "kind": "comingSoon", "price": 0, "payload": { "slot": "snakeSkin" } },
+
+      { "id": "apple-diamond", "kind": "appleSkin", "price": 0, "payload": { "skin": "diamond" } },
+      { "id": "apple-orb", "kind": "appleSkin", "price": 15, "payload": { "skin": "orb" } },
+      { "id": "apple-star", "kind": "appleSkin", "price": 30, "payload": { "skin": "star" } },
+      { "id": "apple-soon", "kind": "comingSoon", "price": 0, "payload": { "slot": "appleSkin" } },
+
+      { "id": "compass-default", "kind": "compassSkin", "price": 0, "payload": { "skin": "default" } },
+      { "id": "compass-chevron", "kind": "compassSkin", "price": 20, "payload": { "skin": "chevron" } },
+      { "id": "compass-ring", "kind": "compassSkin", "price": 50, "payload": { "skin": "ring" } },
+
+      { "id": "arena-20", "kind": "arenaSize", "price": 0, "payload": { "size": 20 } },
+      { "id": "arena-50", "kind": "arenaSize", "price": 80, "payload": { "size": 50 } },
+      { "id": "arena-100", "kind": "arenaSize", "price": 200, "payload": { "size": 100 } },
+
+      { "id": "density-0", "kind": "obstacleDensity", "price": 100, "payload": { "density": 0 } },
+      { "id": "density-0.25", "kind": "obstacleDensity", "price": 60, "payload": { "density": 0.25 } },
+      { "id": "density-0.5", "kind": "obstacleDensity", "price": 40, "payload": { "density": 0.5 } },
+      { "id": "density-1", "kind": "obstacleDensity", "price": 0, "payload": { "density": 1 } },
+      { "id": "density-2", "kind": "obstacleDensity", "price": 40, "payload": { "density": 2 } },
+
+      { "id": "pace-1.5", "kind": "pace", "price": 30, "payload": { "scale": 1.5 } },
+      { "id": "pace-1", "kind": "pace", "price": 0, "payload": { "scale": 1 } },
+      { "id": "pace-0.75", "kind": "pace", "price": 50, "payload": { "scale": 0.75 } },
+      { "id": "pace-0.5", "kind": "pace", "price": 100, "payload": { "scale": 0.5 } }
+    ]
   },
   "obstacles": {
     "density": 0.03,

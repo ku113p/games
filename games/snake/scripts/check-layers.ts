@@ -7,14 +7,15 @@
 //   2. view/ не импортирует input/; input/ не импортирует view/.
 //   3. Динамические import()/require()/new URL(..., import.meta.url) — только с литералом
 //      (иначе границу не проверить).
-//   4. core/ детерминирован (правило 4 AGENTS.md): без Math.random, Date, performance,
+//   1a. shop/ — то же, что core/: только свои файлы, без DOM и времени (деньги и косметика вне ядра, но тоже чистые).
+//   4. core/ и shop/ детерминированы (правило 4 AGENTS.md): без Math.random, Date, performance,
 //      crypto, document/window/localStorage и таймеров.
 // Проверяются .ts .tsx .mts .cts .js .jsx .mjs .cjs, включая тесты.
 // Логика — в layers-lib.ts (там же оговорены пределы регулярочного подхода).
 import { analyzeSource, type Violation } from './layers-lib'
 
 const root = import.meta.dir.replace(/\/scripts$/, '')
-const LAYERS = ['core', 'view', 'input'] as const
+const LAYERS = ['core', 'view', 'input', 'shop'] as const
 
 const violations: Violation[] = []
 const glob = new Bun.Glob('**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}')

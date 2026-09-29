@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { availableBoostFactors, createGame, isValidBoostFactor } from './rules'
+import { availableBoostFactors, createGame, isValidBoostFactor, type Config } from './rules'
 import { setBoost, startGame, tick } from './commands'
 import { effectiveStepMs } from './state'
-import { getBoostFactor } from './queries'
+import { effectiveBoostFactor, getBoostFactor } from './queries'
 import { config } from './test-helpers'
 
 // Тестовый конфиг: startStepMs 180 (helpers), boostFactor 2. Список ×2/×3/×4/×8 дублирует будущий
@@ -107,5 +107,64 @@ describe('список множителей из конфига', () => {
     expect(isValidBoostFactor(8)).toBe(true)
     expect(isValidBoostFactor(0.99)).toBe(false)
     expect(isValidBoostFactor(Number.NaN)).toBe(false)
+  })
+})
+
+describe('пол на длительность ускоренного шага (config.speed.minEffectiveStepMs)', () => {
+  const floored = { ...cfg, speed: { ...cfg.speed, minEffectiveStepMs: 90 } }
+  const at = (f: number, stepMs: number, c: Config = floored) => {
+    const s = createGame(c, 20, 1, false, f)
+    startGame(s)
+    s.stepMs = stepMs
+    setBoost(s, true)
+    s.boosting = true
+    return s
+  }
+
+  test('выше пола ничего не меняется: 360 мс ×4 = 90 мс', () => {
+    expect(effectiveStepMs(at(4, 360))).toBe(90)
+    expect(effectiveStepMs(at(3, 360))).toBe(120)
+  })
+
+  test('×8 на 360 мс упирается в пол: 90 мс, как ×4; эффективный множитель 4', () => {
+    const s8 = at(8, 360)
+    expect(effectiveStepMs(s8)).toBe(90)
+    expect(effectiveStepMs(s8)).toBe(effectiveStepMs(at(4, 360)))
+    expect(effectiveBoostFactor(s8)).toBe(4)
+    expect(getBoostFactor(s8)).toBe(8)
+  })
+
+  test('на медленном старте ×8 ещё отличается от ×4', () => {
+    expect(effectiveStepMs(at(8, 1080))).toBe(135)
+    expect(effectiveStepMs(at(4, 1080))).toBe(270)
+    expect(effectiveBoostFactor(at(8, 1080))).toBe(8)
+  })
+
+  test('без ускорения пол не действует, ускорение не делает шаг длиннее обычного', () => {
+    const s = createGame(floored, 20, 1, false, 8)
+    startGame(s)
+    s.stepMs = 60 // базовый темп ниже пола
+    expect(effectiveStepMs(s)).toBe(60)
+    s.boosting = true
+    expect(effectiveStepMs(s)).toBe(60)
+  })
+
+  test('нет пола в конфиге — прежнее поведение', () => {
+    expect(effectiveStepMs(at(8, 360, cfg))).toBe(45)
+  })
+
+  test('в игре: за те же 900 мс на ×8 шагов ровно столько же, сколько на ×4', () => {
+    const run = (f: number) => {
+      const s = createGame(floored, 100, 1, false, f)
+      startGame(s)
+      s.stepMs = 360
+      setBoost(s, true)
+      s.boosting = true
+      s.sinceStepMs = 0
+      const before = s.stepCount
+      for (let i = 0; i < 60; i++) tick(s, floored, 15)
+      return s.stepCount - before
+    }
+    expect(run(8)).toBe(run(4))
   })
 })

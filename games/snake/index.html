@@ -937,6 +937,252 @@
           gap: 4px;
         }
       }
+      /* ---- Магазин и монеты. Монета — золотая точка (одна на всё: баланс, цены, «+N»), чтобы валюта не зависела от языка. ---- */
+      .coin {
+        display: inline-block;
+        flex: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 32%, #fff6b8, #ffc93a 58%, #c98a00);
+        box-shadow: 0 0 8px rgba(255, 201, 58, 0.55);
+      }
+      #menu > .shop-btn {
+        position: absolute;
+        top: max(16px, env(safe-area-inset-top));
+        right: max(16px, env(safe-area-inset-right));
+      }
+      .shop-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        padding: 0 16px 0 12px;
+        background: transparent;
+        border-color: rgba(255, 201, 58, 0.45);
+        font-variant-numeric: tabular-nums;
+      }
+      .shop-btn svg {
+        width: 22px;
+        height: 22px;
+        color: #ffc93a;
+      }
+      .shop-btn b {
+        font-size: 16px;
+      }
+      .shop-btn.hidden,
+      .to-shop.hidden,
+      .coins-line.hidden {
+        display: none;
+      }
+      .balance {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border: 1px solid rgba(255, 201, 58, 0.55);
+        border-radius: 999px;
+        font-size: 20px;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 8px rgba(255, 201, 58, 0.5);
+      }
+      .balance .coin {
+        width: 16px;
+        height: 16px;
+      }
+      .coins-line {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: #ffe38a;
+        text-shadow: 0 0 10px rgba(255, 201, 58, 0.5);
+      }
+      #game-over .to-shop {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 48px;
+        border-color: rgba(255, 201, 58, 0.55);
+      }
+      #game-over .to-shop.hidden {
+        display: none;
+      }
+      /* Витрина: прокручиваемое тело; снизу текст гаснет, чтобы было видно, что список продолжается. */
+      .screen.sub > .shop-body {
+        gap: 8px;
+        padding: 8px 10px 28px; /* поля с запасом: свечение надетой карточки не должно упираться в край прокрутки */
+        margin: -6px -8px 0;
+        width: min(calc(100% + 16px), 436px);
+        -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+        mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+      }
+      .shop-group {
+        border: 1px solid rgba(57, 255, 224, 0.18);
+        border-radius: 12px;
+        background: rgba(57, 255, 224, 0.03);
+      }
+      .shop-group.open {
+        border-color: rgba(57, 255, 224, 0.4);
+      }
+      .shop-group-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 56px;
+        padding: 8px 14px;
+        border: none;
+        background: transparent;
+        text-align: left;
+      }
+      .shop-group-head .g-title {
+        flex: 0 1 auto;
+        min-width: 0;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .shop-group-head .g-dot {
+        flex: none;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #ffc93a;
+        box-shadow: 0 0 8px rgba(255, 201, 58, 0.8);
+      }
+      .shop-group-head .g-now {
+        flex: 1 1 4ch;
+        min-width: 0;
+        text-align: right;
+        font-size: 14px;
+        opacity: 0.7;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .shop-group-head .g-chev {
+        flex: none;
+        width: 9px;
+        height: 9px;
+        margin: 0 4px 3px 2px;
+        border-right: 2px solid var(--neon);
+        border-bottom: 2px solid var(--neon);
+        transform: rotate(45deg);
+        transition: transform 0.15s;
+      }
+      .shop-group.open .g-chev {
+        transform: rotate(-135deg);
+        margin-bottom: -3px;
+      }
+      .shop-group-items {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 0 8px 10px;
+      }
+      .shop-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 2px 12px;
+        padding: 8px 10px 8px 14px;
+        border: 1px solid rgba(57, 255, 224, 0.22);
+        border-radius: 10px;
+        background: rgba(57, 255, 224, 0.05);
+        text-align: left;
+        min-height: 60px;
+      }
+      .shop-item .name {
+        font-size: 16px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
+      .shop-item .meta {
+        grid-column: 1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        opacity: 0.8;
+        font-variant-numeric: tabular-nums;
+      }
+      .shop-item .meta .coin {
+        width: 11px;
+        height: 11px;
+      }
+      .shop-item .act {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        min-width: 104px;
+        min-height: 44px;
+        padding: 8px 12px;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .shop-item .act.buy {
+        color: var(--bg);
+        background: var(--neon);
+        border-color: var(--neon);
+      }
+      .shop-item .act:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+      .shop-item.equipped {
+        border-color: var(--neon);
+        box-shadow: 0 0 10px rgba(57, 255, 224, 0.4);
+      }
+      .shop-item.equipped .act {
+        border-color: transparent;
+        color: var(--neon);
+        opacity: 1;
+      }
+      .shop-item.short .meta {
+        color: var(--accent);
+        opacity: 1;
+      }
+      .shop-item.soon {
+        border-style: dashed;
+        opacity: 0.55;
+      }
+      .shop-item.soon .name {
+        letter-spacing: 0.3em;
+      }
+      .shop-item.flash {
+        animation: shop-flash 0.5s ease-out;
+      }
+      @keyframes shop-flash {
+        0% { background: rgba(57, 255, 224, 0.4); }
+        100% { background: rgba(57, 255, 224, 0.05); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .shop-item.flash { animation: none; }
+      }
+      #shop > .tap-to-play {
+        min-height: 72px;
+        font-size: 19px;
+      }
+      @media (max-height: 720px) {
+        #shop {
+          gap: 8px;
+        }
+        .shop-item {
+          min-height: 56px;
+          padding-top: 6px;
+          padding-bottom: 6px;
+        }
+        #shop > .tap-to-play {
+          min-height: 60px;
+        }
+      }
       /* Юридические экраны (предупреждение о мигающих огнях, условия): поверх меню, без анимации и мигания.
          Текст прокручивается, кнопка всегда внизу и на виду. */
       .screen.legal {
@@ -1024,7 +1270,7 @@
         </div>
       </div>
 
-      <button type="button" id="boost" class="hidden" tabindex="-1" data-i18n-aria="aria.boost">×2</button>
+      <button type="button" id="boost" class="hidden" tabindex="-1" data-i18n-aria="aria.boost">×1.5</button>
 
       <div id="stick" class="hidden" role="group" data-i18n-aria="aria.stick">
         <svg class="glyph" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1052,6 +1298,9 @@
       <div id="menu" class="screen">
         <h1 data-i18n="menu.title"></h1>
 
+        <!-- Кошелёк-вход в магазин: чип в правом верхнем углу, скрыт до первой законченной партии (main.ts: syncShopEntry). -->
+        <button type="button" id="open-shop" class="shop-btn hidden" data-i18n-aria="aria.shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg><span class="coin" aria-hidden="true"></span><b id="menu-balance">0</b></button>
+
         <button type="button" id="record-line" class="record-line" data-i18n-aria="aria.records"></button>
 
         <button type="button" id="tap-to-play" class="tap-to-play" data-i18n="tapToPlay"></button>
@@ -1069,15 +1318,6 @@
         </header>
 
         <div class="sub-body">
-          <div class="field">
-            <span data-i18n="menu.size"></span>
-            <div id="size-options" class="options" role="radiogroup" data-i18n-aria="aria.size">
-              <button type="button" data-size="20">20³</button>
-              <button type="button" data-size="50">50³</button>
-              <button type="button" data-size="100">100³</button>
-            </div>
-          </div>
-
           <div class="field">
             <span data-i18n="menu.scheme"></span>
             <div id="scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
@@ -1135,6 +1375,19 @@
         <button type="button" id="records-done" class="secondary wide" data-i18n="nav.back"></button>
       </div>
 
+      <!-- Магазин: шапка (назад, название, баланс на виду), прокручиваемая витрина, внизу крупная «Играть». Витрину рисует screens/shop-view.ts. -->
+      <div id="shop" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="shop-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="shop.title"></h2>
+          <div class="balance" id="shop-balance" role="status"><span class="coin" aria-hidden="true"></span><b id="shop-balance-n">0</b></div>
+        </header>
+
+        <div id="shop-body" class="sub-body shop-body"></div>
+
+        <button type="button" id="shop-play" class="tap-to-play" data-i18n="shop.play"></button>
+      </div>
+
       <div id="game-over" class="screen hidden">
         <h2 class="neon-title" aria-label="GAME OVER">
           <span class="word" data-text="GAME" aria-hidden="true">GAME</span>
@@ -1145,6 +1398,7 @@
           <span><span data-i18n="over.score"></span> <b id="final-score">0</b></span>
           <span><span data-i18n="over.time"></span> <b id="final-time">0:00</b></span>
         </div>
+        <p id="coins-line" class="coins-line hidden"><span class="coin" aria-hidden="true"></span><span id="coins-earned"></span></p>
         <div class="board-wrap">
           <p class="board-title" data-i18n="board.title"></p>
           <ol id="game-over-board" class="board"></ol>
@@ -1156,6 +1410,7 @@
         </div>
         <div id="game-over-actions" class="actions">
           <button type="button" id="play-again" class="tap-to-play" data-i18n="over.playAgain"></button>
+          <button type="button" id="to-shop" class="secondary to-shop hidden"><span class="coin" aria-hidden="true"></span><span data-i18n="over.toShop"></span></button>
           <button type="button" id="to-menu" class="secondary" data-i18n="over.toMenu"></button>
         </div>
       </div>

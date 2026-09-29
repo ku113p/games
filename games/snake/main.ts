@@ -4,7 +4,7 @@
 import { createGame, type Config } from './core/rules'
 import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
 import { effectiveStepMs, type AxisDir, type GameState, type ScreenDir } from './core/state'
-import { cubeSize, elapsedMs, gameMode, isAlive, score, snakeLength } from './core/queries'
+import { cubeSize, effectiveBoostFactor, elapsedMs, gameMode, isAlive, score, snakeLength } from './core/queries'
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
 import { createPerfPanel, type PerfPanel } from './view/perf-panel'
@@ -40,6 +40,9 @@ import {
 import { isPerfDebugRequested, isSelfStartingPerfMode } from './legal/flow'
 import { ALL_SCREENS, createScreens, isHeld, visibleScreens, type ScreenId, type ScreenState } from './screens/screens'
 import { currentLanguage, initLanguage, onLanguageChange, t } from './i18n/runtime'
+import { SHOP_STORAGE_KEY, catalog, gameSetup, parse, serialize, type Item, type ShopRoot, type ShopState } from './shop'
+import { createWallet, grandfatherArena, hasAffordableNew, isShopUnlocked } from './screens/shop-flow'
+import { createShopView } from './screens/shop-view'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
 
@@ -56,6 +59,8 @@ const FOG_ON_KEY = 'snake:fogOn'
 const QUALITY_KEY = 'snake:quality'
 const SIZE_KEY = 'snake:size'
 const SCHEME_KEY = 'snake:scheme'
+const SHOP_KEY = SHOP_STORAGE_KEY // кошелёк, купленное и надетое (shop/serialize)
+const SHOP_UNLOCKED_KEY = 'snake:shopUnlocked' // была ли закончена хоть одна партия: до неё вход в магазин спрятан
 
 // --- DOM ---------------------------------------------------------------
 
@@ -98,12 +103,21 @@ const stickEl = required<HTMLElement>('stick')
 const stickKnobEl = required<HTMLElement>('stick-knob')
 const pauseToMenuBtn = required<HTMLButtonElement>('pause-to-menu')
 const padSideOptions = required<HTMLElement>('pad-side-options')
-const sizeOptions = required<HTMLElement>('size-options')
 const schemeOptions = required<HTMLElement>('scheme-options')
 const legalWarningScreen = required<HTMLElement>('legal-warning')
 const legalWarningOkBtn = required<HTMLButtonElement>('legal-warning-ok')
 const legalTermsScreen = required<HTMLElement>('legal-terms')
 const legalTermsOkBtn = required<HTMLButtonElement>('legal-terms-ok')
+const shopScreen = required<HTMLElement>('shop')
+const openShopBtn = required<HTMLButtonElement>('open-shop')
+const shopBackBtn = required<HTMLButtonElement>('shop-back')
+const shopPlayBtn = required<HTMLButtonElement>('shop-play')
+const shopBodyEl = required<HTMLElement>('shop-body')
+const shopBalanceEl = required<HTMLElement>('shop-balance-n')
+const menuBalanceEl = required<HTMLElement>('menu-balance')
+const coinsLineEl = required<HTMLElement>('coins-line')
+const coinsEarnedEl = required<HTMLElement>('coins-earned')
+const toShopBtn = required<HTMLButtonElement>('to-shop')
 
 // --- localStorage: рекорд и флаг «первая игра вообще» ------------------
 
@@ -342,15 +356,14 @@ function setQuality(id: QualityId): void {
 
 syncQualityButtons()
 
-// --- меню: выбор размера куба и схемы управления ------------------------
+// --- меню: схема управления и сторона пульта ------------------------
+// (Размер арены больше не здесь: он товар магазина, см. блок «магазин» ниже.)
 
-// Размер и схема лежат на экране настроек, а не на виду: выбор запоминается между запусками.
-const storedSize = Number.parseInt(storageGet(SIZE_KEY) ?? '', 10)
+// Схема лежит на экране настроек, а не на виду: выбор запоминается между запусками.
 const storedScheme = storageGet(SCHEME_KEY)
-let selectedSize = config.cube.sizes.includes(storedSize) ? storedSize : config.cube.default
 let selectedScheme: InputScheme = storedScheme === 'taps' || storedScheme === 'swipes' ? storedScheme : 'swipes'
 
-function markSelected(container: HTMLElement, datasetKey: 'size' | 'scheme' | 'side', value: string): void {
+function markSelected(container: HTMLElement, datasetKey: 'scheme' | 'side', value: string): void {
   const buttons = container.querySelectorAll<HTMLButtonElement>('button')
   for (const btn of buttons) {
     const isSelected = btn.dataset[datasetKey] === value
@@ -358,18 +371,6 @@ function markSelected(container: HTMLElement, datasetKey: 'size' | 'scheme' | 's
     btn.setAttribute('aria-pressed', String(isSelected))
   }
 }
-
-sizeOptions.addEventListener('click', (e) => {
-  const target = e.target
-  if (!(target instanceof HTMLButtonElement)) return
-  const raw = target.dataset['size']
-  if (raw === undefined) return
-  const size = Number.parseInt(raw, 10)
-  if (!config.cube.sizes.includes(size)) return
-  selectedSize = size
-  storageSet(SIZE_KEY, String(size))
-  markSelected(sizeOptions, 'size', raw)
-})
 
 schemeOptions.addEventListener('click', (e) => {
   const target = e.target
@@ -392,7 +393,6 @@ padSideOptions.addEventListener('click', (e) => {
   markSelected(padSideOptions, 'side', padSide)
 })
 
-markSelected(sizeOptions, 'size', String(selectedSize))
 markSelected(schemeOptions, 'scheme', selectedScheme)
 markSelected(padSideOptions, 'side', padSide)
 
@@ -407,6 +407,96 @@ onLanguageChange(() => {
   renderTopRecord()
 })
 
+// --- магазин: предметная часть (shop/) + витрина (screens/shop-view.ts); здесь только хранение и поток ---
+// Монеты идут в кошелёк по итогам партии (очки в таблице рекордов остаются честными яблоками); покупка и надевание
+// происходят на витрине ДО партии, а выбранное применяется на старте (startSession).
+
+const shopRoot = configJson as unknown as ShopRoot
+const shopItems = catalog(shopRoot)
+// Кошелёк держит порядок «начало партии -> конец партии»: начислить можно только за открытую партию (screens/shop-flow.ts).
+const wallet = createWallet(migrateShop(), shopRoot)
+
+/**
+ * Загрузка кошелька. Размер арены раньше выбирался в настройках (`snake:size`) и был бесплатным: у того, у кого магазина
+ * ещё нет (ключа `snake:shop` нет), сохранённый размер остаётся его выбором, даже если в магазине он стоит денег.
+ */
+function migrateShop(): ShopState {
+  const raw = storageGet(SHOP_KEY)
+  const state = parse(raw, shopRoot)
+  if (raw !== null) return state
+  const oldSize = Number.parseInt(storageGet(SIZE_KEY) ?? '', 10)
+  return Number.isFinite(oldSize) ? grandfatherArena(state, oldSize, shopRoot) : state
+}
+
+/** Размер арены следующей партии: то, что надето в магазине. */
+function currentArena(): number {
+  return gameSetup(wallet.state, shopRoot).size
+}
+let shopUnlocked = isShopUnlocked({ finishedGame: storageGet(SHOP_UNLOCKED_KEY) === '1', hasRecords: table.length > 0 })
+
+function saveShop(): void {
+  storageSet(SHOP_KEY, serialize(wallet.state))
+}
+
+/** Иконка магазина на главном экране: спрятана до первой законченной партии. */
+function syncShopEntry(): void {
+  openShopBtn.classList.toggle('hidden', !shopUnlocked)
+}
+
+function unlockShop(): void {
+  if (shopUnlocked) return
+  shopUnlocked = true
+  storageSet(SHOP_UNLOCKED_KEY, '1')
+  syncShopEntry()
+}
+
+const shopView = createShopView(shopBodyEl, shopBalanceEl, menuBalanceEl, {
+  config: shopRoot,
+  items: () => shopItems,
+  state: () => wallet.state,
+  onBuy(item: Item) {
+    if (wallet.buy(item)) saveShop()
+    shopView.render()
+  },
+  onEquip(item: Item) {
+    if (wallet.equip(item)) saveShop()
+    shopView.render()
+  },
+})
+shopView.render()
+syncShopEntry()
+onLanguageChange(() => shopView.render())
+
+/** Число для подписи кнопки ускорения: 1.5 -> «×1.5», 4.000001 -> «×4». Берётся действующий множитель, а не купленный (пол на шаг). */
+function boostLabel(factor: number): string {
+  return `×${Math.round(factor * 10) / 10}`
+}
+
+let shownBoostLabel = ''
+/** Подпись кнопки ускорения: действующий множитель (с учётом пола на шаг), обновляется на каждом яблоке — шаг меняется только тогда. */
+function setBoostLabel(state: GameState): void {
+  const label = boostLabel(effectiveBoostFactor(state))
+  if (label === shownBoostLabel) return
+  shownBoostLabel = label
+  boostEl.textContent = label
+}
+
+/** Партия кончилась (смертью или выходом): яблоки -> монеты. Нет открытой партии — ничего не начисляется. */
+function settleRun(apples: number): { gained: number; mult: number } {
+  const r = wallet.settle(apples)
+  saveShop()
+  shopView.render()
+  return r ?? { gained: 0, mult: 1 }
+}
+
+function openShop(): void {
+  const fromOver = screens.state.base === 'over'
+  screens.openShop()
+  if (screens.state.base !== 'shop') return
+  if (fromOver) endSession() // мёртвая сессия больше не нужна: дальше только новая партия или меню
+  shopView.reset()
+}
+
 // --- экраны: что показано сейчас, решает screens/screens.ts (чистая логика с тестами), здесь только показ ---
 // Юридические экраны: предупреждение о мигающих огнях — при каждом открытии, условия — пока не сохранено согласие
 // (legal/flow.ts, внутри screens). Язык к этому моменту уже выбран (initLanguage выше) и меняется на самих экранах.
@@ -417,6 +507,7 @@ const screenEls: Record<ScreenId, HTMLElement> = {
   menu: menuScreen,
   settings: settingsScreen,
   records: recordsScreen,
+  shop: shopScreen,
   hud,
   over: gameOverScreen,
   pause: pauseScreen,
@@ -441,6 +532,7 @@ function renderScreens(s: ScreenState): void {
   menuScreen.inert = covered
   settingsScreen.inert = covered
   recordsScreen.inert = covered
+  shopScreen.inert = covered
   updateLegalMore()
   if (s.legal !== shownLegal) {
     shownLegal = s.legal
@@ -456,6 +548,9 @@ legalWarningOkBtn.addEventListener('click', () => screens.confirmLegal())
 legalTermsOkBtn.addEventListener('click', () => screens.confirmLegal())
 recordLineBtn.addEventListener('click', () => screens.openRecords())
 openSettingsBtn.addEventListener('click', () => screens.openSettings())
+openShopBtn.addEventListener('click', openShop)
+toShopBtn.addEventListener('click', openShop)
+shopBackBtn.addEventListener('click', () => screens.back())
 for (const btn of backButtons) btn.addEventListener('click', () => screens.back())
 // Escape на настройках и рекордах — назад (в игре его читает ввод партии, там back ничего не делает).
 window.addEventListener('keydown', (e) => {
@@ -502,7 +597,6 @@ function isPaused(): boolean {
 }
 
 // Параметры последней партии — «Ещё раз» перезапускает с ними.
-let lastSize = config.cube.default
 let lastScheme: InputScheme = 'swipes'
 
 function syncViewSize(view: View): void {
@@ -517,6 +611,7 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
     case 'ate':
       audio.play('eat')
       hudScore.textContent = String(ev.score)
+      setBoostLabel(s.state)
       break
     case 'moved':
       // Тик шага: тише и реже с ростом темпа (см. blips.tick). Яблоко и смерть в этом же такте свой звук
@@ -553,6 +648,11 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       const durationMs = elapsedMs(s.state)
       finalScoreEl.textContent = String(finalScore)
       finalTimeEl.textContent = formatDuration(durationMs)
+      const { gained, mult } = settleRun(finalScore)
+      unlockShop()
+      coinsLineEl.classList.toggle('hidden', gained <= 0)
+      coinsEarnedEl.textContent = t('over.coins', { n: gained }) + (mult > 1 ? ` ×${Math.round(mult * 100) / 100}` : '')
+      toShopBtn.classList.toggle('hidden', !hasAffordableNew(wallet.state, shopRoot))
       // Экран проигрыша и звук смерти запускаются в одном обработчике: анимация надписи и удар звука стартуют вместе.
       pendingIndex = commitRun(finalScore, durationMs)
       renderBoards(pendingIndex)
@@ -692,10 +792,7 @@ function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
 
 function startSession(size: number, scheme: InputScheme, forBench = false): void {
   endSession()
-  if (!forBench) {
-    lastSize = size
-    lastScheme = scheme
-  }
+  if (!forBench) lastScheme = scheme
 
   // Наклон и зум прошлой партии не переезжают в новую: иначе можно начать игру в неиграбельном ракурсе
   // и не понять почему. Сбрасываем на старте (а не по выходу) — так кнопка «Ещё раз» тоже чистая.
@@ -705,7 +802,17 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   // В первой игре ядро стартует в 'plane' и переезжает на demo.afterSteps ходу,
   // во всех следующих — сразу в 'free'. s.mode ниже зеркалит это и обновляется по modeChanged.
   const seed = forBench ? BENCH_SEED : Math.floor(Math.random() * 0x7fffffff)
-  const state = createGame(config, size, seed, isFirstGameEver)
+  // Замер и заморозка идут с ускорением из конфига и не трогают кошелёк; обычная партия: списывает партию у временных
+  // предметов и берёт надетое ускорение.
+  if (!forBench) {
+    wallet.begin()
+    saveShop()
+  }
+  // Надетое в магазине применяется здесь: ускорение, препятствия, темп (размер арены пришёл параметром size).
+  const setup = forBench ? null : gameSetup(wallet.state, shopRoot)
+  const boostFactor = setup === null ? config.speed.boostFactor : setup.boostFactor
+  const state = createGame(config, size, seed, isFirstGameEver, boostFactor, setup === null ? {} : { obstacleMult: setup.obstacleMult, paceScale: setup.paceScale })
+  setBoostLabel(state)
   const view = createView(canvas, config, state)
   view.setFogOn(fogOn)
 
@@ -805,7 +912,10 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
 
 function returnToMenu(): void {
   // Выход с паузы посреди партии: набранный счёт идёт в таблицу с запомненными символами, как при смерти (без барабана).
-  if (session !== null && isAlive(session.state) && !benchActive) commitRun(score(session.state), elapsedMs(session.state))
+  if (session !== null && isAlive(session.state) && !benchActive) {
+    commitRun(score(session.state), elapsedMs(session.state))
+    if (settleRun(score(session.state)).gained > 0) unlockShop()
+  }
   closeDrum()
   screens.toMenu()
   endSession()
@@ -813,11 +923,14 @@ function returnToMenu(): void {
 
 tapToPlayBtn.addEventListener('click', () => {
   unlockAudio()
-  startSession(selectedSize, selectedScheme)
+  startSession(currentArena(), selectedScheme)
 })
 
+// «Играть» в магазине: партия с текущими настройками и надетым (кнопка внутри .screen: звук разблокируется общим делегатом).
+shopPlayBtn.addEventListener('click', () => startSession(currentArena(), selectedScheme))
+
 // «Ещё раз» — новая партия с теми же размером и схемой, без возврата в меню.
-playAgainBtn.addEventListener('click', () => startSession(lastSize, lastScheme))
+playAgainBtn.addEventListener('click', () => startSession(currentArena(), lastScheme))
 toMenuBtn.addEventListener('click', returnToMenu)
 pauseToMenuBtn.addEventListener('click', returnToMenu)
 

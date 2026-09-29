@@ -6,7 +6,7 @@ import { cellKey, nextRandom, type Frame, type GameState, type Vec3 } from './st
 export interface Config {
   cube: { sizes: number[]; default: number }
   snake: { startLength: number; growPerApple: number }
-  speed: { startStepMs: number; minStepMs: number; stepMsPerApple: number; boostFactor: number; boostFactors?: number[] }
+  speed: { startStepMs: number; minStepMs: number; stepMsPerApple: number; boostFactor: number; boostFactors?: number[]; minEffectiveStepMs?: number }
   obstacles: { density: number; stickiness: number; clearRadius: number; wallMargin: number }
   camera: {
     rollMs: number
@@ -297,9 +297,32 @@ export function availableBoostFactors(config: Config): number[] {
   return list.length > 0 ? list : [isValidBoostFactor(config.speed.boostFactor) ? config.speed.boostFactor : 1]
 }
 
-export function speedAfterApples(config: Config, apples: number): number {
+/** Масштаб темпа годен, если это конечное число > 0; иначе 1 (как в конфиге). */
+export function sanitizePaceScale(scale: number): number {
+  return Number.isFinite(scale) && scale > 0 ? scale : 1
+}
+
+/** Множитель количества препятствий годен, если это конечное число ≥ 0 (0 — арена без препятствий); иначе 1. */
+export function sanitizeObstacleMult(mult: number): number {
+  return Number.isFinite(mult) && mult >= 0 ? mult : 1
+}
+
+/**
+ * Длительность шага после apples яблок. paceScale растягивает (>1) или сжимает (<1) всю кривую целиком:
+ * начальный шаг, минимальный и наклон (stepMsPerApple) — поэтому форма кривой и яблоко, на котором
+ * достигается минимум, не меняются.
+ */
+export function speedAfterApples(config: Config, apples: number, paceScale = 1): number {
   const raw = config.speed.startStepMs - apples * config.speed.stepMsPerApple
-  return Math.max(config.speed.minStepMs, raw)
+  return Math.max(config.speed.minStepMs, raw) * paceScale
+}
+
+/** Параметры партии, выбранные до старта (магазин). Всё необязательное: без них партия как раньше. */
+export interface GameOptions {
+  /** Множитель к config.obstacles.density: 0 — без препятствий, 0.5 — вдвое меньше, 2 — вдвое больше. */
+  obstacleMult?: number
+  /** Масштаб кривой темпа, см. speedAfterApples. */
+  paceScale?: number
 }
 
 function defaultFrame(): Frame {
@@ -321,7 +344,10 @@ export function createGame(
   seed: number,
   isFirstGameEver: boolean,
   boostFactor: number = config.speed.boostFactor,
+  options: GameOptions = {},
 ): GameState {
+  const paceScale = sanitizePaceScale(options.paceScale ?? 1)
+  const obstacleMult = sanitizeObstacleMult(options.obstacleMult ?? 1)
   const mid = Math.floor(size / 2)
   const startLength = config.snake.startLength
   const heading: Vec3 = { x: 1, y: 0, z: 0 } // +right
@@ -352,10 +378,12 @@ export function createGame(
     phase: 'ready',
     score: 0,
     applesEaten: 0,
-    stepMs: config.speed.startStepMs,
+    stepMs: speedAfterApples(config, 0, paceScale),
+    paceScale,
     boostRequested: false,
     boosting: false,
     boostFactor: isValidBoostFactor(boostFactor) ? boostFactor : 1,
+    minBoostedStepMs: config.speed.minEffectiveStepMs !== undefined && config.speed.minEffectiveStepMs > 0 ? config.speed.minEffectiveStepMs : 0,
     sinceStepMs: 0,
     elapsedMs: 0,
     demoTurnPending: isFirstGameEver, // плоский старт и переезд камеры — один раз в жизни игрока; дальше сразу 'free'
@@ -365,7 +393,7 @@ export function createGame(
   if (!isFirstGameEver) initFreeStartFrame(state)
 
   const clearCells = buildClearCells(snake[0]!, snake, size, config.obstacles.clearRadius)
-  state.obstacles = generateObstacles(size, config.obstacles.density, config.obstacles.stickiness, clearCells, () =>
+  state.obstacles = generateObstacles(size, config.obstacles.density * obstacleMult, config.obstacles.stickiness, clearCells, () =>
     nextRandom(state),
     config.obstacles.wallMargin,
   )

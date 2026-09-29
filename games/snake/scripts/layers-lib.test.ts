@@ -65,3 +65,16 @@ describe('детерминизм ядра', () => {
     expect(bad('view/a.ts', `const r = Math.random(); document.title = 'x'`)).toBe(0)
   })
 })
+
+describe('слой shop', () => {
+  test('shop -> view, input, screens, three, DOM: нарушение', () => {
+    expect(bad('shop/a.ts', `import * as T from 'three'`)).toBe(1)
+    expect(bad('shop/a.ts', `import { x } from '../view/index'`)).toBe(1)
+    expect(bad('shop/a.ts', `import { x } from '../screens/screens'`)).toBe(1)
+    expect(bad('shop/a.ts', `import { x } from '../core/rules'`)).toBe(1)
+    expect(bad('shop/a.ts', `import { x } from './types'`)).toBe(0)
+    expect(bad('shop/a.ts', `const s = localStorage.getItem('k')`)).toBe(1)
+    expect(bad('shop/a.ts', `const t = Date.now()`)).toBe(1)
+    expect(bad('shop/a.test.ts', `import { test } from 'bun:test'`)).toBe(0)
+  })
+})

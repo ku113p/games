@@ -7,12 +7,12 @@
 
 import { createLegalFlow, type LegalStep, type LegalStorage } from '../legal/flow'
 
-export type BaseScreen = 'menu' | 'settings' | 'records' | 'game' | 'over'
+export type BaseScreen = 'menu' | 'settings' | 'records' | 'shop' | 'game' | 'over'
 
 /** Всё, что может быть видно на экране. `hud` — счёт и органы управления партии. */
-export type ScreenId = 'warning' | 'terms' | 'menu' | 'settings' | 'records' | 'hud' | 'over' | 'pause' | 'demo'
+export type ScreenId = 'warning' | 'terms' | 'menu' | 'settings' | 'records' | 'shop' | 'hud' | 'over' | 'pause' | 'demo'
 
-export const ALL_SCREENS: readonly ScreenId[] = ['warning', 'terms', 'menu', 'settings', 'records', 'hud', 'over', 'pause', 'demo']
+export const ALL_SCREENS: readonly ScreenId[] = ['warning', 'terms', 'menu', 'settings', 'records', 'shop', 'hud', 'over', 'pause', 'demo']
 
 export interface ScreenState {
   /** Юридический экран поверх всего; null — пройдены (или пропущены). */
@@ -62,7 +62,9 @@ export interface Screens {
   confirmLegal(): void
   openSettings(): void
   openRecords(): void
-  /** Из настроек или рекордов — в меню. */
+  /** Магазин: из меню или с экрана проигрыша («В магазин»). Под юридическим экраном, в игре и на паузе — нет. */
+  openShop(): void
+  /** Из настроек, рекордов или магазина — в меню. */
   back(): void
   /** Партия началась (из меню, «Ещё раз», бенчмарка): сбрасывает паузу и объяснение. */
   startGame(): void
@@ -110,8 +112,11 @@ export function createScreens(storage: LegalStorage, onChange: (s: ScreenState) 
     openRecords() {
       if (st.legal === null && st.base === 'menu') set({ base: 'records' })
     },
+    openShop() {
+      if (st.legal === null && (st.base === 'menu' || st.base === 'over')) set({ base: 'shop' })
+    },
     back() {
-      if (st.legal === null && (st.base === 'settings' || st.base === 'records')) set({ base: 'menu' })
+      if (st.legal === null && (st.base === 'settings' || st.base === 'records' || st.base === 'shop')) set({ base: 'menu' })
     },
     startGame() {
       set({ base: 'game', paused: false, demo: false })
