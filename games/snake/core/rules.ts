@@ -24,6 +24,7 @@ export interface Config {
   demo: { afterSteps: number }
   loop: { maxFrameMs: number }
   minimap: { windowCells: number }
+  fog: { density: number; defaultOn: boolean }
   input: { doubleTapMs: number; swipeMinPx: number; tiltRadPerPx: number }
 }
 

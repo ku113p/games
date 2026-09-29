@@ -32,7 +32,8 @@
 // Стоимость: тот же статичный буфер окна, на узел 6 отрезков (12 вершин); окно
 // по радиусу отсекает шейдер одним и тем же кодом для точек и отрезков.
 //
-// ЗАТУХАНИЕ. Яркость узлов и обрубков падает с расстоянием от головы (см. FADE_FULL_CELLS).
+// ЗАТУХАНИЕ. Своей кривой по дальности нет: узлы и обрубки тают в общем тумане сцены (palette.ts,
+// fogVisibility — множитель альфы). Остаётся только таяние у краёв окна (edge), это не глубина.
 //
 // Фаза plane: глубина не показывается (первая игра выглядит плоской змейкой) —
 // остаётся один слой узлов у камеры; по мере полёта камеры (freeAmount)
@@ -40,18 +41,13 @@
 
 import { BufferGeometry, Float32BufferAttribute, LineSegments, Points, ShaderMaterial, Vector3, type Scene } from 'three'
 import type { Config } from '../core/rules'
-import { DOT_BASE_ALPHA, DOT_BASE_COLOR } from './palette'
+import { DOT_BASE_ALPHA, DOT_BASE_COLOR, FOG_VISIBILITY_GLSL, fogUniforms } from './palette'
 
 // Оформительские константы (радиус отсечения и вид точек), не числа баланса.
 const LATERAL_CELLS = 8 // радиус окна фона поперёк хода
 const BEHIND_CELLS = 4
 const AHEAD_CELLS = 18
 const DOT_BASE_SIZE = 0.12 // диаметр точки в клетках
-// Затухание по расстоянию ОТ ГОЛОВЫ (не от камеры: камера летает, наклоняется и
-// в plane далеко, а голова — то, от чего игрок отсчитывает глубину). Полная яркость
-// до FADE_FULL_CELLS, дальше квадратично ((1-t)^2) до нуля к границе окна AHEAD_CELLS:
-// чем дальше узел по ходу, тем он тусклее — по яркости читается глубина.
-const FADE_FULL_CELLS = 1
 const MIN_PX = 3
 const MAX_PX = 9
 /** Длина обрубка ребра в КЛЕТКАХ (четверть одной клетки; от шага решётки не зависит). */
@@ -59,6 +55,7 @@ export const STUB_CELLS = 0.25
 
 // Общая часть: униформы и отсечение узла. Возвращает альфу узла (0 — скрыт).
 const COMMON = /* glsl */ `
+${FOG_VISIBILITY_GLSL}
 uniform vec3 uHead;
 uniform vec3 uDir;
 uniform vec3 uA;
@@ -79,7 +76,6 @@ uniform float uBaseSize;
 uniform float uMinPx;
 uniform float uBaseAlpha;
 uniform float uStub;
-uniform float uFadeFull;
 uniform vec3 uBaseColor;
 varying vec3 vColor;
 varying float vAlpha;
@@ -117,12 +113,7 @@ float nodeAlpha(vec3 world, float viewLen) {
     * smoothstep(-uBehind, -uBehind + 2.0, f)
     * (1.0 - smoothstep(uAhead - 4.0, uAhead, f));
   float nearFade = smoothstep(0.8, 2.2, viewLen);
-  // Затухание с расстоянием от головы: у головы полная яркость, к краю окна ноль.
-  // Квадратичная кривая: заметно тускнеет уже на 4-6 клетках (глубина читается
-  // с одного взгляда), к границе окна сходит к нулю с нулевым наклоном, без обрыва.
-  float distT = clamp((length(off) - uFadeFull) / (uAhead - uFadeFull), 0.0, 1.0);
-  float distFade = (1.0 - distT) * (1.0 - distT);
-  return uBaseAlpha * edge * layer * nearFade * distFade;
+  return uBaseAlpha * edge * layer * nearFade;
 }
 `
 
@@ -132,7 +123,7 @@ void main() {
   vec3 world = nodeWorld(position);
   if (!inCube(world)) { hide(); return; }
   vec4 mv = viewMatrix * vec4(world, 1.0);
-  float a = nodeAlpha(world, length(mv.xyz));
+  float a = nodeAlpha(world, length(mv.xyz)) * fogVisibility(-mv.z);
   if (a <= 0.0) { hide(); return; }
   vec4 clip = projectionMatrix * mv;
   gl_Position = clip;
@@ -156,7 +147,8 @@ void main() {
   if (!inCube(world) || !inCube(tip) || len < 0.001) { hide(); return; }
   vec3 w = aStub.y > 0.5 ? tip : world;
   vec4 mv = viewMatrix * vec4(w, 1.0);
-  float a = nodeAlpha(world, length((viewMatrix * vec4(world, 1.0)).xyz));
+  vec4 mvNode = viewMatrix * vec4(world, 1.0);
+  float a = nodeAlpha(world, length(mvNode.xyz)) * fogVisibility(-mvNode.z);
   if (a <= 0.0) { hide(); return; }
   gl_Position = projectionMatrix * mv;
   vAlpha = a;
@@ -262,12 +254,13 @@ export class AheadDots {
         uBaseAlpha: { value: DOT_BASE_ALPHA },
         uBaseColor: { value: DOT_BASE_COLOR },
         uStub: { value: STUB_CELLS },
-        uFadeFull: { value: FADE_FULL_CELLS },
+        ...fogUniforms(),
     }
     this.material = new ShaderMaterial({
       uniforms,
       vertexShader: VERT,
       fragmentShader: FRAG,
+      fog: true,
       transparent: true,
       depthWrite: false,
     })
@@ -283,6 +276,7 @@ export class AheadDots {
       uniforms,
       vertexShader: VERT_STUB,
       fragmentShader: FRAG_STUB,
+      fog: true,
       transparent: true,
       depthWrite: false,
     })

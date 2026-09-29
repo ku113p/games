@@ -6,8 +6,8 @@
 // 'started' (холодный путь), в кадре не трогается.
 // Инстансинг: по инстансу на грань (aCell + aFace) и на ребро (aCenter + aAxis),
 // геометрия одна на всех (квад / отрезок), позиции собирает вершинный шейдер.
-// Дальние затухают к фону (как туман) по расстоянию ОТ ГОЛОВЫ, чтобы плотный лес не
-// сливался в кашу: ближние читаются опасностью, дальние — глубиной. Яблоко сюда не входит.
+// Дальние растворяются в общем тумане сцены (palette.ts: createFog/fogUniforms), чтобы плотный лес
+// не сливался в кашу: ближние читаются опасностью, дальние — глубиной. Своей кривой затухания нет.
 
 import {
   BufferGeometry,
@@ -37,39 +37,17 @@ import {
   OBSTACLE_FACE_SHADE_Y,
   OBSTACLE_FACE_SHADE_Z,
   OBSTACLE_GHOST_ALPHA,
+  fogUniforms,
 } from './palette'
 
 // Габарит клетки-препятствия; чуть меньше 1, чтобы оболочка не совпадала с плоскостью стенки куба.
 // Это габарит ПЛОСКОСТЕЙ граней и рёбер-контуров. Щель между соседями закрывают не им,
 // а вылет кромок граней к соседу (obstacle-shell.ts): контур и одиночный куб не меняются.
 const OBSTACLE_SCALE = 0.98
-// ТУМАН. Кривая та же, что у решётки-подсказки (ahead-dots.ts): полная яркость до
-// FOG_FULL_CELLS от головы, дальше квадратично (1-t)^2 к FOG_FAR_CELLS, но не до нуля,
-// а до FOG_FLOOR (доля яркости на любом удалении: тусклый контур остаётся).
-// Мерим от головы, а не от камеры: в plane камера далеко и все кубы были бы одинаково
-// тусклыми, а «насколько это опасно» зависит именно от дистанции до головы.
-// Выключить туман: OBSTACLE_FOG_FLOOR = 1 (яркость везде полная, кривая вырождается).
-export const OBSTACLE_FOG_FULL_CELLS = 3 // до этой дистанции от головы — без затухания
-export const OBSTACLE_FOG_FAR_CELLS = 22 // на этой дистанции и дальше — только пол
-export const OBSTACLE_FOG_FLOOR = 0.1 // доля яркости вдали; 1 — туман выключен
-
 const COMMON = /* glsl */ `
-uniform float uFogFull;
-uniform float uFogFar;
-uniform float uFloor;
 uniform float uHalf;
 uniform vec3 uHead;
-uniform float uPlaneLift;   // подсветка кубов в плоскостях креста (cross-planes.ts): 0 — нет
-varying float vFade;
-// cell — клетка, которой принадлежит вершина (у ребра — округлённый центр): решает, лежит ли
-// куб в плоскости креста головы (та же клетка по Y или по Z). Такой куб туманится слабее на uPlaneLift.
-float fadeAt(vec3 world, vec3 cell) {
-  float t = clamp((distance(world, uHead) - uFogFull) / (uFogFar - uFogFull), 0.0, 1.0);
-  float f = uFloor + (1.0 - uFloor) * (1.0 - t) * (1.0 - t);
-  vec3 r = abs(floor(cell + 0.5) - uHead);
-  float inPlane = max(step(r.y, 0.5), step(r.z, 0.5));
-  return f + (1.0 - f) * uPlaneLift * inPlane;
-}
+#include <fog_pars_vertex>
 `
 
 // Рёбра: aCenter — центр отрезка длиной в клетку, aAxis — вдоль какой оси (0/1/2).
@@ -80,16 +58,18 @@ ${COMMON}
 void main() {
   vec3 p = aAxis < 0.5 ? position : (aAxis < 1.5 ? position.yxz : position.zyx);
   vec3 world = p + aCenter;
-  vFade = fadeAt(world, aCenter);
-  gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  vec4 mvPosition = viewMatrix * vec4(world, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
 }
 `
 
 const FRAG = /* glsl */ `
 uniform vec3 uColor;
-varying float vFade;
+#include <fog_pars_fragment>
 void main() {
-  gl_FragColor = vec4(uColor * vFade, 1.0);
+  gl_FragColor = vec4(uColor, 1.0);
+  #include <fog_fragment>
 }
 `
 
@@ -139,7 +119,6 @@ void main() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     vShade = 0.0;
     vAlpha = 0.0;
-    vFade = 0.0;
     return;
   }
   // aFace = грань + 6 * (четыре состояния кромок по основанию 3), см. obstacle-shell.ts.
@@ -157,10 +136,11 @@ void main() {
   float r1 = reachOf(wu > 0.0 ? mod(code, 3.0) : mod(floor(code / 3.0), 3.0));
   float r2 = reachOf(wv > 0.0 ? mod(floor(code / 9.0), 3.0) : floor(code / 27.0));
   vec3 world = aCell + uHalf * s * e0 + wu * r1 * e1 + wv * r2 * e2;
-  vFade = fadeAt(world, aCell);
   vShade = (a < 0.5 ? uShade.x : (a < 1.5 ? uShade.y : uShade.z)) * (s > 0.0 ? 1.0 : uNegShade);
   vAlpha = mix(1.0, uGhostAlpha, g);
-  gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  vec4 mvPosition = viewMatrix * vec4(world, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
 }
 `
 const FACE_FRAG = /* glsl */ `
@@ -168,9 +148,10 @@ uniform vec3 uColor;
 uniform float uFaceK;
 varying float vShade;
 varying float vAlpha;
-varying float vFade;
+#include <fog_pars_fragment>
 void main() {
-  gl_FragColor = vec4(uColor * (uFaceK * vShade * vFade), vAlpha);
+  gl_FragColor = vec4(uColor * (uFaceK * vShade), vAlpha);
+  #include <fog_fragment>
 }
 `
 
@@ -208,7 +189,6 @@ export class ObstaclesView {
   private readonly frameUniforms = {
     uDepthAxis: { value: this.uDepthAxis },
     uFree: { value: 1 },
-    uPlaneLift: { value: 0 },
   }
 
   /** Сколько граней и рёбер в оболочке последней сборки (для замеров). */
@@ -238,13 +218,10 @@ export class ObstaclesView {
     this.shellEdges = shell.edgeCount
 
     const uniforms = {
+      ...fogUniforms(),
       uColor: { value: OBSTACLE_COLOR },
-      uFogFull: { value: OBSTACLE_FOG_FULL_CELLS },
-      uFogFar: { value: OBSTACLE_FOG_FAR_CELLS },
-      uFloor: { value: OBSTACLE_FOG_FLOOR },
       uHead: { value: this.uHead },
       uHalf: { value: half },
-      uPlaneLift: this.frameUniforms.uPlaneLift,
     }
 
     // Контур: инстанс на ребро, база — отрезок вдоль x длиной OBSTACLE_SCALE.
@@ -254,7 +231,7 @@ export class ObstaclesView {
     geometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
     geometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
     geometry.instanceCount = shell.edgeCount
-    this.material = new ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG })
+    this.material = new ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true })
     const lines = new LineSegments(geometry as BufferGeometry, this.material)
     lines.frustumCulled = false
     this.lines = lines
@@ -319,6 +296,7 @@ export class ObstaclesView {
       uniforms: { ...shared, uGhostPass: { value: 0 } },
       vertexShader: FACE_VERT,
       fragmentShader: FACE_FRAG,
+      fog: true,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
@@ -327,6 +305,7 @@ export class ObstaclesView {
       uniforms: { ...shared, uGhostPass: { value: 1 } },
       vertexShader: FACE_VERT,
       fragmentShader: FACE_FRAG,
+      fog: true,
       transparent: true,
       depthWrite: false,
       polygonOffset: true,
@@ -433,11 +412,6 @@ export class ObstaclesView {
       }
     }
     if (changed) this.ghostTex.needsUpdate = true
-  }
-
-  /** Сила подсветки кубов в плоскостях креста, 0..1 (доля туманного пути, которую куб «возвращает»). Кадр, без аллокаций. */
-  setPlaneLift(k: number): void {
-    this.frameUniforms.uPlaneLift.value = k
   }
 
   /** Есть ли препятствие в клетке (набор собирается на 'started'). Без аллокаций. */

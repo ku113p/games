@@ -22,19 +22,13 @@ export class AppleView {
   private material: MeshBasicMaterial
   private targetAmount = 0
   private lastElapsed = -1
-  private lift = 0
 
   constructor(scene: Scene) {
     this.scene = scene
     const geometry = beamGeometry(cubeEdgeSegments(APPLE_SCALE / 2), APPLE_BEAM)
-    this.material = new MeshBasicMaterial({ color: APPLE_COLOR.clone() })
+    this.material = new MeshBasicMaterial({ color: APPLE_COLOR.clone(), fog: false }) // вне тумана: яблоко видно на любой дистанции
     this.mesh = new Mesh(geometry, this.material)
     this.scene.add(this.mesh)
-  }
-
-  /** Прибавка к яркости, когда яблоко лежит в плоскости креста (cross-planes.ts); 0 — нет. */
-  setPlaneLift(k: number): void {
-    this.lift = k
   }
 
   /** Кадр: без новых объектов — мутирует позицию/масштаб/цвет существующего меша. */
@@ -50,7 +44,7 @@ export class AppleView {
     this.lastElapsed = now
     const step = dt * TARGET_BLEND_PER_MS
     this.targetAmount = targeted ? Math.min(1, this.targetAmount + step) : Math.max(0, this.targetAmount - step)
-    this.material.color.copy(APPLE_COLOR).lerp(APPLE_TARGET_COLOR, this.targetAmount).multiplyScalar(intensity * APPLE_GLOW_BOOST * (1 + this.lift))
+    this.material.color.copy(APPLE_COLOR).lerp(APPLE_TARGET_COLOR, this.targetAmount).multiplyScalar(intensity * APPLE_GLOW_BOOST)
     const scale = 1 + APPLE_SCALE_PULSE * wave
     this.mesh.scale.setScalar(scale)
   }

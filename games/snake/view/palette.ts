@@ -2,9 +2,38 @@
 // поэтому по правилам AGENTS.md/CONTRACT.md они не обязаны жить в config.json —
 // там только числа, влияющие на баланс/тайминги геймплея.
 
-import { Color } from 'three'
+import { Color, FogExp2, UniformsLib, UniformsUtils, type IUniform } from 'three'
 
 export const BACKGROUND_COLOR = 0x02030a
+// Цвет тумана: не чёрный фон, а видимый фон сцены (слабая вуаль стенок куба + bloom ≈ sRGB 30,34,58):
+// иначе дальние блоки чернеют дырами на светлой вуали, а не растворяются в ней.
+export const FOG_COLOR = 0x1e223a
+
+// ТУМАН СЦЕНЫ. Единственный механизм затухания по дальности от КАМЕРЫ: экспоненциальный
+// FogExp2 (exp(-(ρ·d)²), d — глубина в кадре), цвет тумана = цвет фона, поэтому далёкое не
+// сереет, а растворяется в фон. Плотность ρ живёт в config.json (fog.density, 0 — туман выключен
+// целиком), в кадре её выставляет view/index.ts: ρ·smoothstep(freeAmount), чтобы в фазе plane
+// (камера далеко снаружи) первая игра оставалась плоской, и 0 при выключенном тумблере «Туман».
+// Штатные материалы (змейка, луч направления) туманятся сами (fog: true по умолчанию); кастомные
+// шейдеры берут те же uniform'ы через fogUniforms() + material.fog = true и считают по той же формуле:
+// непрозрачные — стандартными чанками fog_*, прозрачные точки — через fogVisibility (множитель альфы).
+// Вне тумана намеренно: яблоко (должно быть видно на любой дистанции), компас, ближние маркеры головы
+// (near-cells: ≤ 2 клеток), стенки куба, их сетка и проекция головы (у них своё затухание по камере:
+// FALLOFF_* в cube-frame.ts — оно работает и в фазе plane, где общий туман выключен).
+export function createFog(): FogExp2 {
+  return new FogExp2(FOG_COLOR, 0)
+}
+/** Униформы тумана для ShaderMaterial с fog: true (значения обновляет рендерер из scene.fog). Новый набор на материал. */
+export function fogUniforms(): Record<string, IUniform> {
+  return UniformsUtils.merge([UniformsLib.fog])
+}
+/** GLSL: видимость (1 — чисто, 0 — туман) для прозрачных шейдеров; та же формула, что у FogExp2. Нужен fogUniforms(). */
+export const FOG_VISIBILITY_GLSL = /* glsl */ `
+uniform float fogDensity;
+float fogVisibility(float viewDepth) {
+  return exp(-fogDensity * fogDensity * viewDepth * viewDepth);
+}
+`
 
 // Рёбра куба-арены: светятся, но не заливают (bloom-порог BLOOM_THRESHOLD, см. блок Bloom ниже).
 // Неон-проход: было 1.6, стало 2.2 (ярче линия -> заметный мягкий ореол по рёбрам куба).

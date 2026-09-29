@@ -48,7 +48,8 @@
   "minimap": {
     "windowCells": 20
   },
-  "cross": {
+  "fog": {
+    "density": 0.06,
     "defaultOn": true
   },
   "input": {

@@ -45,7 +45,6 @@ const HIT_FILL_THICK = 0.03
 const HIT_FACE_OFFSET = 0.515 // центр плиты от центра клетки-препятствия к голове
 const WALL_INSET = 0.02 // центр плиты на стенке: 0.5 - 0.02 от центра последней свободной клетки
 const SIDE_RING_STEP = 2
-const MAIN_FADE_TO = 0.45 // яркость дальнего конца основного луча
 const WAVE_DEPTH = 0.12
 const WAVE_PERIOD_MS = 900
 const WAVE_PHASE_STEP = 0.5
@@ -131,7 +130,7 @@ export class AheadRay {
     // последней свободной клетки).
     const reach = free0 + 0.5
     for (let i = 0, t = DASH_FIRST; i < MAIN_DASHES && t + DASH_LEN / 2 <= reach; i++, t += DASH_STEP) {
-      const k = this.rayBrightness(t, reach, phase)
+      const k = this.rayBrightness(t, phase)
       this.color.setRGB(k, k, k)
       this.dash(h.x + dx * t, h.y + dy * t, h.z + dz * t, dx, dy, dz)
     }
@@ -182,11 +181,10 @@ export class AheadRay {
     this.n = i + 1
   }
 
-  private rayBrightness(d: number, total: number, phase: number): number {
-    const t = total > 1 ? Math.min(1, d / total) : 0
-    const fade = 1 + (MAIN_FADE_TO - 1) * t
+  private rayBrightness(d: number, phase: number): number {
+    // Затухания по дальности здесь нет: дальний конец луча тает в общем тумане сцены (palette.ts).
     const wave = 1 - WAVE_DEPTH + WAVE_DEPTH * Math.sin(phase - d * WAVE_PHASE_STEP)
-    return RAY_MAIN_BRIGHTNESS * fade * wave
+    return RAY_MAIN_BRIGHTNESS * wave
   }
 
   private setDanger(): void {

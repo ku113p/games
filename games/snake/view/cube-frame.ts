@@ -113,7 +113,7 @@ export class CubeFrame {
     )
     const len = size + t
     const geometry = new BoxGeometry(1, 1, 1)
-    const material = new MeshBasicMaterial({ color: CUBE_EDGE_COLOR })
+    const material = new MeshBasicMaterial({ color: CUBE_EDGE_COLOR, fog: false }) // вне общего тумана: стенки куба видны всегда
     this.edgeGeometry = geometry
     this.edgeMaterial = material
     const lo = -0.5
