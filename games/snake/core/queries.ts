@@ -200,3 +200,8 @@ export function appleOnCourse(s: GameState): boolean {
   }
   return true
 }
+
+/** Множитель ускорения этой партии (выбран до старта): для подписи кнопки и экрана выбора. */
+export function getBoostFactor(s: GameState): number {
+  return s.boostFactor
+}

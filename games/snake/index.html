@@ -456,15 +456,20 @@
         min-height: 44px;
         padding: 0;
         border-radius: 50%;
-        font-size: 20px;
-        line-height: 1;
-        letter-spacing: -0.1em;
+        display: grid;
+        place-items: center; /* иконка — SVG-штрихи, а не глиф шрифта: у «❚❚» несимметричные поля и межбуквенный зазор сдвигали её */
         background: rgba(5, 6, 10, 0.6);
         border: 1px solid var(--neon);
         color: var(--neon);
         touch-action: manipulation;
         -webkit-user-select: none;
         user-select: none;
+      }
+      #pause-btn svg {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+        pointer-events: none;
       }
       #pause-btn.hidden {
         display: none;
@@ -1028,7 +1033,9 @@
         <div class="knob" id="stick-knob"></div>
       </div>
 
-      <button type="button" id="pause-btn" class="hidden" tabindex="-1" data-i18n-aria="aria.pause">❚❚</button>
+      <button type="button" id="pause-btn" class="hidden" tabindex="-1" data-i18n-aria="aria.pause">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="0.8" /><rect x="13.5" y="5" width="4" height="14" rx="0.8" /></svg>
+      </button>
 
       <button type="button" id="cam-reset" class="hidden idle" tabindex="-1" data-i18n-aria="aria.camReset">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

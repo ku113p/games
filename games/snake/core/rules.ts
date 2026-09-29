@@ -6,7 +6,7 @@ import { cellKey, nextRandom, type Frame, type GameState, type Vec3 } from './st
 export interface Config {
   cube: { sizes: number[]; default: number }
   snake: { startLength: number; growPerApple: number }
-  speed: { startStepMs: number; minStepMs: number; stepMsPerApple: number; boostFactor: number }
+  speed: { startStepMs: number; minStepMs: number; stepMsPerApple: number; boostFactor: number; boostFactors?: number[] }
   obstacles: { density: number; stickiness: number; clearRadius: number; wallMargin: number }
   camera: {
     rollMs: number
@@ -282,6 +282,21 @@ export function initFreeStartFrame(s: GameState): void {
   f.right.z = u.x * d.y - u.y * d.x + 0
 }
 
+/** Множитель ускорения годен, если это конечное число ≥ 1 (×1 — «ускорения нет», допустимо). */
+export function isValidBoostFactor(f: number): boolean {
+  return Number.isFinite(f) && f >= 1
+}
+
+/**
+ * Множители, из которых игрок выбирает перед партией (config.speed.boostFactors: ×2, ×3, ×4, ×8).
+ * Негодные значения отбрасываются; нет списка или он пуст — единственный boostFactor из конфига.
+ * Как их выбирают и покупают — не забота ядра: оно получает готовое число в createGame.
+ */
+export function availableBoostFactors(config: Config): number[] {
+  const list = (config.speed.boostFactors ?? []).filter(isValidBoostFactor)
+  return list.length > 0 ? list : [isValidBoostFactor(config.speed.boostFactor) ? config.speed.boostFactor : 1]
+}
+
 export function speedAfterApples(config: Config, apples: number): number {
   const raw = config.speed.startStepMs - apples * config.speed.stepMsPerApple
   return Math.max(config.speed.minStepMs, raw)
@@ -296,7 +311,17 @@ function defaultFrame(): Frame {
 }
 
 /** Создаёт новую партию: змейка, яблоко, препятствия без мёртвых зон. */
-export function createGame(config: Config, size: number, seed: number, isFirstGameEver: boolean): GameState {
+/**
+ * boostFactor — множитель ускорения ЭТОЙ партии (выбранный до старта; по умолчанию config.speed.boostFactor).
+ * Негодное значение (NaN, < 1) становится ×1: ускорение просто ничего не даёт.
+ */
+export function createGame(
+  config: Config,
+  size: number,
+  seed: number,
+  isFirstGameEver: boolean,
+  boostFactor: number = config.speed.boostFactor,
+): GameState {
   const mid = Math.floor(size / 2)
   const startLength = config.snake.startLength
   const heading: Vec3 = { x: 1, y: 0, z: 0 } // +right
@@ -330,7 +355,7 @@ export function createGame(config: Config, size: number, seed: number, isFirstGa
     stepMs: config.speed.startStepMs,
     boostRequested: false,
     boosting: false,
-    boostFactor: config.speed.boostFactor,
+    boostFactor: isValidBoostFactor(boostFactor) ? boostFactor : 1,
     sinceStepMs: 0,
     elapsedMs: 0,
     demoTurnPending: isFirstGameEver, // плоский старт и переезд камеры — один раз в жизни игрока; дальше сразу 'free'

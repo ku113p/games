@@ -38,7 +38,7 @@ export interface GameState {
   stepMs: number
   boostRequested: boolean // запрошенное ускорение: кнопка зажата прямо сейчас (setBoost); на темп не влияет
   boosting: boolean // действующее ускорение: шаг длится stepMs / boostFactor; берёт boostRequested на границе шага (tick)
-  boostFactor: number // копия config.speed.boostFactor на партию (setBoost не получает config)
+  boostFactor: number // множитель ускорения партии (выбран до старта, createGame; ≥ 1, ×1 — ускорение ничего не даёт)
   sinceStepMs: number
   elapsedMs: number
   demoTurnPending: boolean // демо-доворот: один раз, на demo.afterSteps-м ходу первой игры
