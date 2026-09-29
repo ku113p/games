@@ -74,7 +74,7 @@
       { "id": "arena-50", "kind": "arenaSize", "price": 80, "payload": { "size": 50 } },
       { "id": "arena-100", "kind": "arenaSize", "price": 200, "payload": { "size": 100 } },
 
-      { "id": "density-0", "kind": "obstacleDensity", "price": 100, "payload": { "density": 0 } },
+      { "id": "density-0", "kind": "obstacleDensity", "price": 300, "payload": { "density": 0 } },
       { "id": "density-0.25", "kind": "obstacleDensity", "price": 60, "payload": { "density": 0.25 } },
       { "id": "density-0.5", "kind": "obstacleDensity", "price": 40, "payload": { "density": 0.5 } },
       { "id": "density-1", "kind": "obstacleDensity", "price": 0, "payload": { "density": 1 } },
