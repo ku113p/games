@@ -1,5 +1,5 @@
-// view/audio.ts — фасад звука: владеет AudioContext, шинами музыки и SFX, тумблерами.
-// Ядро про звук не знает: main.ts зовёт этот модуль из обработчиков событий и кнопок (не из кадра).
+// view/audio.ts - sound facade: owns the AudioContext, the music and SFX buses, and the toggles.
+// The core knows nothing about sound: main.ts calls this module from event handlers and buttons (not from the frame).
 
 import { createMusic, type Music, type MusicConfig } from './music'
 import { createSfx, type BlipConfig, type ComboConfig, type Sfx, type SfxName } from './sfx'
@@ -9,19 +9,19 @@ export interface SoundConfig {
   sfx: { volume: number }
   blips: Record<SfxName, BlipConfig>
   combo: ComboConfig
-  /** Значения тумблеров по умолчанию, пока игрок ничего не выбрал. */
+  /** Default toggle values until the player chooses something. */
   defaults: { musicOn: boolean; sfxOn: boolean }
 }
 
 export interface Audio {
-  /** Создать контекст (идемпотентно), разбудить его и запустить музыку. Звать из жеста игрока. */
+  /** Create the context (idempotent), wake it up and start the music. Call from a player gesture. */
   unlock(): void
-  /** Вернуть контекст в running (iOS усыпляет его при сворачивании и после звонка). */
+  /** Return the context to running (iOS suspends it on minimize and after a call). */
   resume(): void
-  /** Заглушить контекст (вкладка скрыта). */
+  /** Mute the context (tab hidden). */
   suspend(): void
   play(name: SfxName, stepMs?: number): void
-  /** Новая партия: комбо яблок с базовой ноты. */
+  /** New game: the apple combo restarts from the base note. */
   newRound(): void
   setMusicOn(on: boolean): void
   setSfxOn(on: boolean): void
@@ -50,7 +50,7 @@ export function createAudio(cfg: SoundConfig | undefined, musicUrl: string, init
       music = createMusic(ctx, ctx.destination, musicUrl, cfg.music, musicOn)
     }
     resume()
-    // Страховка для iOS: одного resume() бывает мало, нужен реально запущенный source.
+    // iOS safeguard: a single resume() is sometimes not enough, a really running source is needed.
     const silent = ctx.createBufferSource()
     silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
     silent.connect(ctx.destination)
@@ -59,7 +59,7 @@ export function createAudio(cfg: SoundConfig | undefined, musicUrl: string, init
   }
 
   function resume(): void {
-    // 'interrupted' есть только в Safari и в типах DOM его нет.
+    // 'interrupted' exists only in Safari and is missing from the DOM types.
     if (ctx !== null && (ctx.state as string) !== 'running') void ctx.resume().catch(() => {})
   }
 

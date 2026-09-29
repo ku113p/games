@@ -1,16 +1,16 @@
-// shop/storage.ts — строка для localStorage (ключ snake:shop) и разбор обратно.
-// Сам localStorage трогает витрина: здесь только чистые serialize/parse без DOM.
+// shop/storage.ts — the string for localStorage (key snake:shop) and parsing it back.
+// The storefront touches localStorage itself: only pure serialize/parse without the DOM live here.
 //
-// parse не доверяет ничему: мусор, чужой JSON, неизвестные id, дубли, чужие слоты, отрицательные и
-// нечисловые суммы. Испорченное заменяется значением по умолчанию, а не догадкой: мусор никогда не
-// дарит денег и не выдаёт предметов. Подделанный, но правдоподобный баланс не проверяется (игра локальная).
+// parse trusts nothing: garbage, foreign JSON, unknown ids, duplicates, foreign slots, negative and
+// non-numeric amounts. Corrupted data is replaced by the default rather than a guess: garbage never
+// grants coins or hands out items. A forged but plausible balance is not checked (the game is local).
 
 import { findItem, initialState, slotOf, SLOTS, toCoins } from './shop'
 import type { ShopRoot, ShopState, Slot, TemporaryEntry } from './types'
 
 export const SHOP_STORAGE_KEY = 'snake:shop'
 
-/** Версия формата строки. Не баланс: смена формата, чтобы старые сохранения можно было опознать. */
+/** Version of the string format. Not balance: a format change so that old saves can be recognized. */
 const FORMAT_VERSION = 1
 
 export function serialize(state: ShopState): string {
@@ -29,8 +29,8 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 }
 
 /**
- * Разбор сохранения. null, пусто, битый JSON и не-объект дают состояние по умолчанию.
- * Никогда не бросает.
+  * Parsing a save. null, empty, broken JSON and non-objects yield the default state.
+  * Never throws.
  */
 export function parse(raw: string | null | undefined, config: ShopRoot): ShopState {
   const fresh = initialState(config)
@@ -43,12 +43,12 @@ export function parse(raw: string | null | undefined, config: ShopRoot): ShopSta
   }
   if (!isRecord(data)) return fresh
 
-  // Числа: только конечные ≥ 0, иначе 0 (для баланса — стартовый). Отрицательного баланса не бывает.
+  // Numbers: only finite ≥ 0, otherwise 0 (for the balance, the starting one). There is no negative balance.
   const hasBalance = typeof data['balance'] === 'number' && Number.isFinite(data['balance'])
   const balance = hasBalance ? toCoins(data['balance']) : fresh.balance
   const totalEarned = Math.max(toCoins(data['totalEarned']), 0)
 
-  // Купленное: только известные постоянные предметы; выданное по умолчанию есть всегда.
+  // Owned: only known permanent items; the defaults are always owned.
   const owned = [...fresh.owned]
   if (Array.isArray(data['owned'])) {
     for (const id of data['owned']) {
@@ -59,7 +59,7 @@ export function parse(raw: string | null | undefined, config: ShopRoot): ShopSta
     }
   }
 
-  // Надетое: предмет должен быть куплен и подходить слоту, иначе слот берёт значение по умолчанию.
+  // Equipped: the item must be owned and fit the slot, otherwise the slot takes its default.
   const equipped: Partial<Record<Slot, string>> = { ...fresh.equipped }
   if (isRecord(data['equipped'])) {
     for (const slot of SLOTS) {
@@ -70,7 +70,7 @@ export function parse(raw: string | null | undefined, config: ShopRoot): ShopSta
     }
   }
 
-  // Временные: только известные временные множители, срок целый в [1, maxTemporaryGames], без дублей.
+  // Temporary: only known temporary multipliers, the term is an integer in [1, maxTemporaryGames], no duplicates.
   const temporary: TemporaryEntry[] = []
   if (Array.isArray(data['temporary'])) {
     for (const t of data['temporary']) {

@@ -1,10 +1,10 @@
-// Архив для itch.io: bun tools/pack-itch.ts <игра>   ->  dist-itch/<игра>.zip
-// Внутри zip содержимое dist/<игра>/ (index.html В КОРНЕ архива, без внешней папки).
-// Собирает игру заново (bun tools/build.ts), затем проверяет лимиты itch: 1000 файлов, 200 МБ на файл, 500 МБ всего.
+// Archive for itch.io: bun tools/pack-itch.ts <game>   ->  dist-itch/<game>.zip
+// Inside the zip are the contents of dist/<game>/ (index.html AT THE ARCHIVE ROOT, no outer folder).
+// Rebuilds the game (bun tools/build.ts), then checks the itch limits: 1000 files, 200 MB per file, 500 MB total.
 //
-// Base path: отдельной сборки для itch НЕ нужно — пути в сборке относительные ("./x.js"),
-// а itch раздаёт index.html из своей папки, так что они разрешаются правильно.
-// Zip пишется вручную (метод deflate), чтобы не зависеть от утилиты `zip` (её нет ни на всех машинах, ни в Bun).
+// Base path: no separate build for itch is NEEDED - paths in the build are relative ("./x.js"),
+// and itch serves index.html from its own folder, so they resolve correctly.
+// The zip is written by hand (deflate method) so as not to depend on the `zip` utility (it is missing on some machines and in Bun).
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 

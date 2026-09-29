@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { LANGUAGES, ru, type TextKey } from './dictionaries'
+import { LANGUAGES, en, type TextKey } from './dictionaries'
 import { format, languageByCode, languageShortLabel, parseRich, resolveLanguage, translate } from './locale'
 
 const code = (list: readonly (string | null | undefined)[]): string => resolveLanguage(list).code
@@ -26,20 +26,20 @@ describe('resolveLanguage', () => {
     expect(code([tag])).toBe(expected)
   })
 
-  test('неизвестный код -> английский', () => {
+  test('unknown code -> English', () => {
     expect(code(['xx'])).toBe('en')
     expect(code(['fr-FR'])).toBe('en')
     expect(code(['ar-EG'])).toBe('en')
   })
 
-  test('пустой список и мусор -> английский', () => {
+  test('empty list and garbage -> English', () => {
     expect(code([])).toBe('en')
     expect(code([''])).toBe('en')
     expect(code(['-'])).toBe('en')
     expect(code([undefined, null])).toBe('en')
   })
 
-  test('берётся первый опознанный по порядку предпочтений', () => {
+  test('the first recognized one in preference order is taken', () => {
     expect(code(['fr-FR', 'es-419', 'ru'])).toBe('es')
     expect(code(['en-US', 'ru'])).toBe('en')
     expect(code(['de', undefined, 'zh-CN'])).toBe('zh-Hans')
@@ -47,11 +47,11 @@ describe('resolveLanguage', () => {
 })
 
 describe('languageByCode', () => {
-  test('точный код', () => {
+  test('exact code', () => {
     expect(languageByCode('pt-BR')?.native).toBe('Português')
     expect(languageByCode('zh-Hans')?.primary).toBe('zh')
   })
-  test('чужое и пустое -> null', () => {
+  test('foreign and empty -> null', () => {
     expect(languageByCode('pt')).toBeNull()
     expect(languageByCode('fr')).toBeNull()
     expect(languageByCode(null)).toBeNull()
@@ -60,49 +60,49 @@ describe('languageByCode', () => {
 })
 
 describe('format / translate', () => {
-  test('подстановка', () => {
+  test('substitution', () => {
     expect(format('Символ {n}: следующий', { n: 2 })).toBe('Символ 2: следующий')
   })
-  test('неизвестный плейсхолдер остаётся', () => {
+  test('an unknown placeholder stays', () => {
     expect(format('a {x} b', { n: 1 })).toBe('a {x} b')
     expect(format('a {x} b')).toBe('a {x} b')
   })
-  test('translate берёт словарь', () => {
+  test('translate takes the dictionary', () => {
     const en = languageByCode('en')
     expect(en && translate(en.dict, 'aria.reelNext', { n: 3 })).toBe('Symbol 3: next')
   })
 })
 
-describe('словари', () => {
-  const keys = Object.keys(ru) as TextKey[]
+describe('dictionaries', () => {
+  const keys = Object.keys(en) as TextKey[]
   const placeholders = (s: string): string => (s.match(/\{\w+\}/g) ?? []).sort().join(',')
 
-  test('коды и главные подтеги уникальны', () => {
+  test('codes and primary subtags are unique', () => {
     expect(new Set(LANGUAGES.map((l) => l.code)).size).toBe(LANGUAGES.length)
     expect(new Set(LANGUAGES.map((l) => l.primary)).size).toBe(LANGUAGES.length)
   })
 
-  test('пять языков', () => {
+  test('five languages', () => {
     expect(LANGUAGES.map((l) => l.code).sort()).toEqual(['en', 'es', 'pt-BR', 'ru', 'zh-Hans'])
   })
 
   for (const lang of LANGUAGES) {
-    test(`${lang.code}: те же ключи, ничего пустого, те же плейсхолдеры`, () => {
+    test(`${lang.code}: the same keys, nothing empty, the same placeholders`, () => {
       expect(Object.keys(lang.dict).sort()).toEqual([...keys].sort())
       for (const k of keys) {
         expect(lang.dict[k].trim().length).toBeGreaterThan(0)
-        expect(placeholders(lang.dict[k])).toBe(placeholders(ru[k]))
+        expect(placeholders(lang.dict[k])).toBe(placeholders(en[k]))
       }
     })
 
-    test(`${lang.code}: GAME OVER в словаре нет`, () => {
+    test(`${lang.code}: GAME OVER is not in the dictionary`, () => {
       for (const k of keys) expect(lang.dict[k].toUpperCase()).not.toContain('GAME OVER')
     })
   }
 })
 
 describe('parseRich', () => {
-  test('жирный и курсив', () => {
+  test('bold and italic', () => {
     expect(parseRich('a **b** c *d*.')).toEqual([
       { text: 'a ', style: 'plain' },
       { text: 'b', style: 'bold' },
@@ -111,34 +111,34 @@ describe('parseRich', () => {
       { text: '.', style: 'plain' },
     ])
   })
-  test('без разметки и с незакрытой звёздочкой — обычный текст', () => {
+  test('without markup and with an unclosed asterisk: plain text', () => {
     expect(parseRich('abc')).toEqual([{ text: 'abc', style: 'plain' }])
     expect(parseRich('a * b')).toEqual([{ text: 'a * b', style: 'plain' }])
   })
 })
 
-describe('юридические тексты', () => {
-  const keys = Object.keys(ru).filter((k) => k.startsWith('legal.')) as TextKey[]
-  test('во всех языках есть все юридические ключи, непустые', () => {
+describe('legal texts', () => {
+  const keys = Object.keys(en).filter((k) => k.startsWith('legal.')) as TextKey[]
+  test('all languages have all the legal keys, non-empty', () => {
     expect(keys.length).toBe(12)
     for (const l of LANGUAGES) for (const k of keys) expect(l.dict[k].trim().length).toBeGreaterThan(0)
   })
-  test('разметка ** сбалансирована в каждом языке', () => {
+  test('the ** markup is balanced in every language', () => {
     for (const l of LANGUAGES) for (const k of keys) expect((l.dict[k].match(/\*\*/g) ?? []).length % 2).toBe(0)
   })
-  test('жирное предупреждение и жирное «ничего личного» есть в каждом языке', () => {
+  test('the bold warning and the bold "nothing personal" are present in every language', () => {
     for (const l of LANGUAGES) {
       expect(l.dict['legal.warn.p2']).toContain('**')
       expect(l.dict['legal.terms.b2']).toContain('**')
     }
   })
-  test('условия называют счётчик и хостинг в каждом языке (не возвращаем ложное «ничего не отправляет»)', () => {
+  test('the terms name the counter and hosting in every language (we do not bring back the false "sends nothing")', () => {
     for (const l of LANGUAGES) {
       expect(l.dict['legal.terms.b2']).toContain('GoatCounter')
       expect(l.dict['legal.terms.b2']).toContain('GitHub Pages')
     }
   })
-  test('название музыки и лицензия сохранены в каждом языке', () => {
+  test('the music title and license are kept in every language', () => {
     for (const l of LANGUAGES) {
       expect(l.dict['legal.terms.b3']).toContain('*Cyber Runner*')
       expect(l.dict['legal.terms.b3']).toContain('CC0 1.0')
@@ -147,7 +147,7 @@ describe('юридические тексты', () => {
 })
 
 describe('languageShortLabel', () => {
-  test('все языки получают две латинские буквы, без повторов', () => {
+  test('every language gets two Latin letters, no repeats', () => {
     const labels = LANGUAGES.map((l) => languageShortLabel(l))
     expect(labels).toEqual(['EN', 'ES', 'PT', 'ZH', 'RU'])
     for (const l of labels) expect(l).toMatch(/^[A-Z]{2}$/)

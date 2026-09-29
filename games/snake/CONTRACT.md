@@ -1,47 +1,47 @@
-# Контракт слоёв — games/snake
+# Layer contract - games/snake
 
-Три агента пишут слои параллельно. Сигнатуры ниже — закон, менять нельзя.
-Проект: games/snake (пути от корня репозитория)
-Правила репозитория: AGENTS.md (прочитать целиком)
-Дизайн: games/snake/DESIGN.md (прочитать целиком)
-Стек: bun 1.4.2, TypeScript strict, three@0.186.1 (API этой версии, не по памяти).
+Three agents write the layers in parallel. The signatures below are law and must not be changed.
+Project: games/snake (paths from the repository root)
+Repository rules: AGENTS.md (read in full)
+Design: games/snake/DESIGN.md (read in full)
+Stack: bun 1.4.2, TypeScript strict, three@0.186.1 (the API of this version, not from memory).
 
-## Система координат и кадр камеры
+## Coordinate system and camera frame
 
-Клетки — целые координаты 0..N-1 по x/y/z.
+Cells are integer coordinates 0..N-1 along x/y/z.
 
-`Frame` — ортонормированный целочисленный базис экрана:
-- `right` — вправо по экрану
-- `up` — вверх по экрану
-- `depth` — из экрана на зрителя (depth = right × up)
+`Frame` is an orthonormal integer basis of the screen:
+- `right` - to the right on the screen
+- `up` - up on the screen
+- `depth` - out of the screen toward the viewer (depth = right × up)
 
-Камера стоит в центре куба + depth * дистанция, смотрит в центр, её up = frame.up.
-`heading` змейки всегда лежит в плоскости экрана: это ±right или ±up.
+The camera sits at the cube center + depth * distance, looks at the center, its up = frame.up.
+The snake's `heading` always lies in the screen plane: it is ±right or ±up.
 
-### Поворот в плоскости
-`heading` меняется на ±right или ±up. Frame не меняется. Разворот на 180° запрещён.
+### Turn in the plane
+`heading` changes to ±right or ±up. Frame does not change. A 180-degree reversal is forbidden.
 
-### Смена оси (третья ось)
-Две команды: `'into'` (вглубь, от зрителя) и `'out'` (на себя).
+### Axis turn (the third axis)
+Two commands: `'into'` (into the screen, away from the viewer) and `'out'` (toward the viewer).
 
-1. Новый heading: `into` → `-depth`, `out` → `+depth`.
-2. Frame доворачивается на **+90° вокруг вектора старого heading** (правило правой руки,
-   ось — знаковый вектор heading, а не его абсолютная ось).
+1. New heading: `into` → `-depth`, `out` → `+depth`.
+2. Frame rolls by **+90° around the old heading vector** (right-hand rule,
+   the axis is the signed heading vector, not its absolute axis).
 
-Формулы поворота вектора v на +90° вокруг единичного целочисленного axis:
-`v' = axis × v` при v ⊥ axis. Для frame: right, up, depth поворачиваются этим правилом,
-кроме того из них, который совпадает с ±axis — он остаётся на месте.
+Formula for rotating a vector v by +90° around a unit integer axis:
+`v' = axis × v` when v ⊥ axis. For frame: right, up, depth are rotated by this rule,
+except the one of them that coincides with ±axis - it stays in place.
 
-Проверка, которая обязана проходить в тестах: heading = +right, frame = (R,U,D).
-После `into`: frame = (R, D, -U), heading = -D, то есть новый heading = -up' → на экране вниз.
-После `out`: frame = (R, D, -U), heading = +D = +up' → на экране вверх.
-Frame после обеих команд одинаковый, различается только heading.
+A check that the tests must pass: heading = +right, frame = (R,U,D).
+After `into`: frame = (R, D, -U), heading = -D, i.e. the new heading = -up' → down on the screen.
+After `out`: frame = (R, D, -U), heading = +D = +up' → up on the screen.
+Frame is the same after both commands, only heading differs.
 
-## core/ — чистый TS
+## core/ - pure TS
 
-Запрещено импортировать three, view/, input/. Без аллокаций в горячем пути
-(tick, проверки столкновений): переиспользовать объекты, мутировать на месте.
-Рандом — только через seed в состоянии, ядро детерминировано. Время приходит снаружи.
+Importing three, view/, input/ is forbidden. No allocations in the hot path
+(tick, collision checks): reuse objects, mutate in place.
+Random only through the seed in the state, the core is deterministic. Time comes from outside.
 
 ### core/state.ts
 
@@ -55,35 +55,35 @@ export type DeathCause = 'body' | 'wall' | 'obstacle'
 
 export interface GameState {
   size: number
-  snake: Vec3[]              // snake[0] — голова
-  snakeCells: Set<number>    // ключи клеток змейки, ключ = cellKey()
+  snake: Vec3[]              // snake[0] is the head
+  snakeCells: Set<number>    // keys of the snake's cells, key = cellKey()
   obstacles: Set<number>
   apple: Vec3
   heading: Vec3
   frame: Frame
-  pendingTurn: Vec3 | null   // буфер ввода, применяется на следующем шаге
-  pendingRoll: 0 | 1         // 1 — на следующем шаге frame довернуть
+  pendingTurn: Vec3 | null   // input buffer, applied on the next step
+  pendingRoll: 0 | 1         // 1 = roll the frame on the next step
   pendingRollAxis: Vec3 | null
-  growth: number             // сколько клеток ещё дорастить
+  growth: number             // how many cells are still to be grown
   phase: Phase
   score: number
   applesEaten: number
   stepMs: number
   sinceStepMs: number
   elapsedMs: number
-  demoTurnPending: boolean   // демо-доворот: один раз, после первого яблока
+  demoTurnPending: boolean   // demo turn: once, after the first apple
   rngState: number
 }
 
 export function cellKey(x: number, y: number, z: number, size: number): number
-export function nextRandom(s: GameState): number   // mulberry32, мутирует rngState
+export function nextRandom(s: GameState): number   // mulberry32, mutates rngState
 ```
 
 ### core/rules.ts
 
 ```ts
 import type { GameState, Vec3 } from './state'
-export interface Config { /* форма = config.json, типизировать полностью */ }
+export interface Config { /* shape = config.json, type it fully */ }
 
 export function createGame(config: Config, size: number, seed: number, isFirstGameEver: boolean): GameState
 export function generateObstacles(size: number, density: number, stickiness: number,
@@ -93,10 +93,10 @@ export function rotateFrame(s: GameState, axis: Vec3): void
 export function speedAfterApples(config: Config, apples: number): number
 ```
 
-`generateObstacles` — кубы и созвездия кубов (слипание задаётся stickiness 0..1).
-**Жёсткое требование: никаких мёртвых зон.** После генерации — заливка (flood fill)
-от стартовой клетки по 6 соседям; если достижимы не все свободные клетки,
-недостижимые засыпаются препятствиями либо генерация повторяется. Тест обязателен.
+`generateObstacles` - cubes and obstacle clusters (stickiness is set by stickiness 0..1).
+**Hard requirement: no dead zones.** After generation, a flood fill
+from the start cell over the 6 neighbors; if not all free cells are reachable,
+the unreachable ones are filled with obstacles or the generation is repeated. A test is mandatory.
 
 ### core/commands.ts
 
@@ -118,12 +118,12 @@ export function turnAxis(s: GameState, dir: AxisDir): GameEvent[]
 export function tick(s: GameState, config: Config, dtMs: number): GameEvent[]
 ```
 
-`tick` копит `sinceStepMs` и делает шаги, пока хватает времени. События возвращаются
-в один и тот же переиспользуемый массив (без аллокаций в горячем пути).
-Демо-доворот: если `demoTurnPending` и съедено первое яблоко — ядро само делает
-`turnAxis(s, 'into')` и добавляет событие `demoTurn`.
+`tick` accumulates `sinceStepMs` and makes steps while there is enough time. Events are returned
+in the same reusable array (no allocations in the hot path).
+Demo turn: if `demoTurnPending` and the first apple has been eaten, the core itself does
+`turnAxis(s, 'into')` and adds the `demoTurn` event.
 
-### core/queries.ts — только чтение
+### core/queries.ts - read-only
 
 ```ts
 export function head(s: GameState): Vec3
@@ -134,7 +134,7 @@ export function score(s: GameState): number
 export function forEachObstacle(s: GameState, fn: (x: number, y: number, z: number) => void): void
 ```
 
-## view/ — three.js, подписан на события
+## view/ - three.js, subscribed to events
 
 ```ts
 // view/index.ts
@@ -148,18 +148,18 @@ export interface View {
 export function createView(canvas: HTMLCanvasElement, config: Config, s: GameState): View
 ```
 
-Читает состояние **только** через `core/queries`. Не вызывает команды.
+Reads state **only** through `core/queries`. Does not call commands.
 
-Вид: неон. Тёмный фон, светящийся каркас куба, змейка градиентом от головы к хвосту,
-яблоко пульсирует, препятствия — тусклый неон. Bloom через постпроцессинг.
-Змейка, препятствия — `InstancedMesh` (100³ с плотными препятствиями = десятки тысяч кубов).
-Никаких новых объектов и `await` в кадре: пулы, переиспользование, мутация на месте.
+Look: neon. A dark background, a glowing cube frame, the snake as a gradient from head to tail,
+the apple pulses, obstacles are dim neon. Bloom through postprocessing.
+The snake and obstacles are `InstancedMesh` (100³ with dense obstacles = tens of thousands of cubes).
+No new objects and no `await` in the frame: pools, reuse, in-place mutation.
 
-**Доворот камеры** на событии `axisTurned`: плавный поворот на 90° вокруг `rollAxis`
-за `config.camera.rollMs`, перед ним микропауза `config.camera.microPauseMs`,
-поверх — глитч `config.camera.glitchMs`. Числа только из config.
+**Camera roll** on the `axisTurned` event: a smooth 90° turn around `rollAxis`
+over `config.camera.rollMs`, preceded by a micro-pause `config.camera.microPauseMs`,
+with a glitch `config.camera.glitchMs` on top. Numbers only from config.
 
-## input/ — тач и клавиатура
+## input/ - touch and keyboard
 
 ```ts
 // input/index.ts
@@ -169,17 +169,17 @@ export interface InputHandlers {
   onAxis(dir: AxisDir): void
 }
 export function attachInput(el: HTMLElement, scheme: InputScheme,
-                            config: Config, h: InputHandlers): () => void  // возвращает detach
+                            config: Config, h: InputHandlers): () => void  // returns detach
 ```
 
-- `'swipes'` (по умолчанию): свайп — поворот в плоскости; одиночный тап в любом месте — `into`;
-  двойной тап — `out`.
-- `'taps'`: тап по зоне направления — поворот; тап в центральной зоне — `into`;
-  двойной тап в центре — `out`. Размер центральной зоны — `config.input.centerZoneFraction`.
-- Клавиатура (ПК, работает в обеих схемах): стрелки/WASD — плоскость, **Q** и **E** — третья ось.
-- Тап-зоны ≥ 44 px. Никакого hover. Ввод не должен ломаться при смене ориентации.
+- `'swipes'` (default): a swipe is a turn in the plane; a single tap anywhere is `into`;
+  a double tap is `out`.
+- `'taps'`: a tap on a direction zone is a turn; a tap in the center zone is `into`;
+  a double tap in the center is `out`. The size of the center zone is `config.input.centerZoneFraction`.
+- Keyboard (PC, works in both schemes): arrows/WASD - the plane, **Q** and **E** - the third axis.
+- Tap zones ≥ 44 px. No hover. Input must not break on an orientation change.
 
-## config.json — все числа баланса
+## config.json - all balance values
 
 ```json
 {
@@ -193,21 +193,21 @@ export function attachInput(el: HTMLElement, scheme: InputScheme,
 }
 ```
 
-Магическое число в коде вместо config — ошибка ревью.
+A magic number in code instead of config is a review error.
 
-## Definition of Done (AGENTS.md, раздел 8)
+## Definition of Done (AGENTS.md, section 8)
 
-- `bun test` проходит
-- линтер слоёв чист
-- нет аллокаций и `await` в кадре
-- новые числа — в config.json
-- сборка открывается по base path
+- `bun test` passes
+- the layer linter is clean
+- no allocations and no `await` in the frame
+- new numbers are in config.json
+- the build opens at the base path
 
 ---
 
-# Дополнение к контракту — раунд починки после ревью
+# Contract addendum - the fix round after review
 
-## Новые запросы в core/queries.ts (добавляет агент ядра, использует агент вида)
+## New queries in core/queries.ts (added by the core agent, used by the view agent)
 
 ```ts
 export function forEachSnakeSegment(s: GameState, fn: (x: number, y: number, z: number, index: number) => void): void
@@ -216,165 +216,165 @@ export function cubeSize(s: GameState): number
 export function elapsedMs(s: GameState): number
 ```
 
-Правило 2 AGENTS.md: вид читает состояние ТОЛЬКО через queries. Прямое чтение
-`s.snake`, `s.apple`, `s.size`, `s.elapsedMs` из вида — нарушение, убрать.
+AGENTS.md rule 2: the view reads state ONLY through queries. Reading
+`s.snake`, `s.apple`, `s.size`, `s.elapsedMs` directly from the view is a violation, remove it.
 
-## Инвариант, который ревью нашло нарушенным
+## The invariant that the review found violated
 
-**Ядро никогда не сообщает о довороте, которого не выполнит.**
-Ориентация камеры обязана в любой момент выводиться из `cameraFrame(s)`.
-Сейчас `turnAxis` эмитит `axisTurned` сразу, а `turnInPlane` потом молча отменяет доворот —
-камера уезжает, мир нет. Как чинить — на усмотрение агента ядра, но инвариант обязателен
-и обязаны появиться тесты ровно на эти сценарии:
+**The core never reports a roll that it will not perform.**
+The camera orientation must at any moment be derivable from `cameraFrame(s)`.
+Right now `turnAxis` emits `axisTurned` immediately, and `turnInPlane` later silently cancels the roll -
+the camera moves away, the world does not. How to fix it is up to the core agent, but the invariant is mandatory
+and tests for exactly these scenarios must appear:
 
-1. `turnAxis('into')`, затем `turnInPlane` до шага, затем шаг.
-2. `turnAxis('into')`, затем `turnAxis('out')` до шага, затем шаг.
-3. Два `turnInPlane` подряд до шага.
-4. Смерть на том же шаге, на котором был запланирован доворот.
+1. `turnAxis('into')`, then `turnInPlane` before the step, then the step.
+2. `turnAxis('into')`, then `turnAxis('out')` before the step, then the step.
+3. Two `turnInPlane` in a row before the step.
+4. Death on the same step on which the roll was scheduled.
 
-## Демо-поворот (новые правила из DESIGN.md)
+## Demo turn (new rules from DESIGN.md)
 
-- Срабатывает **на 5-м ходу** первой игры игрока. Число ходов — в config: `demo.afterSteps`.
-- Направление — **случайное из свободных**: если клетка по `into` занята или за стенкой, берётся `out`;
-  если обе заняты — демо не срабатывает и не тратится.
-- Ядро эмитит `demoTurn`. **Паузу и экран с объяснением делает main.ts**, не ядро.
+- Fires **on step 5** of the player's first game. The number of steps is in config: `demo.afterSteps`.
+- The direction is **random among the free ones**: if the cell along `into` is occupied or beyond the wall, `out` is taken;
+  if both are occupied, the demo does not fire and is not used up.
+- The core emits `demoTurn`. **The pause and the explainer screen are done by main.ts**, not the core.
 
-## Пауза
+## Pause
 
-- `visibilitychange`: игра встаёт на паузу, ядро не тикает. Ядро не трогаем — пауза живёт в main.ts.
-- Дополнительно потолок dt в кадре, число в config: `loop.maxFrameMs`.
+- `visibilitychange`: the game pauses, the core does not tick. We do not touch the core - the pause lives in main.ts.
+- Additionally a cap on dt per frame, the number is in config: `loop.maxFrameMs`.
 
-## Кнопка после смерти
+## The button after death
 
-Перезапускает партию с теми же настройками, а не уводит в меню.
+Restarts the game with the same settings, and does not lead to the menu.
 
 ---
 
-# Дополнение 2 — две фазы камеры (решение дизайнера после первой игры вживую)
+# Addendum 2 - two camera modes (the designer's decision after the first game played live)
 
-Отзыв с игры: скорость бешеная (исправлено в config), змейку не видно (тёмная на тёмном),
-и ожидалось третье лицо с камерой за головой.
+Feedback from the game: the speed is frantic (fixed in config), the snake cannot be seen (dark on dark),
+and a third-person view with the camera behind the head was expected.
 
-Решение: **гибрид**. Игра стартует как плоская змейка, на 5-м ходу камера переезжает
-за голову и открывается полное 3D. Переезд камеры и есть твист.
+Decision: a **hybrid**. The game starts as a flat snake, on step 5 the camera moves
+behind the head and full 3D opens up. The camera transition is the twist.
 
-## Режим в состоянии
+## Mode in the state
 
-`GameState.mode: 'plane' | 'free'`. Старт партии — всегда `'plane'`. На демо-ходу
-(`demo.afterSteps`) ядро переключает в `'free'` и эмитит событие. Обратно не возвращается.
+`GameState.mode: 'plane' | 'free'`. The start of a game is always `'plane'`. On the demo turn
+(`demo.afterSteps`) the core switches to `'free'` and emits an event. It never goes back.
 
-### Фаза `'plane'` — как сейчас
-- `heading` лежит в плоскости экрана (±right или ±up), `depth` на зрителя.
-- `turnInPlane` — 4 направления в срезе, `turnAxis` — третья ось.
-- Камера сбоку, смотрит в центр куба.
+### Mode `'plane'` - as now
+- `heading` lies in the screen plane (±right or ±up), `depth` toward the viewer.
+- `turnInPlane` - 4 directions in the slice, `turnAxis` - the third axis.
+- The camera is at the side, looks at the cube center.
 
-### Фаза `'free'` — новое
-- `heading` направлен **от зрителя в глубину**: `depth = -heading`.
-- `right` и `up` перпендикулярны heading и задают четыре возможных поворота.
-- `turnInPlane(dir)` доворачивает голову: `left → -right`, `right → +right`,
-  `up → +up`, `down → -up`. После поворота frame пересчитывается так, чтобы
-  `depth` снова равнялся `-heading`, а `up` менялся минимально (без переворотов вверх ногами).
-- `turnAxis` в этой фазе — **no-op, пустой массив событий**: свайпы уже дают все направления.
-- Разворот на 180° по-прежнему запрещён (в этой фазе он и недостижим свайпом).
+### Mode `'free'` - new
+- `heading` points **away from the viewer, into the depth**: `depth = -heading`.
+- `right` and `up` are perpendicular to heading and give the four possible turns.
+- `turnInPlane(dir)` turns the head: `left → -right`, `right → +right`,
+  `up → +up`, `down → -up`. After the turn, frame is recomputed so that
+  `depth` again equals `-heading`, and `up` changes minimally (no upside-down flips).
+- `turnAxis` in this mode is a **no-op, an empty events array**: swipes already give all directions.
+- A 180-degree reversal is still forbidden (in this mode it is unreachable by swipe anyway).
 
-## События
+## Events
 
 ```ts
 | { type: 'modeChanged'; mode: 'plane' | 'free' }
 ```
 
-Эмитится один раз, на демо-ходу, вместе с `demoTurn`.
+Emitted once, on the demo turn, together with `demoTurn`.
 
-## Вид
+## View
 
-- В `'plane'` — камера как сейчас.
-- В `'free'` — камера позади головы на `camera.followDistance` клеток вдоль `-heading`,
-  приподнята на `camera.followHeight`, смотрит вперёд по ходу, up из frame.
-  Плавно догоняет голову, не дёргается на каждом шаге.
-- **Переезд между режимами** на `modeChanged`: анимированный полёт камеры за
-  `camera.modeSwitchMs`, поверх — глитч. Это ключевой момент игры, он должен читаться.
-- Новые числа: `camera.followDistance`, `camera.followHeight`, `camera.modeSwitchMs`.
+- In `'plane'` - the camera as now.
+- In `'free'` - the camera is behind the head by `camera.followDistance` cells along `-heading`,
+  raised by `camera.followHeight`, looks forward along the heading, up from frame.
+  It catches up with the head smoothly, does not jerk on every step.
+- **The transition between modes** on `modeChanged`: an animated camera flight over
+  `camera.modeSwitchMs`, with a glitch on top. This is the key moment of the game, it must read clearly.
+- New numbers: `camera.followDistance`, `camera.followHeight`, `camera.modeSwitchMs`.
 
-## Читаемость (баг с первой игры)
+## Readability (a bug from the first game)
 
-Змейку **не видно**: тёмная на тёмном фоне. Обязательно:
-- голова заметно ярче тела и отличается по форме или размеру — видно, куда смотрит змейка;
-- тело контрастно к фону на всей длине, хвост не сливается;
-- в фазе `'free'` ближние к камере сегменты не закрывают обзор.
+The snake **cannot be seen**: dark on a dark background. Required:
+- the head is noticeably brighter than the body and differs in shape or size - you can see where the snake is looking;
+- the body contrasts with the background along its whole length, the tail does not blend in;
+- in mode `'free'` the segments closest to the camera do not block the view.
 
-## Ввод
+## Input
 
-- В `'free'` тапы по третьей оси не делают ничего. Подсказки и зоны схемы `taps`,
-  относящиеся к третьей оси, в этой фазе не показываются.
-- Клавиши Q и E в `'free'` тоже no-op.
+- In `'free'` taps on the third axis do nothing. The hints and zones of the `taps` scheme
+  that relate to the third axis are not shown in this mode.
+- The Q and E keys in `'free'` are also a no-op.
 
 ---
 
-# Дополнение 3 — такт разворота
+# Addendum 3 - the turn-in-place step
 
-Отзыв дизайнера: «змейку наверно при флипе не надо двигать — пусть смена направления
-происходит до движения».
+The designer's feedback: "probably the snake shouldn't move during the flip - let the change of direction
+happen before the movement."
 
-**Смена оси — отдельный такт.** Змейка сначала разворачивается на месте, и только
-следующим тактом едет в новую сторону. Это касается и ручного `turnAxis` в фазе `plane`,
-и демо-перехода. Обычных поворотов в плоскости (`turnInPlane`) не касается — они
-по-прежнему совмещаются с шагом, как в классической змейке.
+**An axis turn is a separate step.** The snake first turns in place, and only
+on the next step moves in the new direction. This applies both to a manual `turnAxis` in mode `plane`
+and to the demo transition. Ordinary turns in the plane (`turnInPlane`) are not affected - they
+still coincide with a step, as in the classic snake.
 
-На такте разворота змейка не двигается, не растёт, не ест, столкновения не проверяются,
-`stepCount` не растёт (это не ход). Такт тратит ровно один `stepMs`.
+On the turn-in-place step the snake does not move, does not grow, does not eat, collisions are not checked,
+`stepCount` does not grow (it is not a move). The step takes exactly one `stepMs`.
 
-## Новое событие
+## New event
 
 ```ts
 | { type: 'turnedInPlace'; heading: Vec3 }
 ```
 
-В демо приходит первым, перед `modeChanged` и `demoTurn`.
+In the demo it comes first, before `modeChanged` and `demoTurn`.
 
-## Известное ограничение
+## Known limitation
 
-Доворот `frame` остаётся в момент команды, а не в такт разворота — иначе `cameraFrame`
-разошёлся бы с последующими свайпами. Поэтому камера начинает крутиться по `axisTurned`
-(в момент тапа), а голова поворачивается на `turnedInPlace`, до одного `stepMs` позже.
-Если это будет заметно, лечится на стороне вида, ядро менять не нужно.
+The `frame` roll stays at the moment of the command, not at the turn-in-place step - otherwise `cameraFrame`
+would diverge from subsequent swipes. So the camera starts rotating on `axisTurned`
+(at the moment of the tap), and the head turns on `turnedInPlace`, up to one `stepMs` later.
+If this becomes noticeable, it is fixed on the view side, the core does not need to change.
 
-## Побочная находка
+## Side finding
 
-После разворота на месте `heading` больше не совпадает с последним пройденным ходом,
-и обычной проверки «разворот на 180°» перестало хватать: свайп назад попадал в шею и убивал.
-Добавлена проверка `pointsIntoNeck` — такой свайп игнорируется.
+After a turn in place `heading` no longer matches the last step taken,
+and the ordinary "180-degree reversal" check stopped being enough: a swipe backward hit the neck and killed.
+The `pointsIntoNeck` check was added - such a swipe is ignored.
 
 ---
 
-# Дополнение 4 — ускорение и отступ препятствий от стен
+# Addendum 4 - boost and the obstacle margin from the walls
 
-**Ускорение.** `setBoost(s, on): GameEvent[]` (core/commands.ts). Пока действует ускорение, шаг длится
-`stepMs / boostFactor` (`config.speed.boostFactor`, сейчас 2); разгон по яблокам работает поверх, событие
-`speedUp` по-прежнему несёт базовый `stepMs`. **Нажатие и отпускание вступают в силу со следующего хода:**
-текущий шаг доигрывается в том темпе, в котором начался (длительность задним числом не меняется).
-Два поля `GameState`: `boostRequested` (запрошено, его меняет `setBoost`) и `boosting` (действует, от него
-зависит `effectiveStepMs`). `tick` копирует `boosting = boostRequested` сразу после каждого такта (шаг, такт
-разворота на месте, демо-такт) — это и есть граница шага; длительность шага берётся заново на каждой итерации
-цикла, так что внутри одного длинного кадра первый шаг идёт по старому темпу, остальные — по новому.
-Событие `{ type: 'boostChanged'; on }` эмитится сразу и только при реальной смене **запроса** (`tick` его не
-эмитит); вне фазы `running` `setBoost` ничего не делает. `boostFactor` — копия config на партию (`setBoost` config
-не получает). Новая партия: `boostRequested = false`, `boosting = false`. Ускоряется всё, что считается тактом,
-включая такт разворота на месте. `elapsedMs` — реальное время; потолок шагов за кадр считается по ускоренному
-шагу, если ускорение запрошено. Запросы: `isBoosting(s)` — **запрошенное** (подсветка кнопки без задержки, в
-такт с `boostChanged`); `isBoostActive(s)` — **действующее** (идёт ли текущий шаг в ускоренном темпе, для
-эффектов темпа); `stepProgress(s)` = `sinceStepMs` / длительность идущего шага (по `boosting`), поэтому при
-нажатии/отпускании посреди шага не прыгает — интерполяция головы во view гладкая; на границе шага прогресс
-естественно обнуляется. Ввод: держит кнопку → `setBoost(true)`, отпускает → `setBoost(false)`.
+**Boost.** `setBoost(s, on): GameEvent[]` (core/commands.ts). While boost is active, a step lasts
+`stepMs / boostFactor` (`config.speed.boostFactor`, currently 2); the speed-up per apple works on top, and the `speedUp` event
+still carries the base `stepMs`. **Pressing and releasing take effect from the next step:**
+the current step is finished at the pace at which it began (the duration is not changed retroactively).
+Two `GameState` fields: `boostRequested` (requested, changed by `setBoost`) and `boosting` (active, `effectiveStepMs`
+depends on it). `tick` copies `boosting = boostRequested` right after each step slot (a step, a turn-in-place
+step, a demo step) - that is the step boundary; the step duration is taken anew on each iteration
+of the loop, so inside one long frame the first step goes at the old pace, the rest at the new one.
+The event `{ type: 'boostChanged'; on }` is emitted immediately and only on a real change of the **request** (`tick` does not
+emit it); outside the `running` phase `setBoost` does nothing. `boostFactor` is a copy of config per game (`setBoost` does not
+receive config). New game: `boostRequested = false`, `boosting = false`. Everything counted as a step slot is boosted,
+including the turn-in-place step. `elapsedMs` is real time; the cap on steps per frame is computed from the boosted
+step if boost is requested. Queries: `isBoosting(s)` - **requested** (button highlight without delay, in
+sync with `boostChanged`); `isBoostActive(s)` - **active** (whether the current step is going at the boosted pace, for
+pace effects); `stepProgress(s)` = `sinceStepMs` / the duration of the running step (by `boosting`), so on
+press/release in the middle of a step it does not jump - the head interpolation in the view is smooth; at the step boundary the progress
+naturally resets to zero. Input: holding the button → `setBoost(true)`, releasing → `setBoost(false)`.
 
-**Отступ от стен.** `config.obstacles.wallMargin` (сейчас 1): клетки, отстоящие от любой стенки куба меньше чем на
-это число, препятствиями быть не могут (при 1 — внешний слой). `generateObstacles` принимает его необязательным
-шестым аргументом (по умолчанию 0). Заливка мёртвых зон работает как раньше и покрыта тестами на плотных вариантах.
+**Wall margin.** `config.obstacles.wallMargin` (currently 1): cells that are less than this number away from any cube wall
+cannot hold obstacles (at 1 - the outer layer). `generateObstacles` takes it as an optional
+sixth argument (default 0). The dead-zone flood fill works as before and is covered by tests on dense variants.
 
 
-## Вид сразу по вводу (queries)
+## Immediate view on input (queries)
 
-Поворот, введённый игроком, виден на экране ДО такта: тело стоит, но голова, камера и подсказки уже смотрят в новую сторону.
-- `intendedHeading(s): Readonly<Vec3>` — `pendingTurn ?? heading`. Из него берёт направление голова (`SnakeView.direction`).
-- `viewFrame(s): Frame` — `cameraFrame` с уже применённым буферным поворотом (только в `'free'`: доворот на +90° вокруг
-  `heading × pendingTurn`, как сделает такт). Общий переиспользуемый объект, не хранить и не менять. Камера, луч и подсказки
-  читают кадр отсюда. Правила ядра по-прежнему работают с `s.frame`/`s.heading`; на такте кадр ядра равен тому, что показывал `viewFrame`.
+A turn entered by the player is visible on the screen BEFORE the step: the body stands still, but the head, the camera and the hints already look in the new direction.
+- `intendedHeading(s): Readonly<Vec3>` - `pendingTurn ?? heading`. The head takes its direction from it (`SnakeView.direction`).
+- `viewFrame(s): Frame` - `cameraFrame` with the buffered turn already applied (only in `'free'`: a +90° roll around
+  `heading × pendingTurn`, as the step will do it). A shared reusable object, do not store or change it. The camera, the ray and the hints
+  read the frame from here. The core rules still work with `s.frame`/`s.heading`; on the step the core's frame equals what `viewFrame` showed.

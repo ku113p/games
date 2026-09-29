@@ -1,13 +1,13 @@
-// analytics/events.ts — какое событие и когда. Чистая логика: без DOM, времени и сети, всё приходит снаружи.
-// Считаем только счётчики: в событие не попадает ничего, кроме его имени (ни счёта, ни трёх букв, ни идентификатора).
+// analytics/events.ts — which event and when. Pure logic: no DOM, time or network, everything comes from outside.
+// We count only counters: nothing goes into an event except its name (no score, no three symbols, no identifier).
 //
-// Пять событий, каждое не чаще раза за визит (визит = одна загрузка страницы), чтобы воронка читалась как «сколько
-// визитов дошло досюда»:
-//   start  — началась настоящая партия (не открытие страницы, не замер ?perf).
-//   twist  — дожили до твиста: камера уехала за голову (бывает только в самой первой игре игрока).
-//   finish — партия закончилась смертью (закрытая вкладка и выход в меню не считаются).
-//   again  — начали вторую партию за визит: главный признак «зацепило».
-//   return — начали партию в другой день, чем прошлый раз.
+// Five events, each at most once per visit (a visit = one page load), so that the funnel reads as "how many
+// visits got this far":
+//   start  — a real game started (not the page opening, not a ?perf measurement).
+//   twist  — reached the twist: the camera moved behind the head (only happens in the player's very first game).
+//   finish — a game ended by death (a closed tab and leaving to the menu do not count).
+//   again  — started a second game in one visit: the main sign of "hooked".
+//   return — started a game on a different day than last time.
 
 export type AnalyticsEvent = 'start' | 'twist' | 'finish' | 'again' | 'return'
 
@@ -19,14 +19,14 @@ export interface AnalyticsStorage {
 }
 
 export interface TrackerDeps {
-  /** false — отладка или не боевой хост: ничего не шлётся и в хранилище не пишется. */
+  /** false = debug or a non-production host: nothing is sent and nothing is written to storage. */
   enabled: boolean
   now: () => number
   storage: AnalyticsStorage
   send: (event: AnalyticsEvent) => void
-  /** Минимум часов между двумя приходами, чтобы второй считался возвратом (config.json → analytics). */
+  /** Minimum hours between two arrivals for the second to count as a return (config.json → analytics). */
   returnMinGapHours: number
-  /** Номер календарного дня по местному времени; по умолчанию — часовой пояс браузера. Подменяется в тестах. */
+  /** Local-time calendar day number; defaults to the browser time zone. Replaced in tests. */
   dayOf?: (ms: number) => number
 }
 
@@ -36,17 +36,17 @@ export interface Tracker {
   gameFinished(): void
 }
 
-/** Порядковый номер местного дня: монотонен по календарю, не зависит от того, сколько в дне часов (переход на летнее время). */
+/** Ordinal number of the local day: monotonic by calendar, independent of how many hours a day has (daylight saving switch). */
 export function localDayNumber(ms: number): number {
   const d = new Date(ms)
   return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000)
 }
 
 /**
- * Пришёл ли игрок в другой день, чем в прошлый раз. Два условия сразу:
- *  - календарный день (по местному времени) позже прошлого — «в другой день», а не «в той же сессии»;
- *  - прошло не меньше minGapHours — игра за полночь (23:50 → 00:10) и часовой пояс, сдвинувший дату в тот же вечер, возвратом не считаются.
- * Запись не читается (нет, мусор, из будущего — часы переведены назад) — это не возврат.
+  * Whether the player came on a different day than last time. Two conditions at once:
+  *  - the calendar day (in local time) is later than the last one: "a different day", not "the same session";
+  *  - at least minGapHours have passed: a game past midnight (23:50 → 00:10) and a time zone that shifted the date the same evening do not count as a return.
+  * The record cannot be read (missing, garbage, from the future because the clock was set back): it is not a return.
  */
 export function isReturn(lastRaw: string | null, nowMs: number, minGapHours: number, dayOf: (ms: number) => number = localDayNumber): boolean {
   if (lastRaw === null || !/^\d{1,16}$/.test(lastRaw)) return false
@@ -66,7 +66,7 @@ export function createTracker(deps: TrackerDeps): Tracker {
       if (!deps.enabled) return
       games++
       if (games === 1) {
-        // Возврат определяем по записи, оставленной прошлым визитом, и только потом перезаписываем её.
+        // A return is determined from the record left by the previous visit, and only then is it overwritten.
         const back = isReturn(deps.storage.get(LAST_VISIT_KEY), deps.now(), deps.returnMinGapHours, dayOf)
         deps.storage.set(LAST_VISIT_KEY, String(deps.now()))
         deps.send('start')
@@ -88,13 +88,13 @@ export function createTracker(deps: TrackerDeps): Tracker {
   }
 }
 
-/** Хосты, где счётчик молчит: своя разработка не должна попадать в статистику. */
+/** Hosts where the counter stays silent: our own development must not end up in the stats. */
 export function isLocalHost(hostname: string): boolean {
   const h = hostname.toLowerCase()
   return h === '' || h === 'localhost' || h.endsWith('.localhost') || h === '[::1]' || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '0.0.0.0'
 }
 
-/** Счётчик включён только на боевом хосте и без отладочного ?perf (любого, что включает панель). */
+/** The counter is on only on the production host and without debug ?perf (any that turns the panel on). */
 export function analyticsEnabled(hostname: string, perfDebug: boolean): boolean {
   return !perfDebug && !isLocalHost(hostname)
 }

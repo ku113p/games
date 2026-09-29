@@ -1,19 +1,19 @@
-// i18n/locale.ts — чистые функции: выбор языка по списку от браузера, подстановка в строки.
-// Без DOM и без состояния (тестируются напрямую). Состояние и DOM — в runtime.ts.
+// i18n/locale.ts — pure functions: choosing a language from the browser's list, substituting into strings.
+// No DOM and no state (tested directly). State and DOM live in runtime.ts.
 
 import { FALLBACK_CODE, LANGUAGES, type Dictionary, type Language, type TextKey } from './dictionaries'
 
-/** Язык по точному коду из LANGUAGES (например значение из localStorage); иначе null. */
+/** A language by the exact code from LANGUAGES (for example a value from localStorage); otherwise null. */
 export function languageByCode(code: string | null | undefined): Language | null {
   if (code === null || code === undefined) return null
   return LANGUAGES.find((l) => l.code === code) ?? null
 }
 
 /**
- * Первый язык из предпочтений браузера (navigator.languages, за ним navigator.language), который у нас есть.
- * Сравнивается только главный подтег: `pt-PT` и `pt` -> pt-BR (ближайший из имеющихся), `zh-TW` и `zh-Hant` -> zh-Hans
- * (традиционного словаря нет; читателю упрощённые иероглифы понятнее английского), `es-419` -> es.
- * Ничего не подошло или список пуст — английский.
+  * The first language from the browser preferences (navigator.languages, then navigator.language) that we have.
+  * Only the primary subtag is compared: `pt-PT` and `pt` -> pt-BR (the closest available), `zh-TW` and `zh-Hant` -> zh-Hans
+  * (there is no traditional dictionary; simplified characters are clearer to the reader than English), `es-419` -> es.
+  * Nothing matched or the list is empty: English.
  */
 export function resolveLanguage(preferred: readonly (string | null | undefined)[]): Language {
   for (const tag of preferred) {
@@ -26,7 +26,7 @@ export function resolveLanguage(preferred: readonly (string | null | undefined)[
   return languageByCode(FALLBACK_CODE) ?? (LANGUAGES[0] as Language)
 }
 
-/** Подставляет {name} из params; неизвестный плейсхолдер остаётся как есть (видно в глаза, а не пустота). */
+/** Substitutes {name} from params; an unknown placeholder stays as is (visible to the eye rather than an empty gap). */
 export function format(template: string, params?: Readonly<Record<string, string | number>>): string {
   if (params === undefined) return template
   return template.replace(/\{(\w+)\}/g, (m, name: string) => {
@@ -40,8 +40,8 @@ export function translate(dict: Dictionary, key: TextKey, params?: Readonly<Reco
 }
 
 /**
- * Разметка в словарях: `**жирный**` и `*курсив*` (курсив — название произведения). Возвращает куски по порядку;
- * DOM собирает runtime.ts (без innerHTML). Незакрытые звёздочки остаются обычным текстом.
+  * Markup in dictionaries: `**bold**` and `*italic*` (italic is a title of a work). Returns the pieces in order;
+  * the DOM is assembled by runtime.ts (no innerHTML). Unclosed asterisks stay plain text.
  */
 export interface RichSpan {
   readonly text: string
@@ -62,7 +62,7 @@ export function parseRich(src: string): RichSpan[] {
   return out
 }
 
-/** Двухбуквенная подпись языка для компактного переключателя: EN, ES, PT, ZH, RU (главный подтег заглавными). */
+/** A two-letter label of a language for the compact switcher: EN, ES, PT, ZH, RU (the primary subtag in uppercase). */
 export function languageShortLabel(lang: Pick<Language, 'primary'>): string {
   return lang.primary.toUpperCase()
 }

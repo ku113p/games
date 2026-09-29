@@ -1,30 +1,30 @@
-// Вид змейки «Направляющие хвоста» (магазин, snakeSkin = tailGuides). Идея дизайнера: видеть, куда идёт хвост.
-// В объёме цепочка каркасных кубиков читается плохо: непонятно, как тело соединено и куда свободна клетка за хвостом.
-// Поэтому поверх обычных сегментов рисуется:
-//   1. ПОЗВОНОЧНИК: тонкая балка между центрами соседних сегментов (сквозь пустые кубики видно путь тела, повороты и подъёмы);
-//   2. СТРЕЛКИ НА ХВОСТЕ: на последних TAIL_ARROWS звеньях по конусу, острием в сторону головы. Хвост всегда едет по своему телу,
-//      так что стрелки показывают клетки, которые освободятся в ближайшие такты, и направление хода в них.
-// Только вид: размер клетки, хитбоксы и скорость не меняются, ядро не знает об этом (читаются позиции, которые SnakeView уже собрал).
-// Цвет звеньев — цвет тела, приглушённый (ниже порога bloom: не гало, а тонкая нить). Обновление кадра без аллокаций:
-// Matrix4/Quaternion/Vector3/Color заведены заранее, рост пула — только в ensureCapacity() (холодный путь).
+// Snake skin "Tail guides" (shop, snakeSkin = tailGuides). Designer's idea: see where the tail is going.
+// In 3D a chain of wireframe cubes reads poorly: it is unclear how the body is connected and which cell behind the tail is free.
+// So on top of the regular segments we draw:
+//   1. SPINE: a thin beam between the centers of adjacent segments (through the empty cubes you see the body's path, turns and climbs);
+//   2. TAIL ARROWS: on the last TAIL_ARROWS links, a cone with its tip toward the head. The tail always follows its own body,
+//      so the arrows show the cells that will be vacated in the next steps, and the direction of travel through them.
+// View only: cell size, hitboxes and speed do not change, the core knows nothing about this (it reads positions that SnakeView has already assembled).
+// Link color is the body color, dimmed (below the bloom threshold: a thin thread, not a halo). Per-frame update is allocation-free:
+// Matrix4/Quaternion/Vector3/Color are created up front, the pool grows only in ensureCapacity() (cold path).
 
 import { BoxGeometry, ConeGeometry, Color, Matrix4, MeshBasicMaterial, Quaternion, Vector3, type Scene } from 'three'
 import { InstancedPool } from './pool'
 
-/** Толщина балки позвоночника, клетки (балка тела 0.1). */
+/** Spine beam thickness, in cells (the body beam is 0.1). */
 const LINK_BEAM = 0.09
 /**
- * Позвоночник светлее тела (доля белого) и приглушён: иначе сливается с рёбрами кубиков того же оттенка.
- * Яркость у самого яркого тела ≈ 0.7, ниже порога bloom (0.75): нить, а не гало.
+ * The spine is lighter than the body (white fraction) and dimmed: otherwise it merges with the cube edges of the same hue.
+ * The brightest body has brightness ~0.7, below the bloom threshold (0.75): a thread, not a halo.
  */
 const LINK_WHITE = 0.55
 const LINK_DIM = 0.6
-/** Сколько последних звеньев хвоста получают стрелку. */
+/** How many of the last tail links get an arrow. */
 export const TAIL_ARROWS = 3
 const ARROW_RADIUS = 0.17
 const ARROW_LENGTH = 0.42
 const ARROW_SEGMENTS = 8
-/** Стрелки ярче звена: тот же цвет тела/хвоста с множителем. */
+/** Arrows are brighter than the link: same body/tail color with a multiplier. */
 const ARROW_BRIGHTNESS = 1.8
 
 const EPS = 1e-6
@@ -44,18 +44,18 @@ export class TailGuides {
   constructor(scene: Scene) {
     this.links = new InstancedPool(scene, new BoxGeometry(1, 1, 1), new MeshBasicMaterial(), 8)
     const cone = new ConeGeometry(ARROW_RADIUS, ARROW_LENGTH, ARROW_SEGMENTS, 1)
-    cone.rotateX(Math.PI / 2) // ось конуса +Y -> +Z: острие по направлению, как у балки
+    cone.rotateX(Math.PI / 2) // cone axis +Y -> +Z: tip points along the direction, like the beam
     this.arrows = new InstancedPool(scene, cone, new MeshBasicMaterial(), TAIL_ARROWS)
   }
 
-  /** Холодный путь: ёмкость под длину змейки (звеньев на одно меньше, чем сегментов). */
+  /** Cold path: capacity for the snake length (one fewer link than segments). */
   ensureCapacity(length: number): void {
     this.links.ensureCapacity(Math.max(1, length - 1))
   }
 
   /**
-   * Кадр. gx/gy/gz — позиции сегментов (0 — голова) после сглаживания хода, gk — их масштаб (fade у камеры),
-   * bodyColor/tailColor — палитра, glow — множитель яркости тела (SNAKE_BODY_GLOW_BOOST).
+   * Frame. gx/gy/gz are segment positions (0 is the head) after step smoothing, gk their scale (fade near the camera),
+   * bodyColor/tailColor are the palette, glow is the body brightness multiplier (SNAKE_BODY_GLOW_BOOST).
    */
   update(length: number, gx: Float32Array, gy: Float32Array, gz: Float32Array, gk: Float32Array, bodyColor: Color, tailColor: Color, glow: number, denom: number): void {
     const n = Math.max(0, length - 1)
@@ -63,7 +63,7 @@ export class TailGuides {
     const arrowsFrom = Math.max(0, n - TAIL_ARROWS)
     this.arrows.setCount(Math.max(0, n - arrowsFrom))
     for (let i = 0; i < n; i++) {
-      // Звено между сегментами i и i + 1, направление хода — от хвоста к голове (от i + 1 к i).
+      // Link between segments i and i + 1; direction of travel is from tail to head (from i + 1 to i).
       const ax = gx[i]!
       const ay = gy[i]!
       const az = gz[i]!
@@ -75,7 +75,7 @@ export class TailGuides {
       const k = Math.min(gk[i]!, gk[i + 1]!)
       this.color.copy(bodyColor).lerp(tailColor, (i + 1) / denom).multiplyScalar(glow).lerp(this.white, LINK_WHITE)
       if (len < EPS) {
-        // Вырожденный случай (сегменты совпали): звено нулевое, скрыть.
+        // Degenerate case (segments coincide): the link has zero length, hide it.
         this.m.makeScale(0, 0, 0)
         this.links.mesh.setMatrixAt(i, this.m)
         this.links.mesh.setColorAt(i, this.color)

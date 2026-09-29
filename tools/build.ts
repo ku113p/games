@@ -1,12 +1,12 @@
-// Сборка всего сайта: bun tools/build.ts
-//   dist/index.html, dist/<assets>   — лендинг (site/)
-//   dist/<игра>/                     — каждая игра из games/<игра>/ (её `bun run build` пишет в ../../dist/<игра>)
-//   dist/THIRD_PARTY.md, dist/<игра>/THIRD_PARTY.md — лицензии сторонних компонентов (MIT three требует сохранять уведомление)
+// Build the whole site: bun tools/build.ts
+//   dist/index.html, dist/<assets>   - landing page (site/)
+//   dist/<game>/                     - each game from games/<game>/ (its `bun run build` writes to ../../dist/<game>)
+//   dist/THIRD_PARTY.md, dist/<game>/THIRD_PARTY.md - third-party licenses (three's MIT license requires keeping the notice)
 //
-// Base path. Bun кладёт в собранный html/js ТОЛЬКО относительные пути ("./index-xxx.js", "./track.mp3"),
-// а лендинг ссылается на игры как "./<игра>/". Поэтому сборка не зависит от base path: один и тот же dist
-// работает и на GitHub Pages (/<репозиторий>/), и в корне, и внутри itch.io. Имя репозитория нигде не вписано.
-// Условие: страница игры открывается с завершающим "/" (GitHub Pages сам редиректит /<игра> -> /<игра>/).
+// Base path. Bun puts ONLY relative paths into the built html/js ("./index-xxx.js", "./track.mp3"),
+// and the landing page links to games as "./<game>/". So the build does not depend on the base path: the same dist
+// works on GitHub Pages (/<repository>/), at the root, and inside itch.io. The repository name is written nowhere.
+// Condition: the game page is opened with a trailing "/" (GitHub Pages itself redirects /<game> -> /<game>/).
 import { cpSync, existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 

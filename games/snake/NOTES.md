@@ -1,34 +1,33 @@
-# Змейка — дневник
+# Snake - notes
 
-## Вопрос эксперимента
-Что я хотел проверить этой игрой:
-Интересно ли вообще мне будет и что может получиться при разработке с агентом.
+## Experiment question
+What I wanted to check with this game:
+Whether I'd find it interesting at all, and what can come out of developing with an agent.
 
-## Что задумал
-3D-вариант змейки. Видел когда-то в школе что-то такое, но не смог найти по скринам.
+## What I planned
+A 3D version of snake. I saw something like it once at school, but couldn't find it from screenshots.
 
-## Что получилось
-Получился, как мне кажется, достойный вариант — и мне даже драйвово играть.
+## What came out
+It came out, I think, as a decent version, and it's even a rush to play.
 
-## Что зашло людям / что нет
-(ссылки на отзывы, цифры аналитики: начали / доиграли / вернулись)
+## What worked for people / what did not
+(links to reviews, analytics numbers: started / finished / returned)
 
-Не выкладывалось. Заполняется после выкладки — счётчик уже стоит, события:
-начал партию, дошёл до твиста, доиграл, начал вторую за визит, вернулся в другой день.
+Not released. Fill in after the release: the counter is already in place, events:
+started a game, reached the twist, finished, started a second one in the same visit, came back on another day.
 
-## Оценки (0–10)
-- Интересно было делать: 8
-- Играю сам, когда не надо тестировать: 2
-- Реакция людей: — (не выкладывалось)
+## Ratings (0-10)
+- Fun to build: 8
+- Play it myself when not testing: 2
+- People's reaction: — (not released)
 
-## 5 строк на будущее
-1. Можно делать хорошую графику вообще без ассетов, на одних линиях. Мне нравится
-   неон, и неона достаточно.
-2. Главное начать, а дальше пойдёт.
-3. Надо заходить с нормальным планом: до какого уровня доводить. Улучшать можно
-   бесконечно, и непонятно, где остановиться. Посмотреть, до какого уровня доводят
-   игры на джемах.
-4. Оно почти ничего не жрёт и работает нормально. Думал, будет виснуть, а оказалось,
-   что сделать можно много и оптимизация работает. Не пожалел.
-5. Мне, оказывается, нравится делать игры и допиливать их. Кода я не пишу, но
-   управлять через агента — нормально.
+## Five lines for the future
+1. You can make good graphics with no assets at all, on lines alone. I like
+   neon, and neon is enough.
+2. The main thing is to start, and then it goes.
+3. Go in with a proper plan: how far to take it. You can polish forever, and it's
+   unclear where to stop. Look at how far people take games at jams.
+4. It barely eats anything and runs fine. I thought it would hang, but it turns out
+   you can build a lot and the optimization works. No regrets.
+5. Turns out I like making games and polishing them. I don't write code, but
+   running it through an agent is fine.

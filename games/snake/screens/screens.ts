@@ -1,30 +1,30 @@
-// screens/screens.ts — «какой экран сейчас показан». Без DOM: показ и хранилище передаются снаружи (образец — legal/flow.ts).
-// Один источник правды вместо россыпи classList.add/remove в main.ts.
+// screens/screens.ts — "which screen is shown right now". No DOM: the display and storage are passed in from outside (model: legal/flow.ts).
+// One source of truth instead of a scatter of classList.add/remove in main.ts.
 //
-// Модель: юридический экран (лежит поверх всего) -> основной экран (меню, настройки, рекорды, игра, проигрыш)
-// -> в игре ещё две независимые причины стоять: пауза и объяснение демо-поворота. Объяснение важнее паузы:
-// пока оно открыто, экран паузы не показывается, а после его закрытия пауза (если была) проявляется сама.
+// Model: the legal screen (lies on top of everything) -> the base screen (menu, settings, records, game, game over)
+// -> in a game there are two more independent reasons to stand still: pause and the demo turn explainer. The explainer beats pause:
+// while it is open the pause screen is not shown, and after it closes the pause (if there was one) reappears by itself.
 
 import { createLegalFlow, type LegalStep, type LegalStorage } from '../legal/flow'
 
 export type BaseScreen = 'menu' | 'settings' | 'records' | 'shop' | 'game' | 'over'
 
-/** Всё, что может быть видно на экране. `hud` — счёт и органы управления партии. */
+/** Everything that can be visible on screen. `hud` is the score and the game's controls. */
 export type ScreenId = 'warning' | 'terms' | 'menu' | 'settings' | 'records' | 'shop' | 'hud' | 'over' | 'pause' | 'demo'
 
 export const ALL_SCREENS: readonly ScreenId[] = ['warning', 'terms', 'menu', 'settings', 'records', 'shop', 'hud', 'over', 'pause', 'demo']
 
 export interface ScreenState {
-  /** Юридический экран поверх всего; null — пройдены (или пропущены). */
+  /** The legal screen on top of everything; null once passed (or skipped). */
   readonly legal: LegalStep | null
   readonly base: BaseScreen
-  /** Игра на паузе (вкладка скрыта или кнопка). Имеет смысл только при base === 'game'. */
+  /** The game is paused (tab hidden or a button). Only meaningful when base === 'game'. */
   readonly paused: boolean
-  /** Открыто объяснение демо-поворота. Имеет смысл только при base === 'game'. */
+  /** The demo turn explainer is open. Only meaningful when base === 'game'. */
   readonly demo: boolean
 }
 
-/** Какие экраны видны при таком состоянии. Под юридическим экраном основной остаётся (он непрозрачный и его закрывает). */
+/** Which screens are visible in this state. Under the legal screen the base one stays (it is opaque and covers it). */
 export function visibleScreens(s: ScreenState): ReadonlySet<ScreenId> {
   const out = new Set<ScreenId>()
   if (s.base === 'game') {
@@ -40,46 +40,46 @@ export function visibleScreens(s: ScreenState): ReadonlySet<ScreenId> {
   return out
 }
 
-/** Экран, который сейчас ловит ввод: юридический, иначе оверлей, иначе основной. */
+/** The screen that catches input right now: legal, otherwise an overlay, otherwise the base one. */
 export function topScreen(s: ScreenState): ScreenId {
   if (s.legal !== null) return s.legal
   if (s.base === 'game') return s.demo ? 'demo' : s.paused ? 'pause' : 'hud'
   return s.base === 'over' ? 'over' : s.base
 }
 
-/** Игровая логика стоит: пауза или объяснение. (Бенчмарк морозит логику отдельно, в main.ts.) */
+/** Game logic stands still: pause or the explainer. (The benchmark freezes logic separately, in main.ts.) */
 export function isHeld(s: ScreenState): boolean {
   return s.paused || s.demo
 }
 
 export interface Screens {
   readonly state: ScreenState
-  /** Показать юридические экраны, затем меню. */
+  /** Show the legal screens, then the menu. */
   start(): void
-  /** Отладка (?perf=bench, ?perf=freeze): юридические экраны не показываются. */
+  /** Debug (?perf=bench, ?perf=freeze): the legal screens are not shown. */
   skipLegal(): void
-  /** Кнопка юридического экрана: принять/понятно и дальше. */
+  /** The legal screen button: accept/got it and move on. */
   confirmLegal(): void
   openSettings(): void
   openRecords(): void
-  /** Магазин: из меню или с экрана проигрыша («В магазин»). Под юридическим экраном, в игре и на паузе — нет. */
+  /** The shop: from the menu or the game-over screen ("To the shop"). Not under the legal screen, in a game or on pause. */
   openShop(): void
-  /** Из настроек, рекордов или магазина — в меню. */
+  /** From settings, records or the shop, back to the menu. */
   back(): void
-  /** Партия началась (из меню, «Ещё раз», бенчмарка): сбрасывает паузу и объяснение. */
+  /** A game started (from the menu, "Again", the benchmark): resets pause and the explainer. */
   startGame(): void
-  /** Змейка погибла: экран проигрыша. Вне игры ничего не делает. */
+  /** The snake died: the game-over screen. Does nothing outside a game. */
   died(): void
-  /** В меню откуда угодно (с паузы, с проигрыша, из бенчмарка). */
+  /** To the menu from anywhere (from pause, from game over, from the benchmark). */
   toMenu(): void
-  /** true, если пауза действительно включилась (не в игре или уже на паузе — false). */
+  /** true if pause actually turned on (not in a game or already paused: false). */
   pause(): boolean
   resume(): void
   openDemo(): void
   closeDemo(): void
 }
 
-/** onChange зовётся при каждом изменении состояния (не зовётся, если ничего не изменилось). */
+/** onChange is called on every state change (not called if nothing changed). */
 export function createScreens(storage: LegalStorage, onChange: (s: ScreenState) => void): Screens {
   let st: ScreenState = { legal: null, base: 'menu', paused: false, demo: false }
 
@@ -97,7 +97,7 @@ export function createScreens(storage: LegalStorage, onChange: (s: ScreenState) 
       return st
     },
     start() {
-      // Из меню, даже если кто-то уже успел его сменить: юридические экраны открывают меню.
+      // From the menu, even if someone has already changed it: the legal screens open the menu.
       legal.start()
     },
     skipLegal() {

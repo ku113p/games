@@ -1,7 +1,7 @@
-// Постпроцессинг: bloom для неона + короткий глитч поверх доворота камеры.
-// Создаётся ОДИН раз на renderer и переиспользуется между партиями
-// (attach/detach сцены). Все пассы хранятся в полях и освобождаются в dispose():
-// EffectComposer.dispose() трогает только свои таргеты и copyPass.
+// Post-processing: bloom for the neon look + a short glitch on top of the camera roll.
+// Created ONCE per renderer and reused between games
+// (attach/detach of the scene). All passes are kept in fields and released in dispose():
+// EffectComposer.dispose() only touches its own targets and copyPass.
 
 import { WebGLRenderer, WebGLRenderTarget, HalfFloatType, UnsignedByteType, SRGBColorSpace, Scene, PerspectiveCamera, Vector2 } from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
@@ -13,25 +13,25 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import type { Config } from '../core/rules'
 import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
 
-// Дизайнер дважды сказал, что гало сильное, а контурный стиль даёт много тонких
-// светящихся линий, поэтому свечение снижено с запасом: слабое, узкое, порог
-// выше яркости сетки/препятствий/чётных сегментов. Заметно светятся только
-// голова, яблоко и яркие рёбра змейки.
-// Параметры bloom (сила, радиус, порог) — оформительские, не балансовые числа: см. palette.ts.
+// The designer said twice that the halo was too strong, and the outline style produces many thin
+// glowing lines, so the bloom is reduced with a margin: weak, narrow, with the threshold
+// above the luminance of the grid/obstacles/even segments. Only the
+// head, the apple and the bright snake edges visibly glow.
+// The bloom parameters (strength, radius, threshold) are styling, not balance numbers: see palette.ts.
 
-// Сглаживание геометрии. Штатный antialias: true у WebGLRenderer сглаживает только дефолтный
-// фреймбуфер (канвас), а весь кадр рисуется в render target композера, поэтому без своего
-// multisampled target тонкие рёбра и линии рвутся лесенкой. Число сэмплов MSAA (WebGL2):
-// 4 — обычно, 0 — выключить сглаживание целиком (композер вернётся к обычному target'у без samples).
+// Geometry antialiasing. The stock antialias: true of WebGLRenderer only smooths the default
+// framebuffer (the canvas), but the whole frame is drawn into the composer's render target, so without our own
+// multisampled target thin edges and lines come out jagged. MSAA sample count (WebGL2):
+// 4 is the usual value, 0 turns antialiasing off entirely (the composer falls back to a regular target without samples).
 export const MSAA_SAMPLES = 4
 
 /**
- * Способ сглаживания (холодный путь, задаётся из perf-settings). Замеры на встроенной графике Intel (ANGLE/D3D11) показали, что
- * MSAA в HalfFloat-цели даёт затык через кадр независимо от числа сэмплов и пикселей, поэтому способов несколько.
- * - samples: число сэмплов MSAA (0 — MSAA нет).
- * - byteTarget: цель 8 бит (RGBA8, аппаратный sRGB) вместо HalfFloat: свет выше 1.0 обрезается (см. отчёт).
- * - resolveDepth: разрешать (blit) multisampled глубину; по умолчанию three делает это, хотя ничто её не читает.
- * - smaa: постобработочное сглаживание SMAA (после OutputPass, в sRGB); MSAA при этом не используется.
+ * Antialiasing method (cold path, set from perf-settings). Measurements on Intel integrated graphics (ANGLE/D3D11) showed that
+ * MSAA in a HalfFloat target causes a hitch every other frame regardless of the sample count and pixel count, hence several methods.
+ * - samples: MSAA sample count (0 means no MSAA).
+ * - byteTarget: an 8-bit target (RGBA8, hardware sRGB) instead of HalfFloat: light above 1.0 is clipped (see the report).
+ * - resolveDepth: resolve (blit) the multisampled depth; three does this by default even though nothing reads it.
+ * - smaa: SMAA post-process antialiasing (after OutputPass, in sRGB); MSAA is not used with it.
  */
 export interface AaSettings {
   samples: number
@@ -52,8 +52,8 @@ export class PostFx {
   private msaaTarget: WebGLRenderTarget | null = null
   private aa: AaSettings
   private smaaPass: SMAAPass | null = null
-  // prefers-reduced-motion: как и анимации в index.html, глитч при включённой настройке не играется. Список медиазапроса
-  // живой: matches всегда актуален, а слушатель гасит уже идущий глитч, если настройку включили посреди него.
+  // prefers-reduced-motion: like the animations in index.html, the glitch is not played when the setting is on. The media query list
+  // is live: matches is always current, and the listener stops a glitch already in progress if the setting is turned on in the middle of it.
   private readonly reducedMotion: MediaQueryList | null =
     typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
   private readonly onReducedMotionChange = (): void => {
@@ -90,12 +90,12 @@ export class PostFx {
     this.reducedMotion?.addEventListener('change', this.onReducedMotionChange)
   }
 
-  /** Холодный путь: собрать композер и пассы под текущие msaa/размер/сцену. Вызывается из конструктора и setMsaa. */
+  /** Cold path: build the composer and passes for the current msaa/size/scene. Called from the constructor and setMsaa. */
   private build(): void {
     const renderer = this.renderer
-    // Свой target с samples (тип по умолчанию как у штатного: HalfFloat, размер в физических px).
-    // RenderPass пишет в readBuffer композера, поэтому MSAA нужен только ему: writeBuffer
-    // (используется глитчем) остаётся без сэмплов, чтобы не платить памятью за два multisampled буфера.
+    // Our own target with samples (default type same as the stock one: HalfFloat, size in physical px).
+    // RenderPass writes into the composer's readBuffer, so only that one needs MSAA: writeBuffer
+    // (used by the glitch) stays without samples, so we do not pay memory for two multisampled buffers.
     let target: WebGLRenderTarget | undefined
     this.msaaTarget = null
     const samples = this.aa.smaa ? 0 : this.aa.samples
@@ -103,11 +103,11 @@ export class PostFx {
       const pr = this.pixelRatio
       target = new WebGLRenderTarget(Math.max(1, Math.floor(this.width * pr)), Math.max(1, Math.floor(this.height * pr)), {
         type: this.aa.byteTarget ? UnsignedByteType : HalfFloatType,
-        // 8 бит линейно дали бы полосы в тёмных градиентах тумана: sRGB-хранение (SRGB8_ALPHA8) даёт точность там, где глаз чувствителен.
+        // 8 bits linear would band in the dark fog gradients: sRGB storage (SRGB8_ALPHA8) gives precision where the eye is sensitive.
         colorSpace: this.aa.byteTarget ? SRGBColorSpace : undefined,
         samples,
         resolveDepthBuffer: this.aa.resolveDepth,
-        // Глубина после кадра никому не нужна: без resolve её и хранить незачем (три инвалидирует буфер, тайловым GPU это на руку).
+        // Nobody needs the depth after the frame: without a resolve there is no point storing it (three invalidates the buffer, which helps tile-based GPUs).
         storeMultisampledDepthBuffer: this.aa.resolveDepth,
       })
     }
@@ -132,7 +132,7 @@ export class PostFx {
     this.outputPass = new OutputPass()
     this.composer.addPass(this.outputPass)
 
-    // SMAA после OutputPass: работает в sRGB (как задумано в алгоритме), последним пассом сразу пишет на экран.
+    // SMAA after OutputPass: it works in sRGB (as the algorithm intends) and, as the last pass, writes straight to the screen.
     this.smaaPass = null
     if (this.aa.smaa) {
       this.smaaPass = new SMAAPass()
@@ -145,8 +145,8 @@ export class PostFx {
   }
 
   /**
-   * Свечение в доле разрешения буфера: composer.setSize задаёт всем пассам полный размер, поэтому после него
-   * свечению ставится свой. 1 — как всегда (ничего не трогаем, чтобы «высокое» осталось прежним).
+   * Bloom at a fraction of the buffer resolution: composer.setSize gives every pass the full size, so after it
+   * the bloom gets its own. 1 means as always (we touch nothing, so "high" stays as it was).
    */
   private applyBloomSize(): void {
     if (this.bloomScale === 1) return
@@ -163,7 +163,7 @@ export class PostFx {
     this.composer.dispose()
   }
 
-  /** Холодный путь (меню качества, перф-панель, бенчмарк): сменить способ сглаживания, пересоздав композер. */
+  /** Cold path (quality menu, perf panel, benchmark): change the antialiasing method by recreating the composer. */
   setAa(aa: AaSettings): void {
     const a = this.aa
     if (a.samples === aa.samples && a.byteTarget === aa.byteTarget && a.resolveDepth === aa.resolveDepth && a.smaa === aa.smaa) return
@@ -172,7 +172,7 @@ export class PostFx {
     this.build()
   }
 
-  /** Что реально включено сейчас (для лога бенчмарка: подпись этапа не должна зависеть от того, что «хотели»). */
+  /** What is actually on right now (for the benchmark log: a stage label must not depend on what was "wanted"). */
   aaLabel(): string {
     const a = this.aa
     if (a.smaa) return 'SMAA'
@@ -180,22 +180,22 @@ export class PostFx {
     return `MSAA${a.samples} ${a.byteTarget ? '8bit' : 'half'}${a.resolveDepth ? '' : ' nodepthresolve'}`
   }
 
-  /** Качество «среднее»: свечение в половинном разрешении (0.5); 1 — полное. Холодный путь. */
+  /** "Medium" quality: bloom at half resolution (0.5); 1 is full. Cold path. */
   setBloomScale(scale: number): void {
     if (scale === this.bloomScale) return
     this.bloomScale = scale
-    // Возврат к 1 требует полного размера, а setSize свечения зовётся только при resize: переставляем сразу.
+    // Going back to 1 needs the full size, and the bloom's setSize is only called on resize, so we reapply it right away.
     this.composer.setSize(this.width, this.height)
     this.applyBloomSize()
   }
 
-  /** Отладка: включить/выключить bloom (выключенный пасс композер пропускает целиком). */
+  /** Debug: turn bloom on/off (the composer skips a disabled pass entirely). */
   setBloom(on: boolean): void {
     this.bloomOn = on
     this.bloomPass.enabled = on
   }
 
-  /** Холодный путь: новая партия — новая сцена/камера/конфиг на тех же пассах. */
+  /** Cold path: a new game means a new scene/camera/config on the same passes. */
   attach(scene: Scene, camera: PerspectiveCamera, config: Config): void {
     this.scene = scene
     this.camera = camera
@@ -206,7 +206,7 @@ export class PostFx {
     this.glitchPass.enabled = false
   }
 
-  /** Холодный путь: отцепить сцену (её уже уничтожили), не держим ссылки. */
+  /** Cold path: detach the scene (it has already been destroyed) so we hold no references. */
   detach(): void {
     this.glitchActive = false
     this.glitchPass.enabled = false
@@ -221,15 +221,15 @@ export class PostFx {
     this.applyBloomSize()
   }
 
-  /** Вызывается из render() в кадре, где начался доворот камеры; сама не аллоцирует. */
+  /** Called from render() in the frame where the camera roll started; does not allocate itself. */
   triggerGlitch(): void {
-    if (this.reducedMotion?.matches) return // доворот камеры и микропауза остаются, гасится только шум
+    if (this.reducedMotion?.matches) return // the camera roll and micro-pause stay; only the noise is suppressed
     this.glitchActive = true
     this.glitchElapsed = 0
     this.glitchPass.enabled = true
   }
 
-  /** Кадр: без аллокаций. */
+  /** Per frame: no allocations. */
   render(dtMs: number): void {
     if (this.glitchActive) {
       this.glitchElapsed += dtMs
@@ -239,8 +239,8 @@ export class PostFx {
       }
     }
     this.composer.render(dtMs / 1000)
-    // Глитч меняет буферы местами (нечётное число swap'ов): возвращаем multisampled в readBuffer,
-    // иначе на следующем кадре RenderPass рисовал бы в несглаженный.
+    // The glitch swaps the buffers (an odd number of swaps): put the multisampled one back into readBuffer,
+    // otherwise on the next frame RenderPass would draw into the non-antialiased one.
     if (this.msaaTarget && this.composer.readBuffer !== this.msaaTarget) this.composer.swapBuffers()
   }
 

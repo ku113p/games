@@ -1,158 +1,160 @@
-# AGENTS.md — правила коллекции браузерных игр
+# AGENTS.md - rules of the browser game collection
 
-Этот файл читает агент перед любой работой в репозитории. Он же — чек-лист для меня.
+The agent reads this file before any work in the repository. It is also my checklist.
 
-## 0. Роли
+## 0. Roles
 
-- **Я (человек)** — геймдизайнер и ревьюер. Придумываю правила, твисты, решаю, весело или нет, играю и тестирую.
-- **Агент** — реализует то, что описано в `DESIGN.md` игры. Не придумывает механики, твисты, цели и баланс сам.
-- Если правило в `DESIGN.md` неясно или его нет — **агент спрашивает, а не додумывает**.
-- Если `DESIGN.md` у игры отсутствует или пустой — агент **не начинает код** и напоминает его написать (шаблон в разделе 10).
+- **Me (the human)** - game designer and reviewer. I come up with the rules and twists, I decide whether something is fun, I play and test.
+- **Agent** - implements what is described in the game's `DESIGN.md`. Does not invent mechanics, twists, goals or balance on its own.
+- If a rule in `DESIGN.md` is unclear or missing - **the agent asks, it does not guess**.
+- If a game has no `DESIGN.md`, or it is empty - the agent **does not start the code** and reminds me to write it (template in section 10).
+- **Language: everything is written in English** - code comments, commit messages, documents, agent reports.
+  Russian remains only in the values of UI strings in the translation dictionaries.
 
-## 1. Цель коллекции
+## 1. Goal of the collection
 
-Маленькие браузерные игры для телефона и ПК, выложенные на сайт-коллекцию и itch.io.
-Сейчас цель — навык геймдизайна и данные о том, что цепляет людей.
-Потом — одна большая игра из прототипа, в который я сам залип дольше тестов.
+Small browser games for phone and PC, published on the collection site and on itch.io.
+For now the goal is game design skill and data on what hooks people.
+Later - one big game grown from the prototype that I get hooked on myself for longer than the tests require.
 
-## 2. Стек
+## 2. Stack
 
-| Что | Чем | Примечание |
+| What | With what | Note |
 | --- | --- | --- |
-| Рантайм, пакеты, сборка, dev-сервер | Bun | Vite — только если упрёмся в ассеты, HMR или сборку коллекции |
-| Язык | TypeScript, strict | |
-| Рендер 2D и 3D | Three.js | 2D через ортографическую камеру. Версия зафиксирована: `three@<ВЕРСИЯ>` |
-| Физика | Rapier (`@dimforge/rapier2d` / `rapier3d`) | Только в играх, где что-то падает, сталкивается, катится. Не для сеток и пошагового |
-| Тесты | `bun test` | Обязательно для `core/` |
-| Линтер | правило запрета импортов между слоями | См. раздел 4 |
-| Скриншоты | Playwright | После каждого визуального изменения |
-| Ассеты | Kenney (CC0) на заглушки, Meshy/Tripo для своих моделей | **Без пиксель-арта** |
+| Runtime, packages, build, dev server | Bun | Vite - only if we run into assets, HMR or building the collection |
+| Language | TypeScript, strict | |
+| 2D and 3D rendering | Three.js | 2D through an orthographic camera. Version is pinned: `three@<VERSION>` |
+| Physics | Rapier (`@dimforge/rapier2d` / `rapier3d`) | Only in games where things fall, collide, roll. Not for grids and turn-based |
+| Tests | `bun test` | Mandatory for `core/` |
+| Linter | a rule forbidding imports between layers | See section 4 |
+| Screenshots | Playwright | After every visual change |
+| Assets | Kenney (CC0) for placeholders, Meshy/Tripo for my own models | **No pixel art** |
 
-Агент использует API той версии Three.js, что указана в `package.json`, а не по памяти из старых примеров.
+The agent uses the Three.js API of the version given in `package.json`, not from memory of old examples.
 
-## 3. Структура репозитория
-
-```
-games/<игра>/     одна папка на игру (структура в разделе 4)
-site/             лендинг коллекции: название, гифка, кнопка «играть» для каждой игры
-shared/           появляется только после второй игры и только для того, что реально повторилось
-JOURNAL.md        общий дневник разработки (раздел 9)
-IDEAS.md          отложенные идеи
-AGENTS.md         этот файл
-```
-
-Кандидаты в `shared/` (выносить, когда повторились дважды): масштаб под экран, тач-ввод,
-экран «Tap to play» и разблокировка звука, сохранения, пулы объектов, seed-рандом.
-
-## 4. Архитектура каждой игры
+## 3. Repository structure
 
 ```
-games/<игра>/
-  core/          чистый TS, без Three.js
-    state.ts       что есть в игре
-    commands.ts    действия игрока → меняют состояние, возвращают события
-    queries.ts     вопросы к состоянию (только чтение)
-    rules.ts       сами правила
-  view/          Three.js: подписан на события, читает через queries
-  input/         тач, клавиатура → вызывает commands
-  main.ts        собирает всё вместе
-  config.json    все числа баланса
-  DESIGN.md      одна страница правил моими словами
-  NOTES.md       дневник этой игры (раздел 9)
+games/<game>/     one folder per game (structure in section 4)
+site/             landing page of the collection: name, gif, a "play" button for each game
+shared/           appears only after the second game and only for what has really repeated
+JOURNAL.md        common development journal (section 9)
+IDEAS.md          deferred ideas
+AGENTS.md         this file
 ```
 
-### Жёсткие правила
+Candidates for `shared/` (extract when something has repeated twice): scaling to the screen, touch input,
+the "Tap to play" screen and audio unlock, saves, object pools, seeded random.
 
-1. Состояние меняется **только** через команды. Команда возвращает события.
-2. Вид реагирует на события (анимация, звук, тряска, частицы) и читает состояние **только** через queries.
-3. `core/` не импортирует `view/`, `input/` и Three.js. Проверяет линтер.
-4. Время и рандом передаются в ядро снаружи, рандом — с seed. Ядро детерминировано.
-5. Все числа баланса — в `config.json`. Магические числа в коде — ошибка ревью.
-6. Имена в коде — из `DESIGN.md`. Если в дизайне «линия сгорает», в коде `burnLine`.
-7. **Горячий путь** (каждый кадр, каждая сущность) — без создания новых объектов и без `async`/`await`.
-   Пулы, переиспользование, мутация на месте. **Холодный путь** (загрузка, меню, старт уровня) — как удобно.
-8. Новая фича = команда или запрос + тест в `core/`.
-9. Если игра выросла в большую — границы оформляются портами и игра переходит на полную гексагональную архитектуру.
+## 4. Architecture of every game
 
-## 5. Требования к телефону (с первого дня)
+```
+games/<game>/
+  core/          pure TS, no Three.js
+    state.ts       what exists in the game
+    commands.ts    player actions → change the state, return events
+    queries.ts     questions to the state (read-only)
+    rules.ts       the rules themselves
+  view/          Three.js: subscribed to events, reads through queries
+  input/         touch, keyboard → calls commands
+  main.ts        wires everything together
+  config.json    all balance values
+  DESIGN.md      one page of rules in my own words
+  NOTES.md       this game's notes (section 9)
+```
 
-- Портретная ориентация по умолчанию, масштаб под экран.
-- Тап-зоны не меньше 44 px, важное в нижней половине экрана.
-- Никакого hover. Управление только тапами и свайпами; клавиатура — дополнительно для ПК.
-- Звук включается только после первого касания — экран «Tap to play».
-- Ввод текста — HTML-input поверх канваса, UI должен переживать экранную клавиатуру.
-- Производительность проверяется на слабом телефоне, а не на ноутбуке.
+### Hard rules
 
-## 6. Хостинг и деплой
+1. State changes **only** through commands. A command returns events.
+2. The view reacts to events (animation, sound, shake, particles) and reads state **only** through queries.
+3. `core/` does not import `view/`, `input/` or Three.js. The linter checks this.
+4. Time and random are passed into the core from outside, random with a seed. The core is deterministic.
+5. All balance values are in `config.json`. Magic numbers in code are a review error.
+6. Names in code come from `DESIGN.md`. If the design says "the line burns out", the code says `burnLine`.
+7. The **hot path** (every frame, every entity) - no new objects and no `async`/`await`.
+   Pools, reuse, in-place mutation. The **cold path** (loading, menu, level start) - whatever is convenient.
+8. A new feature = a command or a query + a test in `core/`.
+9. If the game grows into a big one, the boundaries are formalized as ports and the game moves to full hexagonal architecture.
 
-- **GitHub Pages, публичный репозиторий.** Деплой через GitHub Actions при пуше: собираются все игры и лендинг.
-- **Base path:** сайт живёт по `/<репозиторий>/`, игры — по `/<репозиторий>/<игра>/`. Прописано в сборке каждой игры.
-- В коде нет ключей и секретов.
-- **itch.io** для каждой игры: zip содержимого сборки, `index.html` в корне архива,
-  «This file will be played in the browser», «Mobile friendly», ориентация.
-  Лимиты itch: до 500 МБ распакованно, до 200 МБ на файл, до 1000 файлов.
+## 5. Phone requirements (from day one)
 
-## 7. Цикл одной игры
+- Portrait orientation by default, scaling to the screen.
+- Tap zones at least 44 px, the important things in the bottom half of the screen.
+- No hover. Controls only by taps and swipes; keyboard is an extra for PC.
+- Sound turns on only after the first touch - the "Tap to play" screen.
+- Text input is an HTML input over the canvas, the UI must survive the on-screen keyboard.
+- Performance is checked on a weak phone, not on a laptop.
 
-Таймбокс: **1–2 дня на игру.** Вышло время — выпускаем как есть.
+## 6. Hosting and deploy
 
-1. **DESIGN.md** — пишу я. Без него код не начинается.
-2. **Базовая версия** — агент, мелкими задачами. После каждой задачи я играю.
-3. **Мой твист** — одно правило, которое меняет игру. Придумываю я, записываю в DESIGN.md.
-4. **Game feel** — звук, тряска, частицы, анимация на каждое действие.
-5. **Аналитика** — минимум три события: начал, доиграл, вернулся.
-6. **Выкладка** — сайт, itch.io, пост в r/playmygame.
-7. **Разбор** — оценки и дневник (раздел 9).
+- **GitHub Pages, public repository.** Deploy through GitHub Actions on push: all games and the landing page are built.
+- **Base path:** the site lives at `/<repository>/`, games at `/<repository>/<game>/`. It is set in each game's build.
+- There are no keys or secrets in the code.
+- **itch.io** for each game: a zip of the build contents, `index.html` at the root of the archive,
+  "This file will be played in the browser", "Mobile friendly", orientation.
+  itch limits: up to 500 MB unpacked, up to 200 MB per file, up to 1000 files.
 
-План первых игр: **пять экспериментов**, каждый отвечает на свой вопрос:
-ощущение от действия · твист правила · генерация · выбор за один ход · прогресс.
-Какие игры — решаю я. Платформер в первую пятёрку не входит.
+## 7. The cycle of one game
 
-## 8. Definition of Done для задачи агента
+Timebox: **1-2 days per game.** Time is up - we release as is.
 
-- [ ] Тесты `core/` проходят.
-- [ ] Линтер импортов чист.
-- [ ] Нет аллокаций и `await` в цикле кадра.
-- [ ] Новые числа — в `config.json`.
-- [ ] Для визуальных изменений снят скриншот через Playwright и сверен с задачей.
-- [ ] Сборка открывается по base path.
-- [ ] Агент коротко написал, что изменилось и что мне проверить руками на телефоне.
+1. **DESIGN.md** - I write it. No code starts without it.
+2. **Base version** - the agent, in small tasks. After every task I play.
+3. **My twist** - one rule that changes the game. I come up with it and write it into DESIGN.md.
+4. **Game feel** - sound, shake, particles, animation for every action.
+5. **Analytics** - at least three events: started, finished, returned.
+6. **Release** - the site, itch.io, a post on r/playmygame.
+7. **Retrospective** - ratings and the journal (section 9).
 
-## 9. Дневник и напоминания
+Plan for the first games: **five experiments**, each answering its own question:
+feel of the action · a rule twist · generation · a choice in one move · progression.
+I decide which games. A platformer is not among the first five.
 
-### Агент ОБЯЗАН напоминать мне
+## 8. Definition of Done for an agent task
 
-- **В начале сессии по игре:** есть ли `DESIGN.md` и описан ли в нём твист. Если нет — напомнить до кода.
-- **После каждой задачи:** «Сыграй на телефоне. Что ощущается не так?»
-- **Когда игра доходит до шага 6 (выкладка):** заполнить разбор в `NOTES.md` игры и строку в `JOURNAL.md`.
-- **Если с начала работы над игрой прошло больше 2 дней:** напомнить про таймбокс — выпускаем как есть.
-- **Если я предлагаю новую большую идею посреди работы:** записать её в `IDEAS.md` и вернуться к текущей игре.
-- **Раз в неделю (или после третьей игры):** перечитать `JOURNAL.md` и сравнить оценки — какой прототип растить.
-- **Если в `NOTES.md` нет оценок у выпущенной игры** — напомнить при следующей сессии.
+- [ ] `core/` tests pass.
+- [ ] The import linter is clean.
+- [ ] No allocations and no `await` in the frame loop.
+- [ ] New numbers are in `config.json`.
+- [ ] For visual changes a screenshot was taken through Playwright and checked against the task.
+- [ ] The build opens at the base path.
+- [ ] The agent briefly wrote what changed and what I should check by hand on a phone.
 
-Агент может сам создать пустые файлы по шаблонам ниже, но **не заполняет** за меня оценки, выводы и ощущения.
+## 9. Journal and reminders
 
-### Шаблон `NOTES.md` игры
+### The agent MUST remind me
+
+- **At the start of a session on a game:** whether `DESIGN.md` exists and whether the twist is described in it. If not - remind me before any code.
+- **After every task:** "Play it on your phone. What feels wrong?"
+- **When a game reaches step 6 (release):** fill in the retrospective in the game's `NOTES.md` and a row in `JOURNAL.md`.
+- **If more than 2 days have passed since work on the game began:** remind me about the timebox - we release as is.
+- **If I propose a new big idea in the middle of the work:** write it down in `IDEAS.md` and go back to the current game.
+- **Once a week (or after the third game):** reread `JOURNAL.md` and compare the ratings - which prototype to grow.
+- **If a released game has no ratings in `NOTES.md`** - remind me at the next session.
+
+The agent may create empty files from the templates below on its own, but **does not fill in** ratings, conclusions and feelings for me.
+
+### `NOTES.md` template for a game
 
 ```markdown
-# <игра> — дневник
+# <game> - notes
 
-## Вопрос эксперимента
-Что я хотел проверить этой игрой:
+## Experiment question
+What I wanted to test with this game:
 
-## Что задумал
+## What I planned
 
-## Что получилось
+## What came out
 
-## Что зашло людям / что нет
-(ссылки на отзывы, цифры аналитики: начали / доиграли / вернулись)
+## What worked for people / what did not
+(links to reviews, analytics numbers: started / finished / returned)
 
-## Оценки (0–10)
-- Интересно было делать:
-- Играю сам, когда не надо тестировать:
-- Реакция людей:
+## Ratings (0-10)
+- Fun to build:
+- Play it myself when not testing:
+- People's reaction:
 
-## 5 строк на будущее
+## Five lines for the future
 1.
 2.
 3.
@@ -160,54 +162,54 @@ games/<игра>/
 5.
 ```
 
-### Формат `JOURNAL.md` (одна строка на выпущенную игру)
+### `JOURNAL.md` format (one row per released game)
 
 ```markdown
-| Дата | Игра | Вопрос | Делать | Играю сам | Люди | Главный вывод |
+| Date | Game | Question | Build | Play myself | People | Main takeaway |
 | --- | --- | --- | --- | --- | --- | --- |
 ```
 
-## 10. Шаблон `DESIGN.md` игры (пишу я)
+## 10. `DESIGN.md` template for a game (I write it)
 
 ```markdown
-# <игра>
+# <game>
 
-## Одна фраза
-Кто игрок и что он делает.
+## One sentence
+Who the player is and what they do.
 
-## Цель и поражение
-Как выиграть. Как проиграть. Понятно за 3 секунды?
+## Goal and failure
+How to win. How to lose. Clear within 3 seconds?
 
-## Управление
-Что делает тап / свайп. Что делает клавиатура на ПК.
+## Controls
+What a tap / swipe does. What the keyboard does on PC.
 
-## Правила
-(коротко, по пунктам)
+## Rules
+(short, in points)
 
-## Что меняется со временем
-Сложность, скорость, новые элементы.
+## What changes over time
+Difficulty, speed, new elements.
 
-## Мой твист
-Одно правило, которого нет в оригинале.
+## My twist
+One rule that the original does not have.
 
 ## Game feel
-Что должно ощущаться приятно и чем это подчеркнуть.
+What should feel pleasant and how to emphasize it.
 
-## Вне скоупа
-Чего в этой игре точно не будет.
+## Out of scope
+What will definitely not be in this game.
 ```
 
-## 11. На что смотреть на ревью
+## 11. What to look at in review
 
-- Границы: `core/` не знает о виде и вводе.
-- Цикл кадра: нет новых объектов и `await`.
-- Числа только в `config.json`.
-- Первые 30 секунд понятны без текста.
-- Одна цель, понятная за 3 секунды.
-- Проверено на реальном телефоне.
+- Boundaries: `core/` knows nothing about the view and input.
+- The frame loop: no new objects and no `await`.
+- Numbers only in `config.json`.
+- The first 30 seconds are clear without text.
+- One goal, clear within 3 seconds.
+- Checked on a real phone.
 
-## 12. Отложено (см. `IDEAS.md`)
+## 12. Deferred (see `IDEAS.md`)
 
-Генерируемая sci-fi RPG за наёмника корпорации (реальные ранения, четыре пути к цели, мир помнит),
-флот с паттернами поведения, BYOK OpenRouter как фишка, онлайн, Steam и мобильные сторы.
-Возвращаюсь, когда хотя бы один эксперимент покажет, что я залипаю.
+A generated sci-fi RPG about a corporate mercenary (real wounds, four paths to the goal, the world remembers),
+a fleet with behavior patterns, BYOK OpenRouter as a feature, online, Steam and mobile stores.
+I come back when at least one experiment shows that I get hooked.

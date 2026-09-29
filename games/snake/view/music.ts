@@ -1,24 +1,24 @@
-// view/music.ts — фоновая музыка: декодированный буфер + AudioBufferSourceNode с loop.
-// Не HTMLAudioElement: у него петля щёлкает на стыке (Safari, Chrome).
-// loopStart/loopEnd — на музыкальные такты ВНУТРИ буфера: mp3-паддинг по краям файла
-// (Safari его не всегда срезает) в петлю не попадает. Загрузка — холодный путь, async тут допустим.
+// view/music.ts - background music: a decoded buffer + AudioBufferSourceNode with loop.
+// Not HTMLAudioElement: its loop clicks at the seam (Safari, Chrome).
+// loopStart/loopEnd sit on musical bars INSIDE the buffer: the mp3 padding at the file edges
+// (Safari does not always trim it) stays out of the loop. Loading is a cold path, so async is fine here.
 
 export interface MusicConfig {
   volume: number
-  /** Начало петли, сек от начала буфера (граница такта). До него играет вступление один раз. */
+  /** Loop start, seconds from the buffer start (a bar boundary). The intro plays once before it. */
   loopStartSec: number
-  /** Конец петли, сек от начала буфера (граница такта). */
+  /** Loop end, seconds from the buffer start (a bar boundary). */
   loopEndSec: number
-  /** Частота, в которой держим декодированный буфер (совпадает с файлом): RAM = сек × Гц × 4 байта. */
+  /** Sample rate the decoded buffer is kept at (matches the file): RAM = seconds x Hz x 4 bytes. */
   bufferSampleRate: number
-  /** Плавность включения/выключения, мс. */
+  /** Fade in/out smoothness, ms. */
   fadeMs: number
 }
 
 export interface Music {
-  /** Загрузить, декодировать и запустить петлю (один раз; повторные вызовы игнорируются). */
+  /** Load, decode and start the loop (once; repeated calls are ignored). */
   start(): void
-  /** Включить/выключить (плавно, через gain; поток продолжает идти, чтобы не терять такт). */
+  /** Turn on/off (smoothly, via gain; the stream keeps running so the bar position is not lost). */
   setOn(on: boolean): void
 }
 
@@ -30,16 +30,16 @@ export function createMusic(ctx: AudioContext, destination: AudioNode, url: stri
   let started = false
 
   function fade(): void {
-    // setTargetAtTime: постоянная времени = fadeMs/3, к концу fadeMs достигает ~95%.
+    // setTargetAtTime: time constant = fadeMs/3, reaches ~95% by the end of fadeMs.
     gain.gain.setTargetAtTime(on ? cfg.volume : 0, ctx.currentTime, cfg.fadeMs / 3000)
   }
 
   async function load(): Promise<void> {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`music: ${url} → HTTP ${res.status}`)
-    // Декодируем в отдельном офлайн-контексте на частоте файла: decodeAudioData пересэмплирует в частоту
-    // ЕГО контекста, а основной работает на 44.1/48 кГц — буфер был бы вдвое больше по RAM.
-    // Воспроизведение через основной контекст пересэмплирует на лету.
+    // Decode in a separate offline context at the file's sample rate: decodeAudioData resamples to the rate of
+    // ITS context, and the main one runs at 44.1/48 kHz - the buffer would be twice as large in RAM.
+    // Playback through the main context resamples on the fly.
     const decoder = new OfflineAudioContext(1, 1, cfg.bufferSampleRate)
     const buffer = await decoder.decodeAudioData(await res.arrayBuffer())
     const src = ctx.createBufferSource()
@@ -56,7 +56,7 @@ export function createMusic(ctx: AudioContext, destination: AudioNode, url: stri
       if (started) return
       started = true
       load().catch((err: unknown) => {
-        console.error('music: не загрузилась', err)
+        console.error('music: failed to load', err)
       })
     },
     setOn(v: boolean) {

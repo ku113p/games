@@ -1,15 +1,15 @@
-// Палитра освещения.
+// Lighting palette.
 //
-// ЦВЕТА — ДАННЫЕ. Наборы цветов лежат в config.json (palettes.sets.<id>, hex-строки), какой из них надет — решает магазин.
-// Здесь живут ЖИВЫЕ объекты Color: остальной view импортирует их по прежним именам (SNAKE_BODY_COLOR, APPLE_COLOR, ...),
-// а applyPalette() при старте партии перезаписывает их на месте. Это холодный путь: в кадре ничего не создаётся и не читается из
-// конфига. Смена набора на лету не поддерживается (материалы копируют цвет при создании): только между партиями, до createView.
+// COLORS ARE DATA. Color sets live in config.json (palettes.sets.<id>, hex strings); the shop decides which one is equipped.
+// This module holds LIVE Color objects: the rest of the view imports them under their old names (SNAKE_BODY_COLOR, APPLE_COLOR, ...),
+// and applyPalette() overwrites them in place at game start. This is the cold path: nothing is created or read from the config
+// per frame. Switching sets on the fly is not supported (materials copy the color at creation): only between games, before createView.
 //
-// ЯРКОСТЬ СВЕЧЕНИЯ ТОЖЕ СЧИТАЕТСЯ САМА. Bloom берёт линейную яркость 0.299R+0.587G+0.114B выше порога BLOOM_THRESHOLD.
-// В наборе хранится только оттенок; множитель для каждой роли = целевая яркость (config.palettes.glow) / яркость оттенка,
-// с потолком maxBoost. Так любой набор светится одинаково, а «сигналы горят, тихое не светится» выполняется без подбора ×3.0 руками.
-// Оформительские константы ниже (альфы, пороги) — не числа баланса; по AGENTS.md баланс живёт в config.json, а не они.
-// Проверка различимости сигналов головы — palette-math.ts (checkPalette) и palette.test.ts: набор, не прошедший её, в конфиг не попадает.
+// GLOW BRIGHTNESS IS COMPUTED TOO. Bloom takes linear luminance 0.299R+0.587G+0.114B above BLOOM_THRESHOLD.
+// A set stores only the hue; the multiplier for each role = target luminance (config.palettes.glow) / hue luminance,
+// capped at maxBoost. So every set glows the same way, and "signals glow, quiet things don't" holds without hand-tuning a x3.0.
+// The styling constants below (alphas, thresholds) are not balance values; per AGENTS.md balance lives in config.json, and these do not.
+// Head-signal distinguishability is checked in palette-math.ts (checkPalette) and palette.test.ts: a set that fails it does not get into the config.
 
 import { Color, FogExp2, UniformsLib, UniformsUtils, type IUniform } from 'three'
 import configJson from '../config.json'
@@ -17,40 +17,40 @@ import { boostsFor, type GlowTargets, type PaletteSet } from './palette-math'
 
 export type { GlowTargets, PaletteSet } from './palette-math'
 
-/** Раздел config.palettes. */
+/** The config.palettes section. */
 export interface PalettesConfig {
   glow: GlowTargets
   sets: Readonly<Record<string, PaletteSet>>
 }
 
-/** Набор по умолчанию и запасной, если выбранного нет в конфиге. */
+/** Default set, and the fallback when the chosen one is not in the config. */
 export const DEFAULT_PALETTE_ID = 'neon'
 
-/** Фон сцены и мини-карты (живой объект, см. applyPalette). */
+/** Scene and minimap background (live object, see applyPalette). */
 export const BACKGROUND_COLOR = new Color()
-// Цвет тумана: не чёрный фон, а видимый фон сцены (слабая вуаль стенок куба + bloom ≈ sRGB 30,34,58 у «Ночного неона»):
-// иначе дальние блоки чернеют дырами на светлой вуали, а не растворяются в ней.
+// Fog color: not the black background but the visible scene background (faint veil of the cube walls + bloom, about sRGB 30,34,58 in Night Neon):
+// otherwise distant blocks turn into black holes against the lighter veil instead of dissolving into it.
 export const FOG_COLOR = new Color()
 
-// ТУМАН СЦЕНЫ. Единственный механизм затухания по дальности от КАМЕРЫ: экспоненциальный
-// FogExp2 (exp(-(ρ·d)²), d — глубина в кадре), цвет тумана = цвет фона, поэтому далёкое не
-// сереет, а растворяется в фон. Плотность ρ живёт в config.json (fog.density, 0 — туман выключен
-// целиком), в кадре её выставляет view/index.ts: ρ·smoothstep(freeAmount), чтобы в фазе plane
-// (камера далеко снаружи) первая игра оставалась плоской, и 0 при выключенном тумблере «Туман».
-// Штатные материалы (змейка, луч направления) туманятся сами (fog: true по умолчанию); кастомные
-// шейдеры берут те же uniform'ы через fogUniforms() + material.fog = true и считают по той же формуле:
-// непрозрачные — стандартными чанками fog_*, прозрачные точки — через fogVisibility (множитель альфы).
-// Вне тумана намеренно: яблоко (должно быть видно на любой дистанции), компас, ближние маркеры головы
-// (near-cells: ≤ 2 клеток), стенки куба, их сетка и проекция головы (у них своё затухание по камере:
-// FALLOFF_* в cube-frame.ts — оно работает и в фазе plane, где общий туман выключен).
+// SCENE FOG. The only mechanism for fading by distance from the CAMERA: exponential
+// FogExp2 (exp(-(rho*d)^2), d is the depth in the frame). The fog color equals the background color, so distant things
+// do not turn gray but dissolve into the background. The density rho lives in config.json (fog.density, 0 turns fog off
+// entirely); each frame view/index.ts sets it to rho*smoothstep(freeAmount), so that in plane mode
+// (camera far outside) the first game stays flat, and to 0 when the "Fog" toggle is off.
+// Stock materials (snake, direction ray) get fogged on their own (fog: true by default); custom
+// shaders take the same uniforms via fogUniforms() + material.fog = true and use the same formula:
+// opaque ones with the standard fog_* chunks, transparent dots via fogVisibility (an alpha multiplier).
+// Deliberately outside the fog: the apple (must be visible at any distance), the compass, the near head markers
+// (near-cells: up to 2 cells), the cube walls, their grid and the head projection (they have their own camera-based falloff:
+// FALLOFF_* in cube-frame.ts, which also works in plane mode, where the global fog is off).
 export function createFog(): FogExp2 {
   return new FogExp2(FOG_COLOR, 0)
 }
-/** Униформы тумана для ShaderMaterial с fog: true (значения обновляет рендерер из scene.fog). Новый набор на материал. */
+/** Fog uniforms for a ShaderMaterial with fog: true (the renderer updates the values from scene.fog). A new set per material. */
 export function fogUniforms(): Record<string, IUniform> {
   return UniformsUtils.merge([UniformsLib.fog])
 }
-/** GLSL: видимость (1 — чисто, 0 — туман) для прозрачных шейдеров; та же формула, что у FogExp2. Нужен fogUniforms(). */
+/** GLSL: visibility (1 is clear, 0 is full fog) for transparent shaders; same formula as FogExp2. Needs fogUniforms(). */
 export const FOG_VISIBILITY_GLSL = /* glsl */ `
 uniform float fogDensity;
 float fogVisibility(float viewDepth) {
@@ -58,156 +58,156 @@ float fogVisibility(float viewDepth) {
 }
 `
 
-// Рёбра куба-арены: светятся, но не заливают (bloom-порог BLOOM_THRESHOLD, см. блок Bloom ниже).
-// Множитель считает applyPalette (у «Ночного неона» 2.2: было 1.6, стало 2.2, ярче линия -> заметный мягкий ореол по рёбрам куба).
+// Arena cube edges: they glow but do not flood the frame (bloom threshold BLOOM_THRESHOLD, see the Bloom block below).
+// applyPalette computes the multiplier (2.2 in Night Neon: was 1.6, now 2.2; a brighter line gives a visible soft halo along the cube edges).
 export const CUBE_EDGE_COLOR = new Color()
-// Толщина ребра в клетках: size * k, в пределах [min, max].
+// Edge thickness in cells: size * k, clamped to [min, max].
 export const CUBE_EDGE_THICKNESS_PER_SIZE = 0.004
 export const CUBE_EDGE_THICKNESS_MIN = 0.07
 export const CUBE_EDGE_THICKNESS_MAX = 0.2
 
-// Проекция головы на стенки: очень тихая, заметно тусклее рёбер и змейки.
-// Яркость (линейный цвет * альфа) ниже порога bloom 0.25.
+// Head projection on the walls: very quiet, clearly dimmer than the edges and the snake.
+// Luminance (linear color * alpha) is below the bloom threshold 0.25.
 export const MARK_COLOR = new Color()
 export const MARK_LINE_ALPHA = 0.12
 export const MARK_SQUARE_ALPHA = 0.2
 
-// Читаемость: тело и хвост яркие (сине-зелёный неон, яркость не падает ниже
-// уровня яркого сегмента), голова тёплая и ярче тела — не спутать ни с телом,
-// ни с яблоком (розовый).
+// Readability: body and tail are bright (blue-green neon, luminance never drops below
+// the level of a bright segment); the head is warm and brighter than the body, so it cannot be
+// confused with the body or with the apple (pink).
 export const SNAKE_BODY_COLOR = new Color()
 export const SNAKE_TAIL_COLOR = new Color()
 export const SNAKE_HEAD_COLOR = new Color()
-// Чётные/нечётные сегменты чуть различаются по яркости — видно длину и движение.
+// Even/odd segments differ slightly in brightness, so length and motion are visible.
 export const SNAKE_STRIPE_DIM = 0.72
-// Множитель яркости тела змейки (только вид змейки, мини-карта его не берёт).
-// Неон-проход: было 1.0 (тело не светилось вовсе), стало 1.25 — светятся яркие сегменты,
-// тусклые полосы (SNAKE_STRIPE_DIM) остаются ниже порога: полосатость не пропадает.
+// Snake body brightness multiplier (snake view only; the minimap does not use it).
+// Neon pass: was 1.0 (the body did not glow at all), now 1.25. Bright segments glow,
+// the dim stripes (SNAKE_STRIPE_DIM) stay below the threshold, so the striping does not vanish.
 export let SNAKE_BODY_GLOW_BOOST = 1.25
 
 export const APPLE_COLOR = new Color()
-// Множитель яркости яблока (мини-карта его не берёт). Неон-проход: было 1.0 (линейная яркость
-// красно-розового ~0.34 — ниже порога, яблоко не светилось), стало 2.5.
+// Apple brightness multiplier (the minimap does not use it). Neon pass: was 1.0 (the linear luminance
+// of the red-pink is about 0.34, below the threshold, so the apple did not glow), now 2.5.
 export let APPLE_GLOW_BOOST = 2.5
 export const APPLE_EMISSIVE_PULSE_MIN = 0.6
 export const APPLE_EMISSIVE_PULSE_MAX = 1.35
 
-// Контуры препятствий: фиолетовый неон. Неон-проход: множитель было 1.0, стало 3.2 — тонкая
-// линия в 1 px стала яркой, но ореол у неё крошечный: сами грани не светятся.
-// Грани берут тот же цвет, поэтому OBSTACLE_FACE_BRIGHTNESS делится на множитель:
-// яркость граней осталась прежней (0.3 от прежнего цвета), меняется только линия.
-// Цвет линии уже умножен на множитель (applyPalette), OBSTACLE_FACE_BRIGHTNESS делится на него.
+// Obstacle outlines: purple neon. Neon pass: the multiplier was 1.0, now 3.2. The thin
+// 1 px line became bright, but its halo is tiny: the faces themselves do not glow.
+// The faces take the same color, so OBSTACLE_FACE_BRIGHTNESS is divided by the multiplier:
+// face brightness stays as before (0.3 of the old color); only the line changes.
+// The line color is already multiplied by the multiplier (applyPalette); OBSTACLE_FACE_BRIGHTNESS is divided by it.
 export const OBSTACLE_COLOR = new Color()
 
-// Сетка на стенках: тусклая, ниже порога bloom; каждая 5-я линия ярче.
+// Wall grid: dim, below the bloom threshold; every 5th line is brighter.
 export const GRID_COLOR = new Color()
 export const GRID_MINOR_ALPHA = 0.1
 export const GRID_MAJOR_ALPHA = 0.3
 
-// Мини-карта: приглушённая подсказка боковым зрением.
+// Minimap: a muted hint for peripheral vision.
 export const MINIMAP_BG_COLOR = new Color()
 export const MINIMAP_BG_ALPHA = 0.4
 export const MINIMAP_BORDER_COLOR = new Color()
-// Тихий край окна просмотра (мир за ним продолжается) — заметно тусклее стены.
+// Quiet edge of the viewport (the world continues beyond it), clearly dimmer than the wall.
 export const MINIMAP_BORDER_ALPHA = 0.22
-// Настоящая стена арены на карте: сплошная толстая линия по той стороне окна, где оно упёрлось.
+// The real arena wall on the map: a solid thick line along the side of the window where it hit the wall.
 export const MINIMAP_WALL_COLOR = new Color()
 export const MINIMAP_WALL_ALPHA = 0.95
-// Подписи осей («XZ» у карты сверху, «Y» у уровнемера).
+// Axis labels ("XZ" on the top map, "Y" on the level gauge).
 export const MINIMAP_LABEL_ALPHA = 0.6
-// Осевая линия уровнемера (вертикальная полоса «пол — потолок»): тихая, метки поверх.
+// Center line of the level gauge (the vertical floor-to-ceiling strip): quiet, markers on top.
 export const MINIMAP_LEVEL_TRACK_ALPHA = 0.35
-// Деления окна полосы (мелкие каждую клетку, крупные каждые N клеток мира) — мимо метки головы они «едут».
+// Window ticks of the strip (minor every cell, major every N world cells); they "scroll" past the head marker.
 export const MINIMAP_LEVEL_TICK_ALPHA = 0.3
 export const MINIMAP_LEVEL_TICK_MAJOR_ALPHA = 0.7
-// Жёлоб полосы во всю высоту арены: тонкая тихая линия, на ней две точки (я и яблоко).
+// Strip trough spanning the full arena height: a thin quiet line with two dots on it (me and the apple).
 export const MINIMAP_TROUGH_ALPHA = 0.5
 export const MINIMAP_HEAD_ALPHA = 0.9
 export const MINIMAP_APPLE_ALPHA = 0.85
-// Яблоко вне среза (проекция) и вне окна (стрелка у края) тише «яблока здесь», но заметны.
+// An apple outside the slice (projection) or outside the window (arrow at the edge) is quieter than an "apple here", but still visible.
 export const MINIMAP_APPLE_RING_ALPHA = 0.95
 
-// Лучи направления. Яркость (линейная) ниже порога bloom 0.8 с запасом:
-// пять лучей вместо одного не должны добавить гало.
+// Direction rays. Linear luminance is safely below the bloom threshold 0.8:
+// five rays instead of one must not add a halo.
 export const RAY_MAIN_BRIGHTNESS = 0.48
 export const RAY_SIDE_BRIGHTNESS = 0.2
-// Подсветка того, во что упрётся основной луч (стенка, препятствие, тело):
-// тёплый красно-оранжевый, линейная яркость ~0.35 ниже порога bloom.
+// Highlight of what the main ray will hit (wall, obstacle, body):
+// warm red-orange, linear luminance about 0.35, below the bloom threshold.
 export const RAY_DANGER_COLOR = new Color()
-// Заливка грани удара сплошная и потому визуально тяжелее прежней рамки: яркость снижена,
-// линейная яркость цвета остаётся ниже порога bloom 0.8 (сейчас ~0.16).
+// The hit-face fill is solid and so visually heavier than the old frame: brightness is reduced,
+// and the color's linear luminance stays below the bloom threshold 0.8 (currently about 0.16).
 export const RAY_HIT_FILL_BRIGHTNESS = 0.5
-// Сигналы головы. Четыре состояния, читаются ЦВЕТОМ (не пульсом): обычное — спокойный приглушённый
-// светло-жёлтый (ниже порога bloom, не светится: голова различима, но не максимум яркости);
-// цель (яблоко на курсе) — яркая, как раньше была голова, светится (розовый цвета яблока);
-// опасность за 2 хода — оранжевый; за 1 ход — красный. Опасность перебивает цель.
-// Множители подобраны с учётом bloom: он берёт яркость 0.299R+0.587G+0.114B > порога BLOOM_THRESHOLD.
-// У чистого красного/розового яркость мала, поэтому им нужен множитель >2 (иначе гало нет), а у оранжевого
-// множитель поднимает и зелёный канал и сдвигает оттенок к жёлтому, поэтому берём оранжевый с малым G.
-// Было: голова 0xfff27a * 1.4 (яркость ~1.18, самое яркое пятно кадра); стало: * 0.7 (~0.59, без гало).
-// Множители HEAD_* и цвета опасности считает applyPalette. У «Ночного неона»: обычная ×0.7, цель ×3.0, опасность-2 ×2.0, опасность-1 ×3.6.
+// Head signals. Four states, read by COLOR (not by pulsing): idle is a calm muted
+// light yellow (below the bloom threshold, no glow: the head is distinguishable but not at maximum brightness);
+// goal (apple straight ahead) is bright, like the head used to be, and glows (pink, the apple's color);
+// danger in 2 steps is orange; danger in 1 step is red. Danger overrides goal.
+// The multipliers are chosen with bloom in mind: it takes luminance 0.299R+0.587G+0.114B > BLOOM_THRESHOLD.
+// Pure red/pink has low luminance, so they need a multiplier above 2 (otherwise no halo), while for orange
+// the multiplier also raises the green channel and shifts the hue toward yellow, so we take an orange with a low G.
+// Was: head 0xfff27a * 1.4 (luminance about 1.18, the brightest spot in the frame); now: * 0.7 (about 0.59, no halo).
+// applyPalette computes the HEAD_* multipliers and the danger colors. In Night Neon: idle x0.7, goal x3.0, danger-2 x2.0, danger-1 x3.6.
 export let HEAD_IDLE_BOOST = 0.7
 export const HEAD_GOAL_COLOR = APPLE_COLOR
 export let HEAD_GOAL_BOOST = 3.0
 export const HEAD_DANGER_COLOR_FAR = new Color()
 export const HEAD_DANGER_COLOR_NEAR = new Color()
 
-// Грани препятствий: сплошные, непрозрачные (с записью глубины). Яркость граней
-// — доля цвета рёбер (рёбра 1.0, грани 0.3): куб читается объёмом с контуром, а не
-// сплошной заливкой. Оттенок по оси нормали (свет фиксирован в мире) даёт форму
-// даже там, где соседние грани одного цвета: +y светлее всего, z темнее всего,
-// отрицательные стороны ещё на NEG_SHADE тусклее.
+// Obstacle faces: solid, opaque (writing depth). Face brightness
+// is a share of the edge color (edges 1.0, faces 0.3): the cube reads as a volume with an outline, not as
+// a flat fill. Shading by normal axis (the light is fixed in the world) gives shape
+// even where neighboring faces share a color: +y is lightest, z is darkest,
+// and negative sides are dimmer by another NEG_SHADE.
 export const OBSTACLE_FACE_SHARE = 0.3
 export let OBSTACLE_FACE_BRIGHTNESS = OBSTACLE_FACE_SHARE
 export const OBSTACLE_FACE_SHADE_X = 0.85
 export const OBSTACLE_FACE_SHADE_Y = 1.0
 export const OBSTACLE_FACE_SHADE_Z = 0.65
 export const OBSTACLE_FACE_NEG_SHADE = 0.8
-// Прозрачность грани препятствия, которое мешает обзору (между камерой и головой).
+// Alpha of a face of an obstacle that blocks the view (between the camera and the head).
 export const OBSTACLE_GHOST_ALPHA = 0.08
 
-// Bloom. Дизайнер трижды просил ослабить гало (грани терялись), потом попросил «неоновее,
-// но не сильно». Поэтому неон сделан не силой, а яркостью самих линий (*_BOOST выше) и
-// РАДИУСОМ: ореол шире и мягче, а не ярче. Откат к прежнему виду — значения «было».
-// Порог 0.75: яркие линии проходят с запасом, сетка/лучи/тусклые полосы (яркость ниже 0.5)
-// не светятся. Белые точки подсказки (0.9) чуть выше порога и дают крошечную искру — это ок.
-// Было 0.8, стало 0.75.
+// Bloom. The designer asked three times to weaken the halo (faces were getting lost), then asked for "more neon,
+// but not too much". So the neon comes not from strength but from the brightness of the lines themselves (*_BOOST above) and
+// from the RADIUS: a wider, softer halo rather than a brighter one. To roll back to the old look, use the "was" values.
+// Threshold 0.75: bright lines pass with a margin; the grid, rays and dim stripes (luminance below 0.5)
+// do not glow. The white hint dots (0.9) are just above the threshold and give a tiny spark, which is fine.
+// Was 0.8, now 0.75.
 export const BLOOM_THRESHOLD = 0.75
-// Было 0.22, стало 0.26: почти не тронута.
+// Was 0.22, now 0.26: barely touched.
 export const BLOOM_STRENGTH = 0.26
-// Было 0.2, стало 0.45: главный рычаг — ореол шире и мягче при той же силе.
+// Was 0.2, now 0.45: the main lever, a wider and softer halo at the same strength.
 export const BLOOM_RADIUS = 0.45
-// Прочие рычаги (пробовалось, не взято): BLOOM_STRENGTH 0.35+ даёт молоко вокруг головы;
-// порог ниже 0.7 заставляет светиться и тусклые полосы тела, и грани препятствий.
+// Other levers (tried, not adopted): BLOOM_STRENGTH 0.35+ gives a milky haze around the head;
+// a threshold below 0.7 makes the dim body stripes and the obstacle faces glow as well.
 
-// Решётка-подсказка: белые точки, линейная яркость 0.9 (после sRGB ~0.95, белые)
-// при пороге bloom 0.75 (было 0.8): гало почти нет, только крошечная искра. Альфа считается в яркость: 1.0 * 0.9.
+// Lattice hint: white dots, linear luminance 0.9 (about 0.95 after sRGB, white)
+// with bloom threshold 0.75 (was 0.8): almost no halo, only a tiny spark. Alpha counts toward luminance: 1.0 * 0.9.
 export const DOT_BASE_COLOR = new Color(1, 1, 1)
 export const DOT_BASE_ALPHA = 0.9
 
-// Ближний слой подсказки (углы клеток на две клетки вперёд). Ниже порога bloom.
-// Ближняя клетка ярче, дальняя — доля от неё (размер и альфа).
+// Near layer of the hint (cell corners two cells ahead). Below the bloom threshold.
+// The nearer cell is brighter, the farther one is a fraction of it (size and alpha).
 export const NEAR_FORWARD_BRIGHTNESS = 0.9
 export const NEAR_SIDE_BRIGHTNESS = 0.72
 export const NEAR_BLOCKED_BRIGHTNESS = 0.75
 export const NEAR_FAR_SIZE = 0.4
 export const NEAR_FAR_ALPHA = 0.38
-// Метка за препятствием (по глубине дальше того, что перед ней): доля обычной альфы. Читается «за стеной»,
-// а не «на стене»; не мигает, статично. NEAR_DEPTH_BIAS — на сколько клеток метка для теста глубины
-// подтянута к камере (полудиагональ клетки ~0.87): собственную клетку/грань метки это не считает преградой.
+// A marker behind an obstacle (deeper than whatever is in front of it): a fraction of the normal alpha. It reads as "behind the wall",
+// not "on the wall"; it does not blink, it is static. NEAR_DEPTH_BIAS is how many cells the marker is
+// pulled toward the camera for the depth test (half the cell diagonal is about 0.87), so the marker's own cell/face is not counted as blocking it.
 export const NEAR_OCCLUDED_ALPHA = 0.3
 export const NEAR_DEPTH_BIAS = 0.9
 
-// Мини-карта: препятствия тише головы и яблока (фон, а не фигура).
+// Minimap: obstacles are quieter than the head and the apple (background, not figure).
 export const MINIMAP_OBSTACLE_COLOR = new Color()
 export const MINIMAP_OBSTACLE_ALPHA = 0.4
-// Тело змейки на карте: зелёно-голубой градиент как в игре (цвета SNAKE_*), ярче препятствий
-// и другого оттенка, но тише головы (жёлтый треугольник, alpha 0.9, поверх всего).
+// Snake body on the map: a green-cyan gradient as in the game (SNAKE_* colors), brighter than the obstacles
+// and a different hue, but quieter than the head (yellow triangle, alpha 0.9, on top of everything).
 export const MINIMAP_BODY_ALPHA = 0.7
 
 /**
- * Применить набор цветов: перезаписать живые Color и множители на месте. Холодный путь, только между партиями (до createView).
- * Ничего не знает о том, откуда взят набор.
+ * Apply a color set: overwrite the live Color objects and multipliers in place. Cold path, only between games (before createView).
+ * Knows nothing about where the set came from.
  */
 export function applyPalette(set: PaletteSet, glow: GlowTargets): void {
   const b = boostsFor(set, glow)
@@ -236,11 +236,11 @@ export function applyPalette(set: PaletteSet, glow: GlowTargets): void {
 }
 
 /**
- * Применить набор по id из config.palettes. Неизвестный id: запасной DEFAULT_PALETTE_ID.
- * Возвращает id, который применён на самом деле.
+ * Apply a set by id from config.palettes. Unknown id: fall back to DEFAULT_PALETTE_ID.
+ * Returns the id that was actually applied.
  */
 export function applyPaletteById(given: PalettesConfig | undefined, id: string | undefined): string {
-  const palettes = given ?? (configJson.palettes as PalettesConfig) // конфиг без раздела (тестовый) — наборы из config.json
+  const palettes = given ?? (configJson.palettes as PalettesConfig) // a config without the section (test config): take the sets from config.json
   const want = id !== undefined && palettes.sets[id] !== undefined ? id : DEFAULT_PALETTE_ID
   const set = palettes.sets[want]
   if (set === undefined) return DEFAULT_PALETTE_ID
@@ -248,5 +248,5 @@ export function applyPaletteById(given: PalettesConfig | undefined, id: string |
   return want
 }
 
-// Цвета не должны быть пустыми до первой партии (модули вида создают материалы и в тестах).
+// Colors must not be empty before the first game (view modules create materials in tests too).
 applyPaletteById(configJson.palettes as PalettesConfig, DEFAULT_PALETTE_ID)

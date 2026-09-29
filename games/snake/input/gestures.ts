@@ -1,11 +1,11 @@
-// Чистая логика разбора жестов, без DOM — чтобы можно было протестировать
-// отдельно от touch-обвязки (input/touch.ts).
+// Pure gesture-parsing logic, no DOM - so it can be tested
+// separately from the touch glue (input/touch.ts).
 import type { AxisDir, ScreenDir } from '../core/state'
 
 /**
- * Направление свайпа по смещению (dx, dy) в CSS-пикселях.
- * dx/dy — это (конец - начало). Возвращает null, если смещение меньше порога
- * по обеим осям (жест ещё не считается свайпом).
+ * Swipe direction from the offset (dx, dy) in CSS pixels.
+ * dx/dy are (end - start). Returns null if the offset is below the threshold
+ * on both axes (the gesture does not count as a swipe yet).
  */
 export function swipeDirection(dx: number, dy: number, minPx: number): ScreenDir | null {
   const adx = Math.abs(dx)
@@ -17,22 +17,22 @@ export function swipeDirection(dx: number, dy: number, minPx: number): ScreenDir
 
 
 /**
- * true, если тап в момент `now` — второй тап двойного тапа относительно
- * предыдущего тапа в момент `lastTapAt` (мс, общая монотонная шкала).
+ * true if a tap at time `now` is the second tap of a double tap relative to
+ * the previous tap at time `lastTapAt` (ms, shared monotonic timeline).
  */
 export function isDoubleTap(lastTapAt: number | null, now: number, doubleTapMs: number): boolean {
   if (lastTapAt === null) return false
   return now - lastTapAt <= doubleTapMs
 }
 
-/** Предел наклона камеры в радианах по каждой оси — договорённость с видом (setCameraTilt). */
+/** Camera tilt limit in radians per axis - an agreement with the view (setCameraTilt). */
 export const TILT_LIMIT_RAD = 1
 
-/** Запасная чувствительность наклона (рад на CSS-пиксель), если в config.input нет tiltRadPerPx. */
+/** Fallback tilt sensitivity (rad per CSS pixel) if config.input has no tiltRadPerPx. */
 export const DEFAULT_TILT_RAD_PER_PX = 0.005
 
 /**
- * Новое значение наклона после смещения на deltaPx пикселей, с зажимом в ±limit.
+ * New tilt value after an offset of deltaPx pixels, clamped to ±limit.
  */
 export function accumulateTilt(current: number, deltaPx: number, radPerPx: number, limit: number): number {
   const next = current + deltaPx * radPerPx
@@ -41,16 +41,16 @@ export function accumulateTilt(current: number, deltaPx: number, radPerPx: numbe
   return next
 }
 
-/** Чем является новое касание. */
+/** What a new touch is. */
 export type PointerRole = 'gesture' | 'tilt' | 'ignore'
 
 /**
- * Роль нового указателя (pointerdown).
- * - мышь, не основная кнопка (правая/средняя) — наклон;
- * - любой указатель, если уже есть другой прижатый палец — наклон (два пальца);
- * - иначе — обычный жест (поворот/тап/свайп).
- * Основная кнопка мыши при другом прижатом указателе — тоже наклон-жест не стартует:
- * это 'ignore' (мышь не бывает вторым пальцем).
+ * Role of a new pointer (pointerdown).
+ * - mouse, non-primary button (right/middle) - tilt;
+ * - any pointer, if another finger is already down - tilt (two fingers);
+ * - otherwise - a regular gesture (turn/tap/swipe).
+ * Primary mouse button while another pointer is down - a tilt gesture does not start either:
+ * that is 'ignore' (a mouse is never a second finger).
  */
 export function pointerRole(pointerType: string, button: number, otherDownCount: number): PointerRole {
   if (pointerType === 'mouse') {
@@ -60,12 +60,12 @@ export function pointerRole(pointerType: string, button: number, otherDownCount:
   return otherDownCount > 0 ? 'tilt' : 'gesture'
 }
 
-/** Сколько указателей нужно, чтобы наклон продолжался: мышь — 1, пальцы — 2. */
+/** How many pointers a tilt needs to continue: mouse - 1, fingers - 2. */
 export function tiltPointersNeeded(isMouse: boolean): number {
   return isMouse ? 1 : 2
 }
 
-// --- Пульт в углу (схема 'taps') ------------------------------------------
+// --- Corner pad ('taps' scheme) ------------------------------------------
 
 export type PadButton = ScreenDir | AxisDir
 export type PadCommand = { kind: 'turn'; dir: ScreenDir } | { kind: 'axis'; dir: AxisDir }
@@ -73,53 +73,53 @@ export type PadSide = 'right' | 'left'
 
 const PAD_BUTTONS: readonly string[] = ['left', 'right', 'up', 'down', 'into', 'out']
 
-/** Имя кнопки пульта (data-pad) → команда. null — неизвестная кнопка или третья ось сейчас выключена. */
+/** Pad button name (data-pad) -> command. null - unknown button or the third axis is off right now. */
 export function padCommand(button: string | undefined, axisEnabled: boolean): PadCommand | null {
   if (button === undefined || !PAD_BUTTONS.includes(button)) return null
   if (button === 'into' || button === 'out') return axisEnabled ? { kind: 'axis', dir: button } : null
   return { kind: 'turn', dir: button as ScreenDir }
 }
 
-/** Сторона пульта из сохранённой строки; всё непонятное — правая (по умолчанию). */
+/** Pad side from a saved string; anything unclear is right (the default). */
 export function parsePadSide(raw: string | null): PadSide {
   return raw === 'left' ? 'left' : 'right'
 }
 
 /**
- * Касание пульта срабатывает один раз — на pointerdown. Пока этот же указатель
- * не отпущен, повторно он команду не шлёт (нет автоповтора при удержании).
+ * A pad touch fires once - on pointerdown. While the same pointer
+ * is not released, it does not send the command again (no auto-repeat on hold).
  */
 export function shouldFirePad(activePointerIds: ReadonlySet<number>, pointerId: number): boolean {
   return !activePointerIds.has(pointerId)
 }
 
-// --- Ускорение (зажать — быстрее) -----------------------------------------
+// --- Boost (hold - faster) -----------------------------------------
 
-/** Кнопка ускорения: сторона экрана — напротив пульта, чтобы жать другим большим пальцем. */
+/** Boost button: on the side of the screen opposite the pad, so it is pressed with the other thumb. */
 export function boostSide(padSide: PadSide): PadSide {
   return padSide === 'left' ? 'right' : 'left'
 }
 
 const BOOST_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight', 'Space']
 
-/** Физическая клавиша ускорения (e.code, не зависит от раскладки). */
+/** Physical boost key (e.code, layout-independent). */
 export function isBoostCode(code: string): boolean {
   return BOOST_CODES.includes(code)
 }
 
 export interface BoostHold {
-  /** Источник (палец, клавиша) начал удерживать. Повтор того же источника ничего не меняет. */
+  /** A source (finger, key) started holding. Repeating the same source changes nothing. */
   press(source: string): void
-  /** Источник отпустил. Неизвестный источник игнорируется. */
+  /** A source released. An unknown source is ignored. */
   release(source: string): void
-  /** Сбросить всё разом (blur, пауза, конец партии, detach). */
+  /** Reset everything at once (blur, pause, end of game, detach). */
   releaseAll(): void
   isOn(): boolean
 }
 
 /**
- * Ускорение включено, пока удерживает хотя бы один источник (палец на кнопке, Shift).
- * onChange вызывается только на смене состояния, так что повторные release/releaseAll безопасны.
+ * Boost is on while at least one source holds (finger on the button, Shift).
+ * onChange is called only on a state change, so repeated release/releaseAll are safe.
  */
 export function createBoostHold(onChange: (on: boolean) => void): BoostHold {
   const held = new Set<string>()
@@ -147,26 +147,26 @@ export function createBoostHold(onChange: (on: boolean) => void): BoostHold {
   }
 }
 
-// --- Зум камеры (колесо мыши, щипок) и разбор двух пальцев -----------------
+// --- Camera zoom (mouse wheel, pinch) and two-finger parsing -----------------
 
-/** Запасные значения, пока в config.camera / config.input нет полей зума (см. tuning ниже). */
+/** Fallback values while config.camera / config.input have no zoom fields (see tuning below). */
 const DEFAULT_WHEEL_PER_PX = 0.0012
 const DEFAULT_PINCH_GAIN = 1
 const DEFAULT_TWO_FINGER_LOCK_PX = 10
-// deltaMode колеса: 0 — пиксели, 1 — строки, 2 — страницы. Строку/страницу приводим к пикселям.
+// wheel deltaMode: 0 - pixels, 1 - lines, 2 - pages. Lines/pages are converted to pixels.
 const WHEEL_LINE_PX = 16
 const WHEEL_PAGE_PX = 400
 
 export interface ZoomTuning {
-  /** Логарифмическая чувствительность колеса: множитель дистанции = exp(deltaPx * wheelPerPx). */
+  /** Logarithmic wheel sensitivity: distance multiplier = exp(deltaPx * wheelPerPx). */
   wheelPerPx: number
-  /** Степень щипка: множитель = (расстояние_было / расстояние_стало) ^ pinchGain. */
+  /** Pinch exponent: multiplier = (distance_before / distance_after) ^ pinchGain. */
   pinchGain: number
-  /** Сколько пикселей должно набежать (сведение-разведение или сдвиг центра), чтобы жест двух пальцев определился. */
+  /** How many pixels must accumulate (pinch in/out or center shift) for the two-finger gesture to be determined. */
   lockPx: number
 }
 
-/** Числа лежат в config.camera (зум) и config.input (порог), в типе Config их может не быть — читаем мягко. */
+/** The numbers live in config.camera (zoom) and config.input (threshold); the Config type may lack them, so read them defensively. */
 export function zoomTuning(config: {
   camera: object
   input: object
@@ -180,34 +180,34 @@ export function zoomTuning(config: {
   }
 }
 
-/** Колесо → множитель дистанции камеры. Вниз (deltaY > 0) — дальше (>1), вверх — ближе (<1). */
+/** Wheel -> camera distance multiplier. Down (deltaY > 0) - farther (>1), up - closer (<1). */
 export function wheelZoomFactor(deltaY: number, deltaMode: number, wheelPerPx: number): number {
   const px = deltaMode === 1 ? deltaY * WHEEL_LINE_PX : deltaMode === 2 ? deltaY * WHEEL_PAGE_PX : deltaY
   return Math.exp(px * wheelPerPx)
 }
 
-/** Щипок → множитель дистанции камеры: пальцы разводят (spread растёт) — камера ближе (<1). */
+/** Pinch -> camera distance multiplier: fingers spread (spread grows) - camera closer (<1). */
 export function pinchZoomFactor(prevSpread: number, spread: number, gain: number): number {
   if (prevSpread <= 0 || spread <= 0) return 1
   return Math.pow(prevSpread / spread, gain)
 }
 
-/** Зажим зума (множитель дистанции) в пределы из конфига. */
+/** Clamp zoom (distance multiplier) to the config limits. */
 export function clampZoom(zoom: number, min: number, max: number): number {
   return zoom < min ? min : zoom > max ? max : zoom
 }
 
-/** Что делают два пальца на холсте: пока не набежал порог — 'pending', потом навсегда до отпускания — одно из двух. */
+/** What two fingers do on the canvas: until the threshold accumulates - 'pending', then until release - one of the two. */
 export type TwoFingerMode = 'pending' | 'tilt' | 'zoom'
 
 /**
- * Разводит наклон и зум. moved — на сколько сместился центр пальцев с начала жеста (px, по модулю),
- * spread — на сколько изменилось раскрытие пальцев (px, по модулю). Считаем от начала жеста, а не
- * накопленным путём: дрожь центра при щипке (или дрожь раскрытия при наклоне) не копится в перевес.
- * Порог lockPx — «мёртвая зона» жеста. Pointer-события приходят по одному на палец, поэтому
- * когда сдвинулся лишь один палец, moved и spread равны (оба d/2) — такая неоднозначность
- * (разница меньше четверти порога) остаётся 'pending' до движения второго пальца.
- * Решение потом не пересматривается: иначе дрожь одного жеста срывала бы другой.
+ * Separates tilt from zoom. moved - how far the finger center has moved since the gesture began (px, absolute),
+ * spread - how much the finger spread has changed (px, absolute). Measured from the gesture start, not as an
+ * accumulated path: center jitter during a pinch (or spread jitter during a tilt) does not pile up in its favor.
+ * The threshold lockPx is the gesture's "dead zone". Pointer events arrive one per finger, so
+ * when only one finger has moved, moved and spread are equal (both d/2) - such an ambiguity
+ * (difference below a quarter of the threshold) stays 'pending' until the second finger moves.
+ * The decision is not revisited afterwards: otherwise jitter in one gesture would break the other.
  */
 export function twoFingerMode(moved: number, spread: number, lockPx: number): TwoFingerMode {
   if (moved < lockPx && spread < lockPx) return 'pending'

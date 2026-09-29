@@ -1,27 +1,27 @@
-// Компас на яблоко: маленькая ОБЪЁМНАЯ стрелка (древко-цилиндр + голова-конус) у самой головы,
-// развёрнутая по РЕАЛЬНОМУ мировому вектору от головы к яблоку (не по экранной проекции).
-// Поэтому она честно показывает «выше / ниже / ближе / дальше» в объёме: змейка ходит по
-// трём осям, и именно вертикаль читается хуже всего. Плавно доворачивается («как компас»,
-// не щелчками).
+// Apple compass: a small 3D arrow (cylinder shaft + cone head) right by the head,
+// pointed along the REAL world vector from the head to the apple (not the screen projection).
+// So it honestly shows "above / below / closer / farther" in 3D: the snake moves along
+// three axes, and the vertical is the hardest to read. It turns smoothly ("like a compass",
+// not in clicks).
 //
-// Отдельный слой от подсказок направления (near-cells / ahead-ray): те — плоские БЕЛЫЕ
-// спрайты-стрелки в центрах соседних клеток (1 клетка от головы); компас — цвета яблока,
-// с объёмной светотенью, и целиком помещается в клетку головы (кончик не дотягивается до
-// маркеров подсказок), чтобы одно не путалось с другим.
+// A layer separate from the direction hints (near-cells / ahead-ray): those are flat WHITE
+// arrow sprites at the centers of neighboring cells (1 cell from the head); the compass has the apple's color,
+// with 3D shading, and fits entirely inside the head cell (the tip does not reach the
+// hint markers), so the two are not confused.
 //
-// Вырожденный случай: яблоко строго по взгляду камеры (перед носом или за спиной) — стрелка
-// смотрит в камеру и превращается в круг. Объёмная форма с торца читается сама (светотень
-// конуса, разный размер ближнего и дальнего конца), но «к нам или от нас» неоднозначно, потому
-// направление, нарисованное на экране, не даётся ближе COMPASS_MIN_ANGLE к оси взгляда:
-// стрелка минимально заваливается в сторону, чтобы был виден бок. Отклонение непрерывное и
-// работает только у самой оси взгляда, в остальных ракурсах стрелка целит точно.
+// Degenerate case: the apple is exactly along the camera's view axis (in front or behind) - the arrow
+// points into the camera and turns into a circle. The 3D shape end-on reads on its own (cone shading,
+// different size of near and far end), but "toward us or away" is ambiguous, so
+// the direction drawn on screen is kept no closer than COMPASS_MIN_ANGLE to the view axis:
+// the arrow tilts minimally sideways so its side is visible. The deviation is continuous and
+// acts only right at the view axis; from other angles the arrow aims exactly.
 //
-// Яркость: гаснет при близком яблоке (оно и так перед носом), полностью видна с
-// hints.compassFullDist (расстояние по прямой); в фазе plane скрыта (первая игра должна выглядеть обычной
-// плоской змейкой), плавно проявляется вместе с freeAmount.
-// Всегда поверх сцены: глубина стрелки сжата к ближней плоскости камеры (шейдер), поэтому
-// препятствия её не закрывают, а грани самой стрелки друг друга сортируют правильно.
-// Ничего не создаётся в кадре: меш, геометрия и временные векторы заведены заранее.
+// Brightness: fades out when the apple is close (it is right in front anyway), fully visible from
+// hints.compassFullDist (straight-line distance); hidden in plane mode (the first game must look like an ordinary
+// flat snake), fades in smoothly together with freeAmount.
+// Always on top of the scene: the arrow's depth is squeezed toward the camera near plane (shader), so
+// obstacles do not cover it, and the arrow's own faces still sort correctly against each other.
+// Nothing is created per frame: mesh, geometry and temporary vectors are created up front.
 
 import {
   BufferGeometry,
@@ -43,63 +43,63 @@ import { applePos, head } from '../core/queries'
 import { APPLE_COLOR } from './palette'
 import type { CompassSkin } from './cosmetics'
 
-// --- Оформительские константы (крутит дизайнер), не числа баланса -----------------
-/** false — компас не создаётся и не считается вовсе. */
+// --- Styling constants (the designer tweaks these), not balance values -----------------
+/** false: the compass is not created and not computed at all. */
 export const COMPASS_ENABLED = true
-/** Высота центра стрелки над центром головы вдоль «вверх» камеры, клетки (было 2.5, стало 0.9: вплотную к голове). */
+/** Height of the arrow center above the head center along the camera's "up", cells (was 2.5, now 0.9: right against the head). */
 export const COMPASS_HEIGHT = 0.55
-/** Полная длина стрелки в клетках (было 0.9 плоской, стало 0.7 объёмной). */
+/** Full arrow length in cells (was 0.9 flat, now 0.7 3D). */
 export const COMPASS_LENGTH = 0.55
-/** Радиус головы-конуса в долях длины (было: ширина плоской головки 0.7 длины; радиус 0.5 ширины = 0.35). */
+/** Radius of the cone head as a fraction of length (was: flat head width 0.7 of length; radius 0.5 of width = 0.35). */
 export const COMPASS_HEAD_RADIUS = 0.26
-/** Радиус древка в долях длины. */
+/** Shaft radius as a fraction of length. */
 export const COMPASS_SHAFT_RADIUS = 0.1
-/** Доля длины, занятая головой-конусом (остальное — древко). */
+/** Fraction of length taken by the cone head (the rest is the shaft). */
 export const COMPASS_HEAD_FRACTION = 0.5
-/** Постоянная времени доворота, мс: меньше — резче, больше — ленивее, как тяжёлая стрелка компаса. */
+/** Turn time constant, ms: lower is snappier, higher is lazier, like a heavy compass needle. */
 export const COMPASS_TURN_MS = 160
-/** Сглаживание положения у головы, мс (голова прыгает по клеткам, компас плывёт следом). */
+/** Position smoothing near the head, ms (the head jumps by cells, the compass drifts after it). */
 export const COMPASS_FOLLOW_MS = 90
 /**
- * Окно яркости по расстоянию до яблока ПО ПРЯМОЙ, клетки: ближе hide — компас погашен (яблоко и так у самой головы),
- * от full — виден полностью, между — плавно. Живёт в config.hints (compassHideDist / compassFullDist, числа баланса
- * подсказок, AGENTS.md §4.5). Пути в обход препятствия и хвоста длиннее прямой, поэтому окно узкое: гасим только вплотную.
- * Значения ниже — запасные, пока ключей нет в config.json; после вмержа конфиг главнее.
+ * Brightness window by STRAIGHT-LINE distance to the apple, cells: closer than hide the compass is off (the apple is right by the head anyway),
+ * from full it is fully visible, in between it fades smoothly. Lives in config.hints (compassHideDist / compassFullDist, hint balance
+ * values, AGENTS.md §4.5). Paths around obstacles and the tail are longer than the straight line, so the window is narrow: we fade only point-blank.
+ * The values below are fallbacks while the keys are not in config.json; after the merge the config takes precedence.
  */
 export const COMPASS_HIDE_DIST_FALLBACK = 1.5
 export const COMPASS_FULL_DIST_FALLBACK = 3
 
-/** Часть Config, которую читает компас (тип Config в core/rules.ts узкий, пока туда не добавлены ключи). */
+/** Part of Config that the compass reads (the Config type in core/rules.ts is narrow until the keys are added there). */
 export interface CompassHints {
   compassHideDist?: number
   compassFullDist?: number
 }
-/** Максимальная непрозрачность и яркость цвета (линейная яркость яблока ~1, bloom-порог 0.8). */
+/** Maximum opacity and color brightness (linear apple brightness ~1, bloom threshold 0.8). */
 export const COMPASS_ALPHA = 0.95
 export const COMPASS_BRIGHTNESS = 0.9
-/** Минимальный угол между стрелкой и осью взгляда камеры, градусы; 0 — не заваливать (стрелка вырождается в круг). */
+/** Minimum angle between the arrow and the camera view axis, degrees; 0 means do not tilt (the arrow degenerates into a circle). */
 export const COMPASS_MIN_ANGLE = 35
-/** Сила светотени: 0 — плоская заливка, 1 — от чёрного к полному цвету. */
+/** Shading strength: 0 is flat fill, 1 is from black to full color. */
 export const COMPASS_SHADING = 0.7
 
-// Во сколько раз сжимается диапазон глубины стрелки у ближней плоскости (техническое число).
+// By how much the arrow's depth range is squeezed at the near plane (technical number).
 const DEPTH_SQUASH = 0.02
 const CONE_SEGMENTS = 20
 
-// Виды стрелки (магазин). Все в единичной длине вдоль +Y с центром в нуле, как основная: та же высота, тот же доворот и та же яркость.
-// Шеврон: три вложенных конуса подряд (▲▲▲): круглые в сечении, поэтому с любого ракурса читаются как «вперёд».
+// Arrow skins (shop). All in unit length along +Y centered at zero, like the main one: same height, same turn and same brightness.
+// Chevron: three nested cones in a row (▲▲▲): round in cross-section, so they read as "forward" from any angle.
 const CHEVRON_COUNT = 3
 const CHEVRON_RADIUS = 0.27
-const CHEVRON_LENGTH = 0.34 // высота одного конуса
-const CHEVRON_STEP = 0.29 // сдвиг острия от конуса к конусу назад
-// Кольцо: конус-остриё и охватывающее кольцо у его основания (кольцо перпендикулярно направлению).
+const CHEVRON_LENGTH = 0.34 // height of one cone
+const CHEVRON_STEP = 0.29 // shift of the tip from cone to cone, backward
+// Ring: a cone tip and an encircling ring at its base (the ring is perpendicular to the direction).
 const RING_RADIUS = 0.3
 const RING_TUBE = 0.06
 const RING_Y = -0.2
 const RING_CONE_RADIUS = 0.2
 const RING_CONE_LEN = 0.6
 
-/** Геометрия стрелки по виду: default — древко и конус. Холодный путь. */
+/** Arrow geometry by skin: default is shaft and cone. Cold path. */
 export function compassGeometry(skin: CompassSkin): BufferGeometry {
   const parts: BufferGeometry[] = []
   if (skin === 'chevron') {
@@ -112,7 +112,7 @@ export function compassGeometry(skin: CompassSkin): BufferGeometry {
     const cone = new ConeGeometry(RING_CONE_RADIUS, RING_CONE_LEN, CONE_SEGMENTS, 1)
     cone.translate(0, 0.5 - RING_CONE_LEN / 2, 0)
     const ring = new TorusGeometry(RING_RADIUS, RING_TUBE, 10, 28)
-    ring.rotateX(Math.PI / 2) // ось кольца — Y (направление)
+    ring.rotateX(Math.PI / 2) // ring axis is Y (the direction)
     ring.translate(0, RING_Y, 0)
     parts.push(cone, ring)
   } else {
@@ -135,7 +135,7 @@ uniform float uSquash;
 void main() {
   vN = normalize(normalMatrix * normal);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  // Глубина к ближней плоскости: поверх сцены, но грани стрелки различимы между собой.
+  // Depth toward the near plane: on top of the scene, but the arrow's faces stay distinguishable from each other.
   gl_Position.z = -gl_Position.w + (gl_Position.z + gl_Position.w) * uSquash;
 }
 `
@@ -147,7 +147,7 @@ uniform float uShading;
 void main() {
   vec3 n = normalize(vN);
   if (!gl_FrontFacing) n = -n;
-  // Свет из-за левого плеча камеры сверху + ободок на краях (отделяет форму от фона).
+  // Light from behind the camera's left shoulder, from above + a rim on the edges (separates the shape from the background).
   float l = clamp(dot(n, normalize(vec3(-0.5, 0.7, 0.5))), 0.0, 1.0);
   float shade = mix(1.0, 0.16 + 0.9 * l, uShading);
   float rim = pow(1.0 - clamp(n.z, 0.0, 1.0), 2.0) * 0.25 * uShading;
@@ -155,7 +155,7 @@ void main() {
 }
 `
 
-/** Непрозрачность компаса: окно по расстоянию до яблока (по прямой) x включённость объёма (0 в plane, 1 в free, между — полёт камеры). */
+/** Compass opacity: window by distance to the apple (straight line) x 3D enablement (0 in plane, 1 in free, in between the camera flight). */
 export function compassAlpha(dist: number, hideDist: number, fullDist: number, freeAmount: number): number {
   return COMPASS_ALPHA * MathUtils.smoothstep(dist, hideDist, fullDist) * MathUtils.smoothstep(freeAmount, 0, 1)
 }
@@ -164,14 +164,14 @@ export class CompassView {
   private scene: Scene
   private mesh: Mesh
   private material: ShaderMaterial
-  private readonly opacityU = { value: 0 } // uniform прозрачности (правится на месте)
-  private readonly dir = new Vector3(1, 0, 0) // сглаженное направление (единичное)
+  private readonly opacityU = { value: 0 } // opacity uniform (mutated in place)
+  private readonly dir = new Vector3(1, 0, 0) // smoothed direction (unit)
   private readonly target = new Vector3()
   private readonly pos = new Vector3()
   private readonly up = new Vector3()
   private readonly fwd = new Vector3()
   private readonly perp = new Vector3()
-  private readonly draw = new Vector3() // рисуемое направление (после отклонения от оси взгляда)
+  private readonly draw = new Vector3() // direction being drawn (after deflection from the view axis)
   private readonly axisY = new Vector3(0, 1, 0)
   private readonly quat = new Quaternion()
   private readonly minCos = Math.cos(MathUtils.degToRad(COMPASS_MIN_ANGLE))
@@ -184,7 +184,7 @@ export class CompassView {
     this.scene = scene
     this.hideDist = hints?.compassHideDist ?? COMPASS_HIDE_DIST_FALLBACK
     this.fullDist = hints?.compassFullDist ?? COMPASS_FULL_DIST_FALLBACK
-    // Стрелка вдоль +Y единичной длины, центр в начале: для default древко снизу, конус сверху.
+    // Arrow along +Y of unit length, centered at the origin: for default the shaft is at the bottom, the cone on top.
     const g: BufferGeometry = compassGeometry(skin)
     this.material = new ShaderMaterial({
       uniforms: {
@@ -196,7 +196,7 @@ export class CompassView {
       vertexShader: VERTEX,
       fragmentShader: FRAGMENT,
       transparent: true,
-      depthTest: true, // тест против сжатой глубины самой стрелки; сцену она всё равно перекрывает
+      depthTest: true, // test against the squeezed depth of the arrow itself; it still overdraws the scene
       depthWrite: true,
     })
     this.mesh = new Mesh(g, this.material)
@@ -207,12 +207,12 @@ export class CompassView {
     this.scene.add(this.mesh)
   }
 
-  /** Партия началась заново: стрелка встаёт сразу на место, без доворота с прошлой позиции. */
+  /** The game started over: the arrow snaps into place at once, no turning from the previous position. */
   reset(): void {
     this.ready = false
   }
 
-  /** Кадр: без новых объектов. */
+  /** Frame: no new objects. */
   update(s: GameState, camera: Camera, dtMs: number, freeAmount: number): void {
     const h = head(s)
     const ap = applePos(s)
@@ -229,9 +229,9 @@ export class CompassView {
     camera.updateMatrixWorld()
     const e = camera.matrixWorld.elements
     this.up.set(e[4]!, e[5]!, e[6]!)
-    this.fwd.set(-e[8]!, -e[9]!, -e[10]!) // куда смотрит камера
+    this.fwd.set(-e[8]!, -e[9]!, -e[10]!) // where the camera is looking
 
-    // Точка у головы: голова + вверх камеры (плавно следует за клеточными прыжками головы).
+    // Point by the head: head + camera up (follows the head's cell jumps smoothly).
     const px = h.x + this.up.x * COMPASS_HEIGHT
     const py = h.y + this.up.y * COMPASS_HEIGHT
     const pz = h.z + this.up.z * COMPASS_HEIGHT
@@ -240,15 +240,15 @@ export class CompassView {
     this.pos.y += (py - this.pos.y) * kPos
     this.pos.z += (pz - this.pos.z) * kPos
 
-    // Доворот к цели; при почти противоположном направлении lerp проходит через ноль —
-    // тогда берём цель как есть.
+    // Turn toward the target; for a nearly opposite direction lerp passes through zero -
+    // then take the target as is.
     const kDir = this.ready ? 1 - Math.exp(-dtMs / COMPASS_TURN_MS) : 1
     this.dir.lerp(this.target, kDir)
     if (this.dir.lengthSq() < 0.01) this.dir.copy(this.target)
     this.dir.normalize()
     this.ready = true
 
-    // Отклонение от оси взгляда: рисуемое направление не ближе COMPASS_MIN_ANGLE к ней.
+    // Deviation from the view axis: the drawn direction is no closer than COMPASS_MIN_ANGLE to it.
     this.draw.copy(this.dir)
     const c = this.dir.dot(this.fwd)
     if (Math.abs(c) > this.minCos) {

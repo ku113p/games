@@ -1,30 +1,30 @@
-// scores/leaderboard.ts — таблица лучших: чистая логика без DOM и хранилища (ядро про неё не знает).
-// Запись: счёт, короткое имя из символов алфавита, длительность партии, дата.
-// Всё, что можно крутить (размер таблицы, алфавит, длина имени), приходит из config.json → leaderboard.
+// scores/leaderboard.ts — the best-scores table: pure logic without DOM or storage (the core knows nothing about it).
+// An entry: score, a short name of alphabet symbols, game duration, date.
+// Everything tunable (table size, alphabet, name length) comes from config.json → leaderboard.
 
 export interface ScoreEntry {
   score: number
   name: string
-  /** Длительность партии, мс; 0 — неизвестна (запись перенесена из старого одиночного рекорда). */
+  /** Game duration, ms; 0 = unknown (the entry was carried over from the old single high score). */
   durationMs: number
-  /** Unix-время конца партии, мс; 0 — неизвестно. */
+  /** Unix time of the game end, ms; 0 = unknown. */
   date: number
 }
 
 export interface LeaderboardConfig {
-  /** Сколько записей хранится (топ-N). */
+  /** How many entries are kept (top N). */
   size: number
-  /** Сколько символов в имени. */
+  /** How many symbols in a name. */
   nameLength: number
-  /** Допустимые символы барабана, по порядку прокрутки. */
+  /** Allowed drum symbols, in scroll order. */
   alphabet: string
-  /** Имя по умолчанию, пока игрок ничего не выбирал. */
+  /** Default name until the player has picked anything. */
   defaultName: string
-  /** Имя записи, перенесённой из старого одиночного рекорда (букв у него не было). */
+  /** Name of an entry carried over from the old single high score (it had no name symbols). */
   legacyName: string
-  /** Счёт ниже этого в таблицу не попадает (0 очков — не результат). */
+  /** A score below this does not make the table (0 points is not a result). */
   minScore: number
-  /** Удержание кнопки барабана: пауза до автоповтора и период автоповтора, мс. */
+  /** Holding a drum button: the pause before auto-repeat and the auto-repeat period, ms. */
   repeatDelayMs: number
   repeatMs: number
 }
@@ -32,11 +32,11 @@ export interface LeaderboardConfig {
 type TableRules = Pick<LeaderboardConfig, 'size' | 'minScore'>
 
 /**
- * Куда встанет счёт в таблице (отсортирована по убыванию). -1 — не попал.
- * При равном счёте новый идёт ПОСЛЕ прежних: место держит тот, кто набрал раньше.
+  * Where a score lands in the table (sorted descending). -1 means it did not make it.
+  * On a tie the new one goes AFTER the old ones: the place belongs to whoever scored first.
  */
 export function insertionIndex(table: readonly ScoreEntry[], score: number, rules: TableRules): number {
-  if (!(score >= rules.minScore)) return -1 // и NaN тоже
+  if (!(score >= rules.minScore)) return -1 // NaN too
   let i = 0
   while (i < table.length && (table[i] as ScoreEntry).score >= score) i++
   return i < rules.size ? i : -1
@@ -46,7 +46,7 @@ export function qualifies(table: readonly ScoreEntry[], score: number, rules: Ta
   return insertionIndex(table, score, rules) >= 0
 }
 
-/** Новая таблица с вставленной записью (вытесненная последняя отпадает) и её индекс; -1, если не попала. */
+/** A new table with the entry inserted (the displaced last one drops off) and its index; -1 if it did not make it. */
 export function insertEntry(
   table: readonly ScoreEntry[],
   entry: ScoreEntry,
@@ -60,12 +60,12 @@ export function insertEntry(
   return { table: next, index }
 }
 
-/** Копия таблицы, где у записи `index` другое имя. */
+/** A copy of the table where the entry at `index` has a different name. */
 export function renameEntry(table: readonly ScoreEntry[], index: number, name: string): ScoreEntry[] {
   return table.map((e, i) => (i === index ? { ...e, name } : e))
 }
 
-/** Соседний символ алфавита с заворотом (delta +1 — следующий). Незнакомый символ → начало алфавита. */
+/** The neighboring alphabet symbol with wrap-around (delta +1 = next). An unknown symbol → the start of the alphabet. */
 export function stepSymbol(alphabet: string, current: string, delta: number): string {
   const n = alphabet.length
   if (n === 0) return current
@@ -74,7 +74,7 @@ export function stepSymbol(alphabet: string, current: string, delta: number): st
   return alphabet.charAt((((at + delta) % n) + n) % n)
 }
 
-/** Имя из хранилища → верное имя: заглавные, только символы алфавита, ровно nameLength; иначе имя по умолчанию. */
+/** A name from storage → a valid name: uppercase, only alphabet symbols, exactly nameLength; otherwise the default name. */
 export function sanitizeName(raw: unknown, cfg: LeaderboardConfig): string {
   if (typeof raw !== 'string') return cfg.defaultName
   const up = raw.toUpperCase()
@@ -94,8 +94,8 @@ function nonNegative(v: unknown): number {
 }
 
 /**
- * Таблица из сырой строки хранилища. null — ключа нет или это не таблица (тогда пробуем перенос старого рекорда).
- * Битые записи отбрасываются, порядок и размер приводятся к норме.
+  * A table from the raw storage string. null means no key or not a table (then we try carrying over the old high score).
+  * Broken entries are dropped, order and size are normalized.
  */
 export function parseTable(raw: string | null, cfg: LeaderboardConfig): ScoreEntry[] | null {
   if (raw === null) return null
@@ -109,16 +109,16 @@ export function parseTable(raw: string | null, cfg: LeaderboardConfig): ScoreEnt
   const entries: ScoreEntry[] = []
   for (const v of data) {
     if (!isEntry(v)) continue
-    // Имя переносной записи («---») алфавиту не принадлежит — её не портим.
+    // The name of a carried-over entry ("---") does not belong to the alphabet: we do not spoil it.
     const name = v.name === cfg.legacyName ? cfg.legacyName : sanitizeName(v.name, cfg)
     entries.push({ score: v.score, name, durationMs: nonNegative(v.durationMs), date: nonNegative(v.date) })
   }
-  // Сортировка устойчивая (ES2019+): равные счета сохраняют порядок «кто раньше».
+  // The sort is stable (ES2019+): equal scores keep the "who was first" order.
   entries.sort((a, b) => b.score - a.score)
   return entries.slice(0, cfg.size)
 }
 
-/** Старый одиночный рекорд (строка из хранилища) → таблица из одной записи; нет рекорда — пустая. */
+/** The old single high score (a storage string) → a table of one entry; no high score means an empty one. */
 export function migrateLegacy(rawHighScore: string | null, cfg: LeaderboardConfig): ScoreEntry[] {
   if (rawHighScore === null) return []
   const n = Number.parseInt(rawHighScore, 10)
@@ -126,7 +126,7 @@ export function migrateLegacy(rawHighScore: string | null, cfg: LeaderboardConfi
   return [{ score: n, name: cfg.legacyName, durationMs: 0, date: 0 }]
 }
 
-/** Длительность партии для показа: «m:ss» (часы влезают в минуты); 0 и мусор — «—». */
+/** Game duration for display: "m:ss" (hours fit into minutes); 0 and garbage show "—". */
 export function formatDuration(ms: number): string {
   if (!(ms > 0)) return '—'
   const total = Math.round(ms / 1000)

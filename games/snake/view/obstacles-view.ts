@@ -1,15 +1,15 @@
-// Препятствия — неоновая ВНЕШНЯЯ оболочка: сплошные непрозрачные грани + рёбра
-// поверх (три меша на кубик: рёбра, грани, прозрачные грани мешающих кубов). Грань рисуется, только
-// если соседняя клетка в её сторону свободна; ребро — только настоящий излом
-// контура (см. obstacle-shell.ts), так что слипшаяся группа читается одним
-// объёмом, а не стопкой проволочных коробок. Оболочка считается один раз на
-// 'started' (холодный путь), в кадре не трогается.
-// Инстансинг: по инстансу на грань (aCell + aFace) и на ребро (aCenter + aAxis),
-// геометрия одна на всех (квад / отрезок), позиции собирает вершинный шейдер.
-// Оболочка порезана на кубики OBSTACLE_CHUNK_CELLS^3 клеток (obstacle-chunks.ts): у каждого свои три меша и ограничивающая
-// сфера, поэтому штатное отсечение по пирамиде видимости не пускает в GPU невидимую часть арены; квад — индексированный (4 вершины).
-// Дальние растворяются в общем тумане сцены (palette.ts: createFog/fogUniforms), чтобы плотный лес
-// не сливался в кашу: ближние читаются опасностью, дальние — глубиной. Своей кривой затухания нет.
+// Obstacles - a neon OUTER shell: solid opaque faces + edges
+// on top (three meshes per cube: edges, faces, transparent faces of occluding cubes). A face is drawn only
+// if the neighbouring cell on its side is free; an edge only for a real bend
+// of the outline (see obstacle-shell.ts), so a merged group reads as a single
+// volume rather than a pile of wireframe boxes. The shell is computed once on
+// 'started' (cold path) and is not touched per frame.
+// Instancing: one instance per face (aCell + aFace) and per edge (aCenter + aAxis),
+// the geometry is shared by all (quad / segment), positions are built by the vertex shader.
+// The shell is cut into chunks of OBSTACLE_CHUNK_CELLS^3 cells (obstacle-chunks.ts): each has its own three meshes and bounding
+// sphere, so the stock frustum culling keeps the invisible part of the arena away from the GPU; the quad is indexed (4 vertices).
+// Distant ones dissolve in the scene's shared fog (palette.ts: createFog/fogUniforms) so that a dense forest
+// does not blur into mush: near ones read as danger, far ones as depth. There is no falloff curve of its own.
 
 import {
   BufferGeometry,
@@ -46,16 +46,16 @@ import {
   fogUniforms,
 } from './palette'
 
-// Габарит клетки-препятствия; чуть меньше 1, чтобы оболочка не совпадала с плоскостью стенки куба.
-// Это габарит ПЛОСКОСТЕЙ граней и рёбер-контуров. Щель между соседями закрывают не им,
-// а вылет кромок граней к соседу (obstacle-shell.ts): контур и одиночный куб не меняются.
+// Obstacle cell footprint; slightly under 1 so the shell does not coincide with the cube wall plane.
+// This is the footprint of the face and outline-edge PLANES. The gap between neighbours is closed not by it,
+// but by the face rims overhanging toward the neighbour (obstacle-shell.ts): the outline and a lone cube do not change.
 const OBSTACLE_SCALE = 0.98
-// Ширина рёбер-контуров (оформительские числа). Минимум в CSS-пикселях: было 1 px линией GL, дизайнер
-// жаловался на тонкие и рвущиеся грани. Мировая ширина в клетках — чтобы вблизи ребро было объёмнее.
+// Width of the outline edges (presentation numbers). Minimum in CSS pixels: it used to be a 1 px GL line, the designer
+// complained about thin, breaking faces. World width in cells - so that up close an edge is bulkier.
 const OBSTACLE_EDGE_MIN_PX = 2.2
 const OBSTACLE_EDGE_WORLD_W = 0.04
-// Сдвиг ленты к камере по глубине, в её мировых ширинах: 0 — без сдвига (рёбра выедаются гранями).
-// Непрозрачность рёбер тающей (призрачной) клетки; у граней — OBSTACLE_GHOST_ALPHA.
+// Ribbon shift toward the camera in depth, in its world widths: 0 - no shift (edges get eaten by faces).
+// Edge opacity of a fading (ghost) cell; for faces it is OBSTACLE_GHOST_ALPHA.
 const OBSTACLE_EDGE_GHOST_ALPHA = 0.15
 const OBSTACLE_EDGE_DEPTH_K = 1.5
 const COMMON = /* glsl */ `
@@ -64,13 +64,13 @@ uniform vec3 uHead;
 #include <fog_pars_vertex>
 `
 
-// Рёбра: aCenter — центр отрезка длиной в клетку, aAxis — вдоль какой оси (0/1/2).
-// НЕ линии GL (те всегда 1 px и на дальних препятствиях рвутся и мерцают), а экранная лента:
-// на инстанс ребра — квад position = (вдоль [-0.5, 0.5], сторона ±1). Концы отрезка переводятся
-// в пиксели, лента расширяется на полуширину поперёк и чуть вдоль (стыки в углах закрыты).
-// Ширина — не меньше uMinPx (в физических пикселях: OBSTACLE_EDGE_MIN_PX * pixelRatio) и не меньше
-// мировой uWorldW, спроецированной на экран: вблизи ребро толще, вдали не тоньше пикселей,
-// которые MSAA композера способно сгладить. Отрезок обрезается по ближней плоскости.
+// Edges: aCenter - center of a cell-long segment, aAxis - along which axis (0/1/2).
+// NOT GL lines (those are always 1 px and on distant obstacles they break up and flicker), but a screen-space ribbon:
+// per edge instance a quad position = (along [-0.5, 0.5], side ±1). The segment ends are converted
+// to pixels, the ribbon is widened by the half-width across and slightly along (corner joints are covered).
+// Width is no less than uMinPx (in physical pixels: OBSTACLE_EDGE_MIN_PX * pixelRatio) and no less than
+// the world uWorldW projected to the screen: up close the edge is thicker, far away no thinner than the pixels
+// that the composer's MSAA can smooth. The segment is clipped at the near plane.
 const VERT = /* glsl */ `
 attribute vec3 aCenter;
 attribute float aAxis;
@@ -87,8 +87,8 @@ uniform float uWorldW;
 uniform float uDepthK;
 ${COMMON}
 void main() {
-  // Призрачность клетки-владельца (та же, что у граней): рёбра тающих кубов тают вместе с гранями,
-  // иначе сквозь прозрачную грань видны все рёбра куба, включая заднюю сторону.
+  // Ghost level of the owner cell (same as for faces): edges of fading cubes fade with the faces,
+  // otherwise all the cube's edges show through a transparent face, including the back side.
   int id = int(aId + 0.5);
   int wtex = int(uTexW);
   int row = id / wtex;
@@ -97,14 +97,14 @@ void main() {
   g = max(g, front * (1.0 - uFree));
   vAlpha = mix(1.0, uEdgeGhostAlpha, g);
   vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
-  // Концы — на настоящих углах контура (uHalf), а не на границе клетки (0.5): иначе каждый конец выступает за габарит.
-  // Стык углов и соседних отрезков закрывает продолжение на полуширину ленты (ниже).
+  // Ends sit at the true outline corners (uHalf), not at the cell boundary (0.5): otherwise each end sticks out past the footprint.
+  // The joint of corners and adjacent segments is covered by an extension of half the ribbon width (below).
   vec3 wa = aCenter - uHalf * dirv;
   vec3 wb = aCenter + uHalf * dirv;
   vec4 ca = projectionMatrix * (viewMatrix * vec4(wa, 1.0));
   vec4 cb = projectionMatrix * (viewMatrix * vec4(wb, 1.0));
   const float NEAR_W = 0.05;
-  const float EDGE_END_EXT = 0.5; // продолжение конца в долях полуширины: закрывает стык, но не торчит усом
+  const float EDGE_END_EXT = 0.5; // end extension in fractions of half-width: covers the joint but does not stick out like a whisker
   if (ca.w < NEAR_W && cb.w < NEAR_W) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -124,11 +124,11 @@ void main() {
   vec2 sc = atB ? sb : sa;
   float wpx = max(uMinPx, uWorldW * projectionMatrix[1][1] * half_.y / c.w);
   vec2 sp = sc + d * ((atB ? 0.5 : -0.5) * wpx * EDGE_END_EXT) + nrm * (position.y * 0.5 * wpx);
-  // Ребро лежит на стыке граней, а лента шире линии: её половина оказывается «внутри» куба или за
-  // гранью, которая на вогнутом изломе или при скользящем угле ближе к камере по глубине, и depth-тест
-  // выедает ленту. polygonOffset считается от наклона полигона граней и ленте по ширине не помогает,
-  // поэтому лента сдвигается к камере на вид-пространственную глубину, пропорциональную её ширине
-  // в мире (uDepthK ширин): вдали ширина в мире больше, и запас растёт вместе с ней.
+  // The edge lies on the seam of faces, but the ribbon is wider than a line: half of it ends up "inside" the cube or behind a
+  // face that, at a concave bend or a grazing corner, is nearer to the camera in depth, and the depth test
+  // eats the ribbon. polygonOffset depends on the slope of the face polygons and does not help across the ribbon width,
+  // so the ribbon is shifted toward the camera by a view-space depth proportional to its width
+  // in the world (uDepthK widths): far away the world width is larger, and the margin grows with it.
   float bias = uDepthK * wpx * c.w / (half_.y * projectionMatrix[1][1]);
   float wv = max(c.w - bias, 0.02);
   float zc = max((c.z + projectionMatrix[2][2] * bias) / wv, -1.0) * c.w;
@@ -148,21 +148,21 @@ void main() {
 }
 `
 
-// Грани: квад на грань. aFace: 0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z; position = (u, v, 0) в ±1.
-// Касательные — циклические оси (a+1, a+2); для отрицательной стороны u зеркалится,
-// чтобы обход остался против часовой снаружи (FrontSide отсекает задние грани).
+// Faces: a quad per face. aFace: 0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z; position = (u, v, 0) in ±1.
+// Tangents are the cyclic axes (a+1, a+2); for the negative side u is mirrored,
+// so the winding stays counter-clockwise from outside (FrontSide culls back faces).
 //
-// Непрозрачность и «мешающие» кубы. Два меша на одних и тех же инстансах:
-//   opaque — сплошные грани с записью глубины (проход непрозрачных);
-//   ghost  — те же грани прозрачные, без записи глубины, рисуются ПОСЛЕ непрозрачных
-//            (transparent: true, renderOrder выше) — глубина уже готова, порядок
-//            между прозрачными не важен, их единицы.
-// Степень «призрачности» клетки g (0..1) — из текстуры uGhostTex (один байт на клетку
-// оболочки; пишет CPU только для клеток рядом с линией камера-голова) и, пока камера
-// ещё не улетела за голову, из «плоской» фазы: клетки ближе к камере, чем слой головы,
-// прозрачны на вес (1 - freeAmount). Меш opaque прячет грань при g > 0, ghost — при
-// g == 0; на границе альфа ghost = mix(1, GHOST_ALPHA, g) ~ 1, поэтому переход
-// без скачка: клетка плавно тает из сплошной.
+// Opacity and "occluding" cubes. Two meshes on the same instances:
+//   opaque - solid faces with depth writes (the opaque pass);
+//   ghost  - the same faces transparent, no depth writes, drawn AFTER the opaque ones
+//            (transparent: true, higher renderOrder) - depth is already there, the order
+//            among transparent ones does not matter, there are only a few.
+// A cell's "ghost level" g (0..1) comes from the uGhostTex texture (one byte per shell
+// cell; written by the CPU only for cells near the camera-head line) and, while the camera
+// has not yet flown behind the head, from plane mode: cells nearer the camera than the head layer
+// are transparent by weight (1 - freeAmount). The opaque mesh hides a face at g > 0, ghost at
+// g == 0; at the boundary ghost alpha = mix(1, GHOST_ALPHA, g) ~ 1, so the transition
+// is seamless: a cell smoothly melts out of solid.
 const FACE_VERT = /* glsl */ `
 attribute vec3 aCell;
 attribute float aFace;
@@ -171,14 +171,14 @@ uniform sampler2D uGhostTex;
 uniform float uTexW;
 uniform vec3 uDepthAxis;
 uniform float uFree;
-uniform float uGhostPass;   // 0 — непрозрачный проход, 1 — прозрачный
+uniform float uGhostPass;   // 0 - opaque pass, 1 - transparent
 uniform float uGhostAlpha;
-uniform vec3 uShade;        // множители яркости по осям x, y, z
+uniform vec3 uShade;        // brightness multipliers per axis x, y, z
 uniform float uNegShade;
 varying float vShade;
 varying float vAlpha;
 ${COMMON}
-// Вылет кромки грани от центра клетки: выпуклая — uHalf, плоская — 0.5, вогнутая — 1 - uHalf.
+// Face rim overhang from the cell center: convex - uHalf, flat - 0.5, concave - 1 - uHalf.
 float reachOf(float st) {
   return st < 0.5 ? uHalf : (st < 1.5 ? 0.5 : 1.0 - uHalf);
 }
@@ -196,7 +196,7 @@ void main() {
     vAlpha = 0.0;
     return;
   }
-  // aFace = грань + 6 * (четыре состояния кромок по основанию 3), см. obstacle-shell.ts.
+  // aFace = face + 6 * (four rim states in base 3), see obstacle-shell.ts.
   float code = floor((aFace + 0.5) / 6.0);
   float face = aFace - 6.0 * code;
   float a = floor(face * 0.5);
@@ -204,8 +204,8 @@ void main() {
   vec3 e0 = a < 0.5 ? vec3(1.0, 0.0, 0.0) : (a < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
   vec3 e1 = a < 0.5 ? vec3(0.0, 1.0, 0.0) : (a < 1.5 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));
   vec3 e2 = a < 0.5 ? vec3(0.0, 0.0, 1.0) : (a < 1.5 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0));
-  // Плоскость грани на uHalf от центра; кромки уходят к соседу (см. reachOf), чтобы
-  // соседние кубы смыкались без щели. wu — знак вдоль e1 в мире (для s < 0 зеркален).
+  // Face plane at uHalf from the center; rims extend toward the neighbour (see reachOf) so that
+  // adjacent cubes join without a gap. wu - the sign along e1 in the world (mirrored for s < 0).
   float wu = s * position.x;
   float wv = position.y;
   float r1 = reachOf(wu > 0.0 ? mod(code, 3.0) : mod(floor(code / 3.0), 3.0));
@@ -230,31 +230,31 @@ void main() {
 }
 `
 
-// Оформительские константы «мешающих» кубов (не числа баланса).
-const OCCLUDER_RADIUS = 1.0 // клетки, чьи центры ближе радиуса к линии взгляда
-const OCCLUDER_START = 1.0 // отступ от головы к камере: сама голова и соседи у неё не тают
-const OCCLUDER_STEP = 0.5 // шаг выборки вдоль отрезка камера-голова
-const OCCLUDER_REACH = 24 // дальше этого от головы не ищем (в plane работает вес фазы)
-const OCCLUDER_MAX_ACTIVE = 2048 // потолок одновременно тающих клеток
-const GHOST_FADE_MS = 140 // постоянная времени плавного перехода
+// Presentation constants of the "occluding" cubes (not balance values).
+const OCCLUDER_RADIUS = 1.0 // cells whose centers are closer than this radius to the line of sight
+const OCCLUDER_START = 1.0 // offset from the head toward the camera: the head itself and its neighbours do not fade
+const OCCLUDER_STEP = 0.5 // sampling step along the camera-head segment
+const OCCLUDER_REACH = 24 // we do not search farther than this from the head (in plane mode the mode weight does the work)
+const OCCLUDER_MAX_ACTIVE = 2048 // cap on simultaneously fading cells
+const GHOST_FADE_MS = 140 // time constant of the smooth transition
 const GHOST_TEX_W = 256
-// Оболочка режется на кубики по стольку клеток: каждый кубик — свои меши и ограничивающая сфера, и штатное отсечение
-// по пирамиде видимости не даёт GPU обрабатывать то, что заведомо вне кадра. Картинка не меняется. Меньше кубик —
-// точнее отсечение, но больше вызовов отрисовки (на 100^3 при 25 — до 64 кубиков по 3 меша).
-// 0 — не резать (один кубик на всю арену, как было: картинка попиксельно прежняя, но без отсечения). При разбиении на кубики
-// в ~0.3-0.6% пикселей (тонкие 1-2 px места, где перекрываются рёбра-ленты) меняется, какая лента лежит сверху: раньше это
-// определял порядок в общем буфере, теперь порядок кубиков.
+// The shell is cut into chunks of this many cells: each chunk has its own meshes and bounding sphere, and stock frustum culling
+// keeps the GPU from processing what is definitely off screen. The picture does not change. A smaller chunk means
+// more precise culling but more draw calls (at 100^3 with 25 - up to 64 chunks of 3 meshes each).
+// 0 - do not cut (one chunk for the whole arena, as it was: pixel-identical picture, but no culling). When split into chunks,
+// in ~0.3-0.6% of pixels (thin 1-2 px spots where edge ribbons overlap) which ribbon lies on top changes: before, it was
+// decided by the order in the shared buffer, now by the chunk order.
 const OBSTACLE_CHUNK_CELLS = 25
-// Порядок отрисовки кубиков фиксирован (renderOrder = слой + номер кубика * шаг), а не по глубине, как сортирует three.js
-// одинаковые renderOrder: там, где фрагменты равны по глубине (стыки смыкающихся граней) или перекрываются рёбра-ленты,
-// победитель определяется порядком отрисовки, и при сортировке по глубине он менял бы стороны по мере движения камеры.
-// Слои те же, что были: непрозрачные грани < прозрачные грани < near-cells (2) < рёбра.
+// Chunk draw order is fixed (renderOrder = layer + chunk index * step), not by depth as three.js sorts
+// objects with equal renderOrder: where fragments are equal in depth (seams of joining faces) or edge ribbons overlap,
+// the winner is decided by draw order, and with depth sorting it would switch sides as the camera moves.
+// Layers are the same as before: opaque faces < transparent faces < near-cells (2) < edges.
 const CHUNK_ORDER_STEP = 0.001
 const GHOST_ORDER = 1
 const EDGES_ORDER = 3
-// Общий индексированный квад (4 вершины, 2 треугольника вместо 6 вершин): вершинный шейдер считает уникальные вершины.
+// Shared indexed quad (4 vertices, 2 triangles instead of 6 vertices): the vertex shader computes the unique vertices.
 const QUAD_INDEX = [0, 1, 2, 0, 2, 3]
-// true — всегда гонять прозрачный проход по всем граням (как было); false — только когда есть что рисовать.
+// true - always run the transparent pass over all faces (as it was); false - only when there is something to draw.
 const GHOST_PASS_ALWAYS = false
 
 interface ObstacleChunk {
@@ -262,7 +262,7 @@ interface ObstacleChunk {
   opaque: Mesh
   ghost: Mesh
   geometries: BufferGeometry[]
-  /** Сколько клеток этого кубика сейчас в списке тающих (активных). */
+  /** How many cells of this chunk are currently in the fading (active) list. */
   active: number
 }
 
@@ -271,13 +271,13 @@ export class ObstaclesView {
   private readonly res = new Vector2(1, 1)
   private material: ShaderMaterial | null = null
   private faceMaterials: ShaderMaterial[] = []
-  // Кубики оболочки: меши рёбер/непрозрачных/прозрачных граней и число тающих клеток в каждом.
+  // Shell chunks: edge/opaque/transparent face meshes and the count of fading cells in each.
   private chunks: ObstacleChunk[] = []
   private chunkOfCell = new Int32Array(0)
   private solid = new Set<number>()
   private solidSize = 1
 
-  // Клетки оболочки: номер клетки по ключу, призрачность, отметка кадра, активный список.
+  // Shell cells: cell index by key, ghost level, frame stamp, active list.
   private cellId = new Int32Array(0)
   private ghostLevel = new Float32Array(0)
   private stamp = new Int32Array(0)
@@ -294,14 +294,14 @@ export class ObstaclesView {
     uFree: { value: 1 },
   }
 
-  /** Сколько граней и рёбер в оболочке последней сборки (для замеров). */
+  /** How many faces and edges are in the shell of the last build (for measurements). */
   shellFaces = 0
   shellEdges = 0
-  /** Кубики оболочки (для замеров). */
+  /** Shell chunks (for measurements). */
   get chunkCount(): number {
     return this.chunks.length
   }
-  /** Сколько клеток сейчас тает или прозрачно (для замеров). */
+  /** How many cells are currently fading or transparent (for measurements). */
   get ghostCells(): number {
     return this.activeCount
   }
@@ -310,7 +310,7 @@ export class ObstaclesView {
     this.scene = scene
   }
 
-  /** Холодный путь: вызывать из handle('started', s), не из render(). */
+  /** Cold path: call from handle('started', s), not from render(). */
   rebuild(s: GameState): void {
     this.disposeLines()
     const n = cubeSize(s)
@@ -332,8 +332,8 @@ export class ObstaclesView {
       uHalf: { value: half },
     }
 
-    // Клетки оболочки: грани одной клетки идут подряд (computeShell, порядок сохраняет chunkShell), номер клетки —
-    // порядковый по первому появлению; кубик клетки запоминаем, чтобы считать тающие клетки по кубикам.
+    // Shell cells: faces of one cell go consecutively (computeShell, order preserved by chunkShell), the cell index is
+    // sequential by first appearance; we remember each cell's chunk to count fading cells per chunk.
     const nn = n * n * n
     this.cellId = new Int32Array(nn).fill(-1)
     const faceIds: Float32Array[] = []
@@ -368,7 +368,7 @@ export class ObstaclesView {
     tex.needsUpdate = true
     this.ghostTex = tex
 
-    // Контур: инстанс на ребро, база — квад (вдоль отрезка x сторона), позиции собирает вершинный шейдер.
+    // Outline: an instance per edge, base is a quad (along the segment x side), positions are built by the vertex shader.
     const edgeUniforms = {
       ...uniforms,
       uRes: { value: this.res },
@@ -382,15 +382,15 @@ export class ObstaclesView {
       uEdgeGhostAlpha: { value: OBSTACLE_EDGE_GHOST_ALPHA },
     }
     this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide, transparent: true, depthWrite: false })
-    // Размер буфера кадра (физические px) и pixelRatio — перед отрисовкой, без аллокаций.
+    // Frame buffer size (physical px) and pixelRatio - before drawing, without allocations.
     const minPx = edgeUniforms.uMinPx
     const beforeEdges = (renderer: { getDrawingBufferSize(t: Vector2): Vector2; getPixelRatio(): number }): void => {
       renderer.getDrawingBufferSize(this.res)
       minPx.value = OBSTACLE_EDGE_MIN_PX * renderer.getPixelRatio()
     }
 
-    // Грани: инстанс на грань, база — квад из двух треугольников; геометрия кубика общая для
-    // непрозрачного и прозрачного мешей.
+    // Faces: an instance per face, base is a quad of two triangles; the chunk geometry is shared by
+    // the opaque and transparent meshes.
     const shared = {
       ...uniforms,
       uDepthAxis: this.frameUniforms.uDepthAxis,
@@ -402,7 +402,7 @@ export class ObstaclesView {
       uNegShade: { value: OBSTACLE_FACE_NEG_SHADE },
       uFaceK: { value: OBSTACLE_FACE_BRIGHTNESS },
     }
-    // polygonOffset: грани чуть глубже, чтобы рёбра на их границах не мерцали (z-fight).
+    // polygonOffset: faces slightly deeper so that the edges on their boundaries do not flicker (z-fight).
     const opaqueMat = new ShaderMaterial({
       uniforms: { ...shared, uGhostPass: { value: 0 } },
       vertexShader: FACE_VERT,
@@ -439,8 +439,8 @@ export class ObstaclesView {
       const edgeBuf = new InstancedInterleavedBuffer(part.edges, 4)
       edgeGeometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
       edgeGeometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
-      // Владелец ребра — клетка, чья грань его породила: смещения ребра от её центра ±half по двум осям,
-      // так что округление центра ребра даёт её индекс. Рёбра тают вместе со своей клеткой (см. FACE_VERT).
+      // The edge owner is the cell whose face produced it: the edge's offsets from its center are ±half on two axes,
+      // so rounding the edge center gives its index. Edges fade with their cell (see FACE_VERT).
       const edgeIds = new Float32Array(part.edgeCount)
       for (let i = 0; i < part.edgeCount; i++) {
         const ex = Math.round(part.edges[i * 4]!)
@@ -452,9 +452,9 @@ export class ObstaclesView {
       edgeGeometry.instanceCount = part.edgeCount
       edgeGeometry.boundingSphere = sphere
       const edges = new Mesh(edgeGeometry as BufferGeometry, this.material)
-      // После прозрачных граней (альфа рёбер считается независимо) и после слоя near-cells (renderOrder 2): раньше меш
-      // рёбер был один, с ограничивающей сферой в начале координат, и на равной глубине шёл после него по id. Кубики имеют
-      // настоящую глубину, и при равном renderOrder слой подсказок оказывался то до рёбер, то после; 3 сохраняет прежний порядок.
+      // After the transparent faces (edge alpha is computed independently) and after the near-cells layer (renderOrder 2): earlier the edge
+      // mesh was a single one, with a bounding sphere at the origin, and at equal depth it went after it by id. Chunks have
+      // real depth, and with equal renderOrder the hint layer landed sometimes before the edges, sometimes after; 3 preserves the old order.
       edges.renderOrder = EDGES_ORDER + ci * CHUNK_ORDER_STEP
       edges.onBeforeRender = beforeEdges
       geoms.push(edgeGeometry as BufferGeometry)
@@ -474,21 +474,21 @@ export class ObstaclesView {
       ghost.renderOrder = GHOST_ORDER + ci * CHUNK_ORDER_STEP
       geoms.push(fillGeometry as BufferGeometry)
 
-      // frustumCulled (по умолчанию true) + sphere выше: кубики вне кадра не рисуются.
+      // frustumCulled (true by default) + the sphere above: chunks outside the frame are not drawn.
       this.scene.add(edges, opaque, ghost)
       this.chunks.push({ edges, opaque, ghost, geometries: geoms, active: 0 })
     }
   }
 
   /**
-   * Кадр, без аллокаций: какие кубы мешают обзору и насколько они прозрачны.
-   * (cx,cy,cz) — камера, (hx,hy,hz) — голова, (px,py,pz) — ось глубины экрана,
-   * freeAmount — 0 в plane, 1 в объёме.
+   * Frame, allocation-free: which cubes obstruct the view and how transparent they are.
+   * (cx,cy,cz) - camera, (hx,hy,hz) - head, (px,py,pz) - screen depth axis,
+   * freeAmount - 0 in plane mode, 1 in free mode.
    *
-   * «Мешает» — геометрически: центр клетки ближе OCCLUDER_RADIUS к отрезку от
-   * точки в OCCLUDER_START от головы к камере. Отрезок обходится с шагом
-   * OCCLUDER_STEP, у каждой точки проверяются 27 соседних клеток по массиву cellId
-   * (O(1)), а не все препятствия. Уровень g тянется к цели экспонентой.
+   * "Obstructs" is geometric: the cell center is closer than OCCLUDER_RADIUS to the segment from
+   * the point OCCLUDER_START from the head toward the camera. The segment is walked with step
+   * OCCLUDER_STEP, at each point the 27 neighbouring cells are checked via the cellId array
+   * (O(1)), not all obstacles. Level g is pulled toward the target exponentially.
    */
   update(dtMs: number, cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, px: number, py: number, pz: number, freeAmount: number): void {
     if (!this.ghostTex) return
@@ -499,7 +499,7 @@ export class ObstaclesView {
     const n = this.solidSize
     const frameNo = this.frameNo
 
-    // Плоская фаза: камера далеко, прозрачность там даёт вес фазы в шейдере.
+    // Plane mode: the camera is far away, transparency there comes from the mode weight in the shader.
     if (freeAmount > 0.5) {
       const vx = cx - hx
       const vy = cy - hy
@@ -546,7 +546,7 @@ export class ObstaclesView {
       }
     }
 
-    // Плавный переход активных клеток; остывшие выпадают из списка.
+    // Smooth transition of active cells; cooled ones drop out of the list.
     const k = 1 - Math.exp(-dtMs / GHOST_FADE_MS)
     let changed = false
     for (let i = 0; i < this.activeCount; ) {
@@ -570,9 +570,9 @@ export class ObstaclesView {
       }
     }
     if (changed) this.ghostTex.needsUpdate = true
-    // Прозрачный проход гоняет вершинный шейдер по всем граням меша, а рисует единицы. Пока тающих клеток нет
-    // (g == 0 у всех) и плоская фаза не даёт веса, он ничего не рисует. Меши по кубикам: прозрачный проход идёт
-    // только по кубикам, где есть тающие клетки (раньше — по всей оболочке, как только таяла хоть одна).
+    // The transparent pass runs the vertex shader over all faces of the mesh but draws only a few. While there are no fading cells
+    // (g == 0 everywhere) and plane mode gives no weight, it draws nothing. Meshes per chunk: the transparent pass goes
+    // only over chunks that have fading cells (before - over the whole shell, as soon as even one was fading).
     const allGhost = GHOST_PASS_ALWAYS || freeAmount < 1
     for (let i = 0; i < this.chunks.length; i++) {
       const c = this.chunks[i]!
@@ -580,7 +580,7 @@ export class ObstaclesView {
     }
   }
 
-  /** Есть ли препятствие в клетке (набор собирается на 'started'). Без аллокаций. */
+  /** Is there an obstacle in the cell (the set is built on 'started'). Allocation-free. */
   isSolid = (x: number, y: number, z: number): boolean =>
     this.solid.has(x + this.solidSize * (y + this.solidSize * z))
 

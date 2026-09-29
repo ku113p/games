@@ -1,37 +1,37 @@
-// screens/shop-view.ts — витрина магазина: DOM поверх предметной части (shop-stub.ts, позже shop/).
-// Холодный путь: перерисовывается целиком при открытии, покупке, надевании и смене языка. Никакой игровой логики:
-// что можно купить или надеть, решает предметная часть, а поток (main.ts) получает только «купи» и «надень».
+// screens/shop-view.ts — the shop storefront: DOM on top of the item part (shop-stub.ts, later shop/).
+// Cold path: redrawn in full on open, purchase, equip and language change. No game logic:
+// what can be bought or equipped is decided by the item part, and the flow (main.ts) only gets "buy" and "equip".
 
 import { t } from '../i18n/runtime'
-import { ru, type TextKey } from '../i18n/dictionaries'
+import { en, type TextKey } from '../i18n/dictionaries'
 import { equippedItem, gamesLeft, scoreMultiplier, type Item, type ShopRoot, type ShopState, type Slot } from '../shop'
 import { SECTION_SLOT, SHOP_SECTIONS, isItemLocked, itemStatus, itemsOfSection, obstaclesLocked, type ItemStatus, type ObstacleGeometry, type ShopSection } from './shop-flow'
 
 export interface ShopViewDeps {
   readonly config: ShopRoot
-  /** Все предметы витрины в порядке каталога. */
+  /** All storefront items in catalog order. */
   readonly items: () => readonly Item[]
   readonly state: () => ShopState
-  /** Зона очистки и стенки: по ним витрина узнаёт, что в надетой арене (5³) препятствий не бывает. */
+  /** Clear zone and walls: from them the storefront learns that the equipped arena (5³) has no obstacles. */
   readonly obstacleGeometry: ObstacleGeometry
   readonly onBuy: (item: Item) => void
   readonly onEquip: (item: Item) => void
 }
 
 export interface ShopView {
-  /** Перерисовать витрину и баланс (кроме позиции прокрутки и фокуса — они сохраняются). */
+  /** Redraw the storefront and the balance (except scroll position and focus, which are preserved). */
   render(): void
-  /** Открытие магазина: раскрывается первый раздел, где есть на что хватает денег (иначе первый), прокрутка — в начало. */
+  /** On opening the shop: the first section with something affordable expands (otherwise the first), scroll goes to the top. */
   reset(): void
 }
 
 const fmt = (n: number): string => String(Math.round(n * 100) / 100) // 1.5 -> «1.5», 2 -> «2»
 
 function hasKey(key: string): key is TextKey {
-  return key in ru
+  return key in en
 }
 
-/** Название предмета: множители считаются из числа, остальные берутся из словаря (нет записи — виден сам id). */
+/** Item name: multipliers are computed from the number, the rest come from the dictionary (no entry: the id itself shows). */
 export function itemName(item: Item): string {
   switch (item.kind) {
     case 'boost':
@@ -112,9 +112,9 @@ function buildRow(item: Item, state: ShopState, config: ShopRoot, locked: boolea
   return row
 }
 
-/** Краткое «что сейчас выбрано» для шапки свёрнутого раздела. */
+/** A short "what is selected now" for the header of a collapsed section. */
 function sectionSummary(section: ShopSection, state: ShopState, config: ShopRoot, geometry: ObstacleGeometry): string {
-  // Препятствий в этой арене нет, что бы ни было надето: шапка говорит правду о партии, а не о запомненном выборе.
+  // There are no obstacles in this arena whatever is equipped: the header tells the truth about the game, not about a remembered choice.
   if (section.id === 'obstacles' && obstaclesLocked(state, config, geometry)) return t('shop.item.density-0')
   if (section.id === 'mult') {
     const m = scoreMultiplier(state, config)
@@ -131,7 +131,7 @@ export function createShopView(
   menuBalanceEl: HTMLElement,
   deps: ShopViewDeps,
 ): ShopView {
-  // Раздел, раскрытый сейчас (по одному: аккордеон, чтобы девять разделов не превращались в простыню). null — все свёрнуты.
+  // The section expanded right now (one at a time: an accordion, so nine sections do not turn into a wall of text). null means all collapsed.
   let openId: ShopSection['id'] | null = null
 
   function firstAffordable(): ShopSection['id'] {
@@ -160,13 +160,13 @@ export function createShopView(
       head.dataset['group'] = section.id
       head.setAttribute('aria-expanded', String(open))
       head.append(el('span', 'g-title', t(`shop.section.${section.id}` as TextKey)))
-      // Точка на шапке: в разделе есть что купить прямо сейчас (не расходник) — видно и в свёрнутом виде.
+      // A dot on the header: the section has something to buy right now (not a temporary item), visible even when collapsed.
       if (list.some((it) => it.kind !== 'scoreMultTemporary' && itemStatus(state, it, deps.config) === 'buyable' && !isItemLocked(state, it, deps.config, deps.obstacleGeometry))) head.append(el('span', 'g-dot'))
       head.append(el('span', 'g-now', sectionSummary(section, state, deps.config, deps.obstacleGeometry)), el('span', 'g-chev'))
       group.appendChild(head)
       if (open) {
         const panel = el('div', 'shop-group-items')
-        // Арена без препятствий (5³): вместо молчаливо неактивных кнопок — причина. Выбор плотности сохраняется.
+        // An arena without obstacles (5³): instead of silently inactive buttons, the reason. The density choice is preserved.
         const noObstacles = section.id === 'obstacles' && obstaclesLocked(state, deps.config, deps.obstacleGeometry)
         if (noObstacles) {
           const note = el('p', 'shop-note', t('shop.obstacles.tiny'))

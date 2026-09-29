@@ -3,14 +3,14 @@ import { BENCH_SETTLE_MS, BENCH_STAGES, applyBenchStage, BENCH_STAGE_MS, BenchRu
 import { createPerfSnapshot, perf } from './perf-settings'
 
 describe('percentile / summarize', () => {
-  test('ближайший ранг', () => {
+  test('nearest rank', () => {
     const a = Float32Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     expect(percentile(a, 10, 50)).toBe(5)
     expect(percentile(a, 10, 95)).toBe(10)
     expect(percentile(a, 10, 99)).toBe(10)
     expect(percentile(a, 0, 50)).toBe(0)
   })
-  test('сводка: подвисание не тонет в среднем', () => {
+  test('summary: a hitch does not drown in the average', () => {
     const f = new Float32Array(100).fill(16)
     f[10] = 100
     const s = summarize(f, 100)
@@ -20,13 +20,13 @@ describe('percentile / summarize', () => {
     expect(s.over30).toBe(1)
     expect(s.avg).toBeGreaterThan(16)
   })
-  test('пустой ввод', () => {
+  test('empty input', () => {
     expect(summarize(new Float32Array(4), 0).avg).toBe(0)
   })
 })
 
 describe('BenchRun', () => {
-  test('проходит все этапы, отбрасывает кадры после смены и зовёт хуки', () => {
+  test('goes through all stages, discards frames after a change and calls hooks', () => {
     const applied: string[] = []
     let done: readonly StageResult[] | null = null
     const run = new BenchRun(
@@ -50,7 +50,7 @@ describe('BenchRun', () => {
     const res = done as unknown as StageResult[]
     expect(res.length).toBe(BENCH_STAGES.length)
     for (const r of res) {
-      // кадры по 10 мс, дельты внутри этапа ровно 10, settle не в статистике
+      // frames of 10 ms, deltas within a stage are exactly 10, settle is not in the statistics
       expect(r.medianMs).toBeCloseTo(10, 3)
       expect(r.frames).toBeLessThanOrEqual(Math.ceil(BENCH_STAGE_MS / 10) + 1)
       expect(r.frames).toBeGreaterThan(BENCH_STAGE_MS / 10 - 3)
@@ -58,7 +58,7 @@ describe('BenchRun', () => {
     expect(BENCH_SETTLE_MS).toBeGreaterThan(0)
   })
 
-  test('abort отдаёт частичный результат', () => {
+  test('abort returns a partial result', () => {
     let reason = null as string | null
     const run = new BenchRun({ applyStage: () => {}, sample: () => {}, finished: (_r, a) => (reason = a) }, createPerfSnapshot())
     run.start(0)
@@ -69,7 +69,7 @@ describe('BenchRun', () => {
 })
 
 describe('formatBenchLog', () => {
-  test('содержит видеокарту и строки этапов', () => {
+  test('contains the GPU and the stage lines', () => {
     const env = { gpuRenderer: 'TEST GPU', gpuVendor: 'V', software: true, extensions: 'x' } as unknown as BenchEnv
     const r = { stage: BENCH_STAGES[0]!, frames: 3, avgMs: 1, medianMs: 1, p95Ms: 1, p99Ms: 1, minMs: 1, maxMs: 1, over60: 0, over30: 0, jsAvgMs: 1, jsP95Ms: 1, drawCalls: 5, triangles: 6, bufferW: 10, bufferH: 10, pixelRatio: 1, aaLabel: 'MSAA4 half' }
     const txt = formatBenchLog(env, [r], 'x')
@@ -81,8 +81,8 @@ describe('formatBenchLog', () => {
   })
 })
 
-describe('этапы бенчмарка', () => {
-  test('id уникальны, есть кандидаты обхода и «среднее» без AA', () => {
+describe('benchmark stages', () => {
+  test('ids are unique, there are workaround candidates and a "medium" without AA', () => {
     const ids = BENCH_STAGES.map((s) => s.id)
     expect(new Set(ids).size).toBe(ids.length)
     for (const id of ['as-is', 'no-aa', 'aa4-8bit', 'aa4-nodepth', 'smaa', 'q-high', 'q-medium', 'q-low']) expect(ids).toContain(id)
@@ -93,7 +93,7 @@ describe('этапы бенчмарка', () => {
     expect([med.msaa, med.smaa, med.bloom, med.bloomScale, med.megapixelCap]).toEqual([0, true, true, 1, 0])
   })
 
-  test('applyBenchStage выставляет все поля perf', () => {
+  test('applyBenchStage sets all perf fields', () => {
     const saved = { ...perf }
     applyBenchStage(BENCH_STAGES.find((s) => s.id === 'aa4-8bit-nodepth')!)
     expect([perf.msaa, perf.aaByte, perf.aaDepthResolve, perf.smaa]).toEqual([4, true, false, false])

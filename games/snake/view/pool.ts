@@ -1,6 +1,6 @@
-// Пул инстансов на InstancedMesh с возможностью роста ёмкости.
-// ensureCapacity пересоздаёт mesh (дорого) — ТОЛЬКО из холодного пути.
-// Пул владеет геометрией и материалом и освобождает их в dispose().
+// Instance pool on InstancedMesh with the ability to grow capacity.
+// ensureCapacity recreates the mesh (expensive), so ONLY from the cold path.
+// The pool owns the geometry and material and releases them in dispose().
 
 import { InstancedMesh, type BufferGeometry, type Material, type Matrix4, type Color, type Scene } from 'three'
 
@@ -26,13 +26,13 @@ export class InstancedPool {
     return this._mesh.instanceMatrix.count
   }
 
-  /** Холодный путь: вызывать из handle(), не из render(). */
+  /** Cold path: call from handle(), not from render(). */
   ensureCapacity(required: number): void {
     if (required <= this.capacity) return
     const nextCapacity = Math.max(required, this.capacity * 2)
     const next = this.createMesh(nextCapacity)
     this.scene.remove(this._mesh)
-    this._mesh.dispose() // буферы инстансов; геометрия/материал общие и живут дальше
+    this._mesh.dispose() // instance buffers; geometry/material are shared and live on
     this._mesh = next
     this.scene.add(this._mesh)
   }
@@ -46,7 +46,7 @@ export class InstancedPool {
     this._mesh.setColorAt(index, color)
   }
 
-  /** Вызывать один раз в конце обновления кадра после серии setInstance(). */
+  /** Call once at the end of the frame update after a series of setInstance(). */
   markDirty(): void {
     this._mesh.instanceMatrix.needsUpdate = true
     if (this._mesh.instanceColor) this._mesh.instanceColor.needsUpdate = true

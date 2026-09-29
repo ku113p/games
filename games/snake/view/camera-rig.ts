@@ -1,25 +1,25 @@
-// Камера, две фазы. Поза ВСЕГДА выводится из истины ядра каждый кадр
-// (viewFrame(s), head(s), фаза из game-mode), а не из числа событий: пропущенное,
-// отменённое или удвоенное событие само себя чинит.
+// Camera, two modes. The pose is ALWAYS derived from the core's truth every frame
+// (viewFrame(s), head(s), the mode from game-mode), not from counting events: a missed,
+// cancelled or duplicated event repairs itself.
 //
-// plane: ориентация из viewFrame(s); если кадр изменился — переход «текущая
-//   ориентация -> цель» (микропауза, затем slerp за config.camera.rollMs).
-//   Позиция = центр + depth * distance, смотрит в центр куба.
-// free: камера на followDistance позади головы (вдоль -heading = +depth),
-//   сдвинута на lateralOffset вправо (frame.right), приподнята на followHeight
-//   (frame.up), смотрит в точку на lookAheadDistance впереди головы по ходу и на lookDownOffset ниже линии движения (-up).
-//   Позиция, точка взгляда и up берутся прямо из целей; экспоненциальный догон
-//   (FOLLOW_SMOOTHING_ENABLED) выключен.
-// Привязка к вектору жёсткая: поза считается прямо из viewFrame(s) и клетки
-// головы каждый кадр, без догона и инерции. Голова прыгнула на клетку — камера
-// прыгнула ровно на столько же, сохранив положение относительно вектора хода.
-// Наклон игрока — добавка поверх этой позы (орбита вокруг той же головы), сама
-// база из-за него не сдвигается и вектор не теряет.
-// Смена фазы (по состоянию, событие modeChanged не нужно): полёт за
-//   config.camera.modeSwitchMs из фактически показанной позы в живую целевую
-//   позу новой фазы: smootherstep, дуга в сторону (swing), расширение FOV,
-//   два запроса глитча (старт и середина). Если фаза сменилась посреди
-//   полёта — новый полёт стартует от текущей позы. Кадр без аллокаций.
+// plane: orientation from viewFrame(s); if the frame changed, a transition
+//   "current orientation -> target" (micro-pause, then a slerp over config.camera.rollMs).
+//   Position = center + depth * distance, looking at the center of the cube.
+// free: the camera sits followDistance behind the head (along -heading = +depth),
+//   shifted lateralOffset to the right (frame.right), raised by followHeight
+//   (frame.up), looking at a point lookAheadDistance ahead of the head along the heading and lookDownOffset below the line of travel (-up).
+//   Position, look-at point and up are taken straight from the targets; the exponential catch-up
+//   (FOLLOW_SMOOTHING_ENABLED) is off.
+// The lock to the heading vector is rigid: the pose is computed straight from viewFrame(s) and the head
+// cell every frame, with no catch-up and no inertia. If the head jumps a cell, the camera
+// jumps by exactly the same amount, keeping its position relative to the heading vector.
+// The player's tilt is an add-on on top of this pose (an orbit around the same head); the
+// base is not shifted by it and does not lose the vector.
+// Mode change (detected from state, the modeChanged event is not needed): a flight over
+//   config.camera.modeSwitchMs from the pose actually shown to the live target
+//   pose of the new mode: smootherstep, a sideways arc (swing), a FOV widening,
+//   two glitch requests (start and midpoint). If the mode changes in the middle of
+//   a flight, a new flight starts from the current pose. Allocation-free per frame.
 
 import { PerspectiveCamera, Vector3, Quaternion, Matrix4, MathUtils } from 'three'
 import type { GameState } from '../core/state'
@@ -30,34 +30,34 @@ import { viewMode, type ViewMode } from './game-mode'
 
 const CAMERA_FOV_DEG = 55
 const CAMERA_NEAR = 0.1
-const CAMERA_FAR_PADDING = 4 // множитель size, запас за дальней гранью куба
-// Кватернионы одной ориентации: |dot| ~ 1. Порог — численный допуск, не баланс.
+const CAMERA_FAR_PADDING = 4 // multiplier of size: margin beyond the far face of the cube
+// Quaternions of the same orientation have |dot| close to 1. The threshold is a numeric tolerance, not balance.
 const SAME_ORIENTATION_DOT = 1 - 1e-6
 
-// Оформительские константы полёта и следования (не числа баланса).
-// Сглаживание следования free-камеры за головой. ВЫКЛЮЧЕНО по решению дизайнера:
-// поза берётся прямо из состояния (жёсткая привязка к вектору хода). Чтобы вернуть
-// инерцию, достаточно поставить FOLLOW_SMOOTHING_ENABLED = true.
+// Styling constants for the flight and follow (not balance numbers).
+// Smoothing of the free camera following the head. OFF by the designer's decision:
+// the pose is taken straight from the state (rigid lock to the heading vector). To bring
+// the inertia back, just set FOLLOW_SMOOTHING_ENABLED = true.
 const FOLLOW_SMOOTHING_ENABLED = true
-const FOLLOW_SMOOTH_MS = 130 // постоянная времени экспоненциального догона (если включено)
-const FLIGHT_FOV_KICK_DEG = 22 // на сколько градусов шире FOV в середине полёта
-const FLIGHT_SWING_FRAC = 0.35 // боковая дуга полёта, доля размера куба
-const FLIGHT_GLITCH_MID = 0.5 // доля полёта, на которой второй глитч
+const FOLLOW_SMOOTH_MS = 130 // time constant of the exponential catch-up (if enabled)
+const FLIGHT_FOV_KICK_DEG = 22 // how many degrees wider the FOV gets at mid-flight
+const FLIGHT_SWING_FRAC = 0.35 // sideways arc of the flight, as a fraction of the cube size
+const FLIGHT_GLITCH_MID = 0.5 // fraction of the flight at which the second glitch fires
 
-// Наклон от игрока (мышь / два пальца): добавка поверх базовой позы, орбита
-// вокруг головы (в plane — вокруг центра куба). Оформительские константы.
-const TILT_MAX = 1 // рад, предел по каждой оси (< 90°: камера не переворачивается)
-const TILT_FOLLOW_MS = 90 // сглаживание к заданному наклону
+// Player tilt (mouse / two fingers): an add-on on top of the base pose, an orbit
+// around the head (in plane mode, around the cube center). Styling constants.
+const TILT_MAX = 1 // rad, limit per axis (< 90 degrees: the camera does not flip over)
+const TILT_FOLLOW_MS = 90 // smoothing toward the requested tilt
 const TILT_EPS = 1e-4
 const ZOOM_EPS = 1e-4
-const ZOOM_FOLLOW_FALLBACK_MS = 120 // если в config.camera нет zoomFollowMs
+const ZOOM_FOLLOW_FALLBACK_MS = 120 // used when config.camera has no zoomFollowMs
 
 /**
- * Камера, как её выставил игрок: наклон (рад, ±TILT_MAX), зум — множитель дистанции от головы
- * (1 — ровно тот вид, что настроен в config.camera; < 1 ближе, > 1 дальше). Держится до явного сброса
- * (resetUserCamera), сам не возвращается. Общий объект модуля, а не поле View: пишет main.ts из ввода,
- * читает риг каждый кадр (без аллокаций); риг создаётся заново на каждую партию, а этот объект main сбрасывает
- * на старте партии. Пределы зума (config.camera.zoomMin/zoomMax) зажимает тот, кто пишет.
+ * The camera as the player set it: tilt (rad, +/-TILT_MAX), zoom is a multiplier of the distance from the head
+ * (1 is exactly the view configured in config.camera; < 1 closer, > 1 farther). It stays until explicitly reset
+ * (resetUserCamera) and does not return by itself. A module-level shared object rather than a View field: main.ts writes it from input,
+ * the rig reads it every frame (allocation-free); the rig is recreated for each game, while main resets this object
+ * at game start. The zoom limits (config.camera.zoomMin/zoomMax) are clamped by whoever writes.
  */
 export const userCamera = { yaw: 0, pitch: 0, zoom: 1 }
 
@@ -95,7 +95,7 @@ export class CameraRig {
   private rollElapsed = 0
   private glitchRequested = false
 
-  // Фаза, в которой камера "живёт" (или в которую летит).
+  // The mode the camera "lives" in (or is flying to).
   private mode: ViewMode = 'plane'
   private flying = false
   private flightElapsed = 0
@@ -105,12 +105,12 @@ export class CameraRig {
   private flightToPos = new Vector3()
   private flightToQ = new Quaternion()
 
-  // Сглаженное состояние free-камеры и цели.
+  // Smoothed state of the free camera, and its targets.
   private fPos = new Vector3()
   private fAim = new Vector3()
-  /** Голова, сглаженная тем же догоном, что и поза. Центр орбиты наклона:
-   *  если брать сырую клетку головы, она прыгает мгновенно, а поза отстаёт —
-   *  камера вращается вокруг рассинхронизированной точки и теряет вектор. */
+  /** The head, smoothed by the same catch-up as the pose. The orbit center of the tilt:
+   *  the raw head cell jumps instantly while the pose lags behind,
+   *  so the camera would rotate around an out-of-sync point and lose the vector. */
   private fHead = new Vector3()
   private headT = new Vector3()
   private fUp = new Vector3(0, 1, 0)
@@ -130,7 +130,7 @@ export class CameraRig {
   private tiltQ = new Quaternion()
   private tiltQ2 = new Quaternion()
 
-  /** 0 — плоскость, 1 — полностью free (для fade ближних сегментов). */
+  /** 0 is plane mode, 1 is fully free (for fading the near segments). */
   freeAmount = 0
 
   constructor(config: Config) {
@@ -148,7 +148,7 @@ export class CameraRig {
     this.camera.updateProjectionMatrix()
   }
 
-  /** Холодный путь: мгновенно встать в позу состояния, сбросив переходы. */
+  /** Cold path: jump instantly to the pose of the state, discarding transitions. */
   syncImmediate(s: GameState): void {
     this.applySize(s)
     this.resetTurn()
@@ -169,7 +169,7 @@ export class CameraRig {
     }
   }
 
-  /** Холодный путь: сброс анимаций (новая игра). Позу не трогает. */
+  /** Cold path: reset animations (new game). Does not touch the pose. */
   resetTurn(): void {
     this.phase = 'idle'
     this.pauseElapsed = 0
@@ -180,20 +180,20 @@ export class CameraRig {
     this.endFlightFov()
   }
 
-  /** true один раз — когда нужно запустить глитч (начало поворота, начало и середина полёта). */
+  /** true once, when a glitch should be started (start of a roll, start and midpoint of a flight). */
   consumeGlitchRequest(): boolean {
     const value = this.glitchRequested
     this.glitchRequested = false
     return value
   }
 
-  /** Задать наклон камеры (рад, ±1). Держится, пока не сбросят (userCamera). Оставлено для совместимости с View. */
+  /** Set the camera tilt (rad, +/-1). Holds until reset (userCamera). Kept for compatibility with View. */
   setTilt(yaw: number, pitch: number): void {
     userCamera.yaw = MathUtils.clamp(yaw, -TILT_MAX, TILT_MAX)
     userCamera.pitch = MathUtils.clamp(pitch, -TILT_MAX, TILT_MAX)
   }
 
-  /** Кадр: без аллокаций. */
+  /** Per frame: no allocations. */
   update(dtMs: number, s: GameState): void {
     if (cubeSize(s) !== this.size) this.applySize(s)
 
@@ -213,8 +213,8 @@ export class CameraRig {
   }
 
   /**
-   * Добавка поверх базовой позы: орбита вокруг pivot осями самой камеры (наклон) и масштаб расстояния
-   * от pivot (зум). И то и другое догоняет userCamera экспоненциально, как и поза камеры.
+   * An add-on on top of the base pose: an orbit around the pivot about the camera's own axes (tilt) and a scaling of the distance
+   * from the pivot (zoom). Both catch up to userCamera exponentially, like the camera pose.
    */
   private applyUserCamera(dtMs: number): void {
     const kTilt = 1 - Math.exp(-dtMs / TILT_FOLLOW_MS)
@@ -226,7 +226,7 @@ export class CameraRig {
     const zoomed = Math.abs(this.zoom - 1) >= ZOOM_EPS
     if (!tilted && !zoomed) return
 
-    // Центр орбиты берётся из того же сглаженного источника, что и поза камеры.
+    // The orbit center comes from the same smoothed source as the camera pose.
     this.tiltPivot.copy(this.fHead).lerp(this.center, 1 - this.freeAmount)
     this.tmpV.copy(this.camera.position).sub(this.tiltPivot)
     if (tilted) {
@@ -239,7 +239,7 @@ export class CameraRig {
       this.tmpV.applyQuaternion(this.tiltQ)
       cq.premultiply(this.tiltQ)
     }
-    // Зум множит базовое расстояние (а не заменяет): единица — ровно тот вид, что задан в конфиге.
+    // Zoom multiplies the base distance (rather than replacing it): 1 is exactly the view set in the config.
     if (zoomed) this.tmpV.multiplyScalar(this.zoom)
     this.camera.position.copy(this.tiltPivot).add(this.tmpV)
   }
@@ -247,7 +247,7 @@ export class CameraRig {
   // ---- plane ----
 
   private updatePlane(dtMs: number, s: GameState): void {
-    // Истина из ядра.
+    // Truth from the core.
     this.readTarget(s, this.nextQ)
     if (Math.abs(this.nextQ.dot(this.toQ)) < SAME_ORIENTATION_DOT) {
       this.toQ.copy(this.nextQ)
@@ -255,7 +255,7 @@ export class CameraRig {
       this.rollElapsed = 0
       this.pauseElapsed = 0
       if (this.phase === 'rolling') {
-        // Уже крутимся — не тормозим микропаузой, продолжаем к новой цели.
+        // Already rolling: do not stall with a micro-pause, keep going toward the new target.
         this.beginRolling()
       } else {
         this.phase = 'pause'
@@ -309,16 +309,16 @@ export class CameraRig {
 
   // ---- free ----
 
-  /** Цели free-камеры из истины: голова, depth (= -heading) и up кадра. */
+  /** Targets of the free camera from the truth: the head, and the frame's depth (= -heading) and up. */
   private computeFreeTargets(s: GameState): void {
     const f = viewFrame(s)
     const h = head(s)
     this.fwdT.set(-f.depth.x, -f.depth.y, -f.depth.z)
     this.upT.set(f.up.x, f.up.y, f.up.z)
     this.tmpRight.set(f.right.x, f.right.y, f.right.z)
-    // Камера чуть правее оси движения и смотрит в точку далеко впереди на линии
-    // змейки: ось взгляда и вектор движения сходятся, стена впереди читается
-    // перспективой, а не «внезапно упирается».
+    // The camera sits slightly to the right of the line of travel and looks at a point far ahead on the snake's
+    // line: the view axis and the heading vector converge, so the wall ahead reads through
+    // perspective rather than "suddenly hitting you".
     this.posT
       .set(h.x, h.y, h.z)
       .addScaledVector(this.fwdT, -this.settings.followDistance)
@@ -353,7 +353,7 @@ export class CameraRig {
     this.camera.quaternion.setFromRotationMatrix(this.lookM)
   }
 
-  // ---- переезд между фазами ----
+  // ---- transition between modes ----
 
   private flightTo: ViewMode = 'plane'
 
@@ -373,7 +373,7 @@ export class CameraRig {
     const t = Math.min(this.flightElapsed / Math.max(1, this.settings.modeSwitchMs), 1)
     const e = MathUtils.smootherstep(t, 0, 1)
 
-    // Живая цель новой фазы: если голова двигается по ходу полёта, камера приходит куда надо.
+    // Live target of the new mode: if the head moves during the flight, the camera still arrives where it should.
     if (this.flightTo === 'free') {
       this.computeFreeTargets(s)
       this.fPos.copy(this.posT)
@@ -391,7 +391,7 @@ export class CameraRig {
     }
 
     this.camera.position.lerpVectors(this.flightFromPos, this.flightToPos, e)
-    // Боковая дуга: полёт не по прямой, а с заходом сбоку — объём читается.
+    // Sideways arc: the flight is not a straight line but approaches from the side, so the volume reads.
     const swing = Math.sin(Math.PI * t) * this.size * FLIGHT_SWING_FRAC
     this.tmpV.set(1, 0, 0).applyQuaternion(this.flightToQ)
     this.camera.position.addScaledVector(this.tmpV, swing)
@@ -433,14 +433,14 @@ export class CameraRig {
     this.size = cubeSize(s)
     const c = (this.size - 1) / 2
     this.center.set(c, c, c)
-    this.camera.far = this.size * CAMERA_FAR_PADDING + this.distanceFor(this.size) * this.zoomMax // зум отодвигает камеру
+    this.camera.far = this.size * CAMERA_FAR_PADDING + this.distanceFor(this.size) * this.zoomMax // zoom pushes the camera back
     this.camera.near = CAMERA_NEAR
     this.camera.updateProjectionMatrix()
   }
 
   private distanceFor(size: number): number {
-    // В портрете (aspect < 1) отодвигаем камеру, чтобы куб не обрезался по
-    // горизонтали; distanceFactor — единственное число из конфига.
+    // In portrait (aspect < 1) we move the camera back so the cube is not cropped
+    // horizontally; distanceFactor is the only number from the config.
     return (size * this.cameraConfig.distanceFactor) / Math.min(this.aspect, 1)
   }
 }

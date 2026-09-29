@@ -1,8 +1,8 @@
-// Трассировка от головы по направлению движения: до какой клетки свободно и
-// во что упрёмся. Та же логика, что в ahead-ray.ts (там она приватная, сам
-// ahead-ray не трогаем — он режим отката), но без рисования. Кадр без аллокаций.
-// Тело считается преградой, только если к приходу головы сегмент ещё на месте
-// (хвост за d шагов уедет: сегменты с индексом >= length - d свободны).
+// Trace from the head along the heading: how far the path is free and
+// what it hits. Same logic as ahead-ray.ts (private there; ahead-ray itself is left alone,
+// it is the fallback mode), but without drawing. Allocation-free per frame.
+// A body segment counts as an obstacle only if it is still in place when the head arrives
+// (the tail moves away in d steps: segments with index >= length - d are free).
 
 import type { GameState } from '../core/state'
 import { applePos, cubeSize, forEachSnakeSegment, head, snakeLength } from '../core/queries'
@@ -19,7 +19,7 @@ export type SolidTest = (x: number, y: number, z: number) => boolean
 
 export class HeadTrace {
   hitKind: HitKind = HitKind.None
-  /** Сколько свободных клеток до преграды (или maxCells, если преграды нет). */
+  /** How many free cells before the obstacle (or maxCells if there is none). */
   freeCells = 0
 
   private body = new Map<number, number>()
@@ -60,8 +60,8 @@ export class HeadTrace {
   }
 
   /**
-   * Что в клетке (x,y,z), до которой голове d шагов. Использует тело,
-   * собранное последним run(). Для ближнего слоя: d = 1.
+   * What is in cell (x,y,z), d steps from the head. Uses the body
+   * built by the last run(). For the near layer: d = 1.
    */
   kindAt(s: GameState, x: number, y: number, z: number, d: number, isSolid: SolidTest): HitKind {
     const a = applePos(s)

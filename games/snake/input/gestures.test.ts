@@ -21,124 +21,124 @@ import {
 } from './gestures'
 
 describe('swipeDirection', () => {
-  test('ниже порога по обеим осям — не свайп', () => {
+  test('below the threshold on both axes: not a swipe', () => {
     expect(swipeDirection(5, -5, 24)).toBeNull()
   })
 
-  test('горизонтальное смещение вправо', () => {
+  test('horizontal offset to the right', () => {
     expect(swipeDirection(40, 5, 24)).toBe('right')
   })
 
-  test('горизонтальное смещение влево', () => {
+  test('horizontal offset to the left', () => {
     expect(swipeDirection(-40, -5, 24)).toBe('left')
   })
 
-  test('вертикальное смещение вниз (экранные координаты: y растёт вниз)', () => {
+  test('vertical offset down (screen coordinates: y grows downward)', () => {
     expect(swipeDirection(5, 40, 24)).toBe('down')
   })
 
-  test('вертикальное смещение вверх', () => {
+  test('vertical offset up', () => {
     expect(swipeDirection(-5, -40, 24)).toBe('up')
   })
 
-  test('доминирующая ось побеждает при обоих выше порога', () => {
+  test('the dominant axis wins when both are above the threshold', () => {
     expect(swipeDirection(30, 60, 24)).toBe('down')
     expect(swipeDirection(60, 30, 24)).toBe('right')
   })
 
-  test('ровно на пороге — уже свайп (нестрогое неравенство)', () => {
+  test('exactly at the threshold: already a swipe (non-strict inequality)', () => {
     expect(swipeDirection(24, 0, 24)).toBe('right')
     expect(swipeDirection(23, 0, 24)).toBeNull()
   })
 })
 
 describe('isDoubleTap', () => {
-  test('первый тап (lastTapAt = null) — не двойной', () => {
+  test('first tap (lastTapAt = null): not a double tap', () => {
     expect(isDoubleTap(null, 1000, 240)).toBe(false)
   })
 
-  test('второй тап в пределах окна — двойной', () => {
+  test('second tap within the window: a double tap', () => {
     expect(isDoubleTap(1000, 1200, 240)).toBe(true)
   })
 
-  test('ровно на границе окна — ещё двойной (нестрогое неравенство)', () => {
+  test('exactly at the window boundary: still a double tap (non-strict inequality)', () => {
     expect(isDoubleTap(1000, 1240, 240)).toBe(true)
   })
 
-  test('за пределами окна — не двойной', () => {
+  test('outside the window: not a double tap', () => {
     expect(isDoubleTap(1000, 1241, 240)).toBe(false)
   })
 })
 
 describe('accumulateTilt', () => {
-  test('копит смещение в радианах', () => {
+  test('accumulates the offset in radians', () => {
     expect(accumulateTilt(0, 100, 0.005, 1)).toBeCloseTo(0.5)
     expect(accumulateTilt(0.5, -40, 0.005, 1)).toBeCloseTo(0.3)
   })
 
-  test('зажимается в пределах ±limit', () => {
+  test('clamped within ±limit', () => {
     expect(accumulateTilt(0.9, 100, 0.005, 1)).toBe(1)
     expect(accumulateTilt(-0.9, -100, 0.005, 1)).toBe(-1)
   })
 
-  test('нулевое смещение не меняет значение', () => {
+  test('zero offset does not change the value', () => {
     expect(accumulateTilt(0.3, 0, 0.005, 1)).toBe(0.3)
   })
 
-  test('предел совпадает с контрактом вида и запасная чувствительность положительна', () => {
+  test('the limit matches the view contract and the fallback sensitivity is positive', () => {
     expect(TILT_LIMIT_RAD).toBe(1)
     expect(DEFAULT_TILT_RAD_PER_PX).toBeGreaterThan(0)
   })
 })
 
 describe('pointerRole', () => {
-  test('первый палец — обычный жест', () => {
+  test('first finger: a regular gesture', () => {
     expect(pointerRole('touch', 0, 0)).toBe('gesture')
     expect(pointerRole('pen', 0, 0)).toBe('gesture')
   })
 
-  test('второй палец — наклон (и отменяет жест первого)', () => {
+  test('second finger: tilt (and cancels the gesture of the first)', () => {
     expect(pointerRole('touch', 0, 1)).toBe('tilt')
     expect(pointerRole('touch', 0, 2)).toBe('tilt')
   })
 
-  test('мышь: левая кнопка — жест, правая и средняя — наклон', () => {
+  test('mouse: left button is a gesture, right and middle are tilt', () => {
     expect(pointerRole('mouse', 0, 0)).toBe('gesture')
     expect(pointerRole('mouse', 2, 0)).toBe('tilt')
     expect(pointerRole('mouse', 1, 0)).toBe('tilt')
   })
 
-  test('мышь не считается вторым пальцем', () => {
+  test('a mouse does not count as a second finger', () => {
     expect(pointerRole('mouse', 0, 1)).toBe('ignore')
   })
 })
 
 describe('tiltPointersNeeded', () => {
-  test('мышь — один указатель, пальцы — два', () => {
+  test('mouse is one pointer, fingers are two', () => {
     expect(tiltPointersNeeded(true)).toBe(1)
     expect(tiltPointersNeeded(false)).toBe(2)
   })
 })
 
-describe('padCommand (пульт в углу)', () => {
-  test('четыре стрелки — повороты, независимо от третьей оси', () => {
+describe('padCommand (corner pad)', () => {
+  test('four arrows are turns, regardless of the third axis', () => {
     for (const dir of ['left', 'right', 'up', 'down'] as const) {
       expect(padCommand(dir, true)).toEqual({ kind: 'turn', dir })
       expect(padCommand(dir, false)).toEqual({ kind: 'turn', dir })
     }
   })
 
-  test('into/out — третья ось, пока она включена (фаза plane)', () => {
+  test('into/out are the third axis while it is enabled (plane mode)', () => {
     expect(padCommand('into', true)).toEqual({ kind: 'axis', dir: 'into' })
     expect(padCommand('out', true)).toEqual({ kind: 'axis', dir: 'out' })
   })
 
-  test('в фазе free третья ось выключена — команды нет', () => {
+  test('in free mode the third axis is off: no command', () => {
     expect(padCommand('into', false)).toBeNull()
     expect(padCommand('out', false)).toBeNull()
   })
 
-  test('неизвестная или пустая кнопка — null', () => {
+  test('unknown or empty button: null', () => {
     expect(padCommand(undefined, true)).toBeNull()
     expect(padCommand('center', true)).toBeNull()
     expect(padCommand('', true)).toBeNull()
@@ -146,7 +146,7 @@ describe('padCommand (пульт в углу)', () => {
 })
 
 describe('parsePadSide', () => {
-  test('left — слева, всё остальное — справа', () => {
+  test('left is left, everything else is right', () => {
     expect(parsePadSide('left')).toBe('left')
     expect(parsePadSide('right')).toBe('right')
     expect(parsePadSide(null)).toBe('right')
@@ -155,26 +155,26 @@ describe('parsePadSide', () => {
 })
 
 describe('shouldFirePad', () => {
-  test('новый указатель шлёт команду один раз', () => {
+  test('a new pointer sends the command once', () => {
     expect(shouldFirePad(new Set(), 1)).toBe(true)
   })
 
-  test('уже прижатый указатель (удержание) повторно не шлёт', () => {
+  test('an already pressed pointer (hold) does not send again', () => {
     expect(shouldFirePad(new Set([1]), 1)).toBe(false)
   })
 
-  test('второй палец на другой кнопке — отдельная команда', () => {
+  test('second finger on another button: a separate command', () => {
     expect(shouldFirePad(new Set([1]), 2)).toBe(true)
   })
 })
 
-describe('ускорение: boostSide / isBoostCode', () => {
-  test('кнопка ускорения — напротив пульта', () => {
+describe('boost: boostSide / isBoostCode', () => {
+  test('boost button is opposite the pad', () => {
     expect(boostSide('right')).toBe('left')
     expect(boostSide('left')).toBe('right')
   })
 
-  test('клавиши ускорения по e.code: Shift и Space, но не стрелки/WASD/Q/E', () => {
+  test('boost keys by e.code: Shift and Space, but not arrows/WASD/Q/E', () => {
     expect(isBoostCode('ShiftLeft')).toBe(true)
     expect(isBoostCode('ShiftRight')).toBe(true)
     expect(isBoostCode('Space')).toBe(true)
@@ -188,7 +188,7 @@ describe('createBoostHold', () => {
     return { log, hold: createBoostHold((on) => log.push(on)) }
   }
 
-  test('зажал — включилось, отпустил — выключилось, ровно по одному разу', () => {
+  test('hold: turned on, release: turned off, exactly once each', () => {
     const { log, hold } = make()
     hold.press('ptr:1')
     hold.press('ptr:1')
@@ -199,7 +199,7 @@ describe('createBoostHold', () => {
     expect(log).toEqual([true, false])
   })
 
-  test('два источника: выключается только когда отпущены оба', () => {
+  test('two sources: turns off only when both are released', () => {
     const { log, hold } = make()
     hold.press('btn')
     hold.press('kbd')
@@ -209,7 +209,7 @@ describe('createBoostHold', () => {
     expect(log).toEqual([true, false])
   })
 
-  test('releaseAll выключает залипшее и безопасен повторно', () => {
+  test('releaseAll turns off a stuck boost and is safe to repeat', () => {
     const { log, hold } = make()
     hold.releaseAll()
     expect(log).toEqual([])
@@ -221,7 +221,7 @@ describe('createBoostHold', () => {
     expect(log).toEqual([true, false])
   })
 
-  test('release чужого источника ничего не ломает', () => {
+  test('releasing a foreign source breaks nothing', () => {
     const { log, hold } = make()
     hold.press('a')
     hold.release('zzz')
@@ -229,7 +229,7 @@ describe('createBoostHold', () => {
     expect(log).toEqual([true])
   })
 
-  test('после releaseAll новое нажатие снова включает', () => {
+  test('after releaseAll a new press turns boost on again', () => {
     const { log, hold } = make()
     hold.press('a')
     hold.releaseAll()
@@ -238,41 +238,41 @@ describe('createBoostHold', () => {
   })
 })
 
-describe('зум камеры: колесо и щипок', () => {
-  test('колесо: вниз — дальше (>1), вверх — ближе (<1), ноль — без изменений', () => {
+describe('camera zoom: wheel and pinch', () => {
+  test('wheel: down is farther (>1), up is closer (<1), zero is unchanged', () => {
     expect(wheelZoomFactor(100, 0, 0.0012)).toBeGreaterThan(1)
     expect(wheelZoomFactor(-100, 0, 0.0012)).toBeLessThan(1)
     expect(wheelZoomFactor(0, 0, 0.0012)).toBe(1)
   })
 
-  test('колесо: логарифмическое — шаг вниз и такой же вверх взаимно уничтожаются', () => {
+  test('wheel: logarithmic, a step down and the same step up cancel out', () => {
     expect(wheelZoomFactor(100, 0, 0.0012) * wheelZoomFactor(-100, 0, 0.0012)).toBeCloseTo(1, 12)
   })
 
-  test('колесо: строки и страницы приводятся к пикселям (deltaMode 1 и 2)', () => {
+  test('wheel: lines and pages are converted to pixels (deltaMode 1 and 2)', () => {
     expect(wheelZoomFactor(3, 1, 0.001)).toBeCloseTo(Math.exp(3 * 16 * 0.001), 12)
     expect(wheelZoomFactor(1, 2, 0.001)).toBeCloseTo(Math.exp(400 * 0.001), 12)
   })
 
-  test('щипок: разводят пальцы — ближе, сводят — дальше, вдвое шире — вдвое ближе (gain 1)', () => {
+  test('pinch: spreading fingers is closer, pinching in is farther, twice as wide is twice as close (gain 1)', () => {
     expect(pinchZoomFactor(100, 200, 1)).toBeCloseTo(0.5, 12)
     expect(pinchZoomFactor(200, 100, 1)).toBeCloseTo(2, 12)
     expect(pinchZoomFactor(100, 100, 1)).toBe(1)
   })
 
-  test('щипок: gain усиливает или гасит; нулевые расстояния безопасны', () => {
+  test('pinch: gain amplifies or damps; zero distances are safe', () => {
     expect(pinchZoomFactor(100, 200, 2)).toBeCloseTo(0.25, 12)
     expect(pinchZoomFactor(0, 50, 1)).toBe(1)
     expect(pinchZoomFactor(50, 0, 1)).toBe(1)
   })
 
-  test('clampZoom зажимает в пределы конфига', () => {
+  test('clampZoom clamps to the config limits', () => {
     expect(clampZoom(0.1, 0.5, 2)).toBe(0.5)
     expect(clampZoom(9, 0.5, 2)).toBe(2)
     expect(clampZoom(1.3, 0.5, 2)).toBe(1.3)
   })
 
-  test('zoomTuning читает числа из конфига, а без них даёт запасные', () => {
+  test('zoomTuning reads numbers from the config and falls back without them', () => {
     const t = zoomTuning({ camera: { zoomWheelPerPx: 0.5, zoomPinchGain: 2 }, input: { twoFingerLockPx: 7 } })
     expect(t).toEqual({ wheelPerPx: 0.5, pinchGain: 2, lockPx: 7 })
     const d = zoomTuning({ camera: {}, input: {} })
@@ -282,23 +282,23 @@ describe('зум камеры: колесо и щипок', () => {
   })
 })
 
-describe('twoFingerMode: два пальца — наклон или зум', () => {
+describe('twoFingerMode: two fingers - tilt or zoom', () => {
   const LOCK = 10
-  test('пока ничего не набежало — ждём', () => {
+  test('nothing accumulated yet: wait', () => {
     expect(twoFingerMode(0, 0, LOCK)).toBe('pending')
     expect(twoFingerMode(9, 3, LOCK)).toBe('pending')
   })
-  test('пальцы поехали вместе (центр сдвинулся, раскрытие нет) — наклон', () => {
+  test('fingers moved together (center shifted, spread did not): tilt', () => {
     expect(twoFingerMode(30, 2, LOCK)).toBe('tilt')
   })
-  test('щипок (раскрытие изменилось, центр почти на месте) — зум', () => {
+  test('pinch (spread changed, center almost still): zoom', () => {
     expect(twoFingerMode(2, 30, LOCK)).toBe('zoom')
   })
-  test('щипок с дрожащим центром и наклон с дрожащим раскрытием не путаются', () => {
+  test('a pinch with a jittery center and a tilt with a jittery spread are not confused', () => {
     expect(twoFingerMode(8, 25, LOCK)).toBe('zoom')
     expect(twoFingerMode(25, 8, LOCK)).toBe('tilt')
   })
-  test('сдвинулся только один палец: сдвиг центра и раскрытие равны — неоднозначно, ждём второй палец', () => {
+  test('only one finger moved: center shift and spread are equal, so it is ambiguous; wait for the second finger', () => {
     expect(twoFingerMode(12, 12, LOCK)).toBe('pending')
     expect(twoFingerMode(12, 13, LOCK)).toBe('pending')
   })

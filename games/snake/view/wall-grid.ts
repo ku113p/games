@@ -1,10 +1,10 @@
-// Сетка на шести внутренних стенках куба: 6 LineSegments с ОБЩИМ ShaderMaterial,
-// создаются один раз при смене размера. 20³ — линия на каждой границе клетки;
-// 50³ и 100³ — шаг 5 клеток. Каждая 5-я линия ярче (масштаб), альфа падает с
-// расстоянием до камеры (глубина), ближе NEAR_FADE_CELLS линии растворяются.
-// depthWrite: false, сетка тусклая и не спорит со змейкой.
-// В фазе plane (freeAmount < 0.5, камера снаружи) стенки между камерой и полем
-// скрываются; в фазе free не скрываются никогда.
+// Grid on the six inner walls of the cube: 6 LineSegments with a SHARED ShaderMaterial,
+// created once when the size changes. 20³: a line on every cell boundary;
+// 50³ and 100³: a step of 5 cells. Every 5th line is brighter (scale), alpha falls off with
+// distance to the camera (depth), lines closer than NEAR_FADE_CELLS dissolve.
+// depthWrite: false, the grid is dim and does not compete with the snake.
+// In plane mode (freeAmount < 0.5, camera outside) the walls between the camera and the field
+// are hidden; in free mode they are never hidden.
 
 import { BufferGeometry, Float32BufferAttribute, LineSegments, ShaderMaterial, type Scene } from 'three'
 import {
@@ -17,11 +17,11 @@ import {
 } from './cube-frame'
 import { GRID_COLOR, GRID_MINOR_ALPHA, GRID_MAJOR_ALPHA } from './palette'
 
-// Оформительские константы, не числа баланса.
+// Styling constants, not balance values.
 const GRID_SIZE_SMALL_MAX = 20
 const GRID_STEP_LARGE = 5
 const MAJOR_EVERY = 5
-// Дальние линии слабее ближних: доля яркости на бесконечном удалении.
+// Far lines are weaker than near ones: brightness fraction at infinite distance.
 const GRID_FAR_FLOOR = 0.12
 
 export class WallGrid {
@@ -34,7 +34,7 @@ export class WallGrid {
     this.scene = scene
   }
 
-  /** Холодный путь: вызывать из handle('started', s), не из render(). */
+  /** Cold path: call from handle('started', s), not from render(). */
   setSize(size: number): void {
     if (size === this.currentSize) return
     this.currentSize = size
@@ -70,10 +70,10 @@ export class WallGrid {
         for (let k = 0; k < lines; k++) {
           const c = lo + k * step
           const isMajor = k % MAJOR_EVERY === 0 ? 1 : 0
-          // линия вдоль v в координате u = c
+          // line along v at coordinate u = c
           pos[o + axis] = w; pos[o + u] = c; pos[o + v] = lo; o += 3
           pos[o + axis] = w; pos[o + u] = c; pos[o + v] = hi; o += 3
-          // линия вдоль u в координате v = c
+          // line along u at coordinate v = c
           pos[o + axis] = w; pos[o + u] = lo; pos[o + v] = c; o += 3
           pos[o + axis] = w; pos[o + u] = hi; pos[o + v] = c; o += 3
           major[m++] = isMajor
@@ -92,7 +92,7 @@ export class WallGrid {
     }
   }
 
-  /** Кадр, без аллокаций. Индекс стенки: axis * 2 + side (0 — нижняя, 1 — верхняя). */
+  /** Frame, allocation-free. Wall index: axis * 2 + side (0 is the lower, 1 the upper). */
   update(camX: number, camY: number, camZ: number, freeAmount: number): void {
     if (this.walls.length === 0) return
     const hi = this.currentSize - 0.5

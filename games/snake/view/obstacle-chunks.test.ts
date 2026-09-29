@@ -16,7 +16,7 @@ describe('chunkShell', () => {
   const shell = computeShell(randomSolid(n, 0.08, 7), n, half)
   const chunks = chunkShell(shell.faces, shell.faceCount, shell.edges, shell.edgeCount, n, 8)
 
-  test('каждая грань и каждое ребро попадают ровно в один кусок', () => {
+  test('every face and every edge lands in exactly one chunk', () => {
     expect(chunks.reduce((a, c) => a + c.faceCount, 0)).toBe(shell.faceCount)
     expect(chunks.reduce((a, c) => a + c.edgeCount, 0)).toBe(shell.edgeCount)
     const key = (a: Float32Array, i: number): string => `${a[i * 4]},${a[i * 4 + 1]},${a[i * 4 + 2]},${a[i * 4 + 3]}`
@@ -26,12 +26,12 @@ describe('chunkShell', () => {
     for (const v of orig.values()) expect(v).toBe(0)
   })
 
-  test('сфера куска содержит все вершины его граней и рёбер', () => {
+  test('the chunk sphere contains all vertices of its faces and edges', () => {
     for (const c of chunks) {
       const inside = (x: number, y: number, z: number, reach: number): boolean =>
         Math.hypot(x - c.cx, y - c.cy, z - c.cz) + reach <= c.radius
       for (let i = 0; i < c.faceCount; i++) {
-        // самая дальняя вершина грани: не дальше диагонали клетки от её центра
+        // the farthest vertex of the face: no farther than a cell diagonal from its center
         expect(inside(c.faces[i * 4]!, c.faces[i * 4 + 1]!, c.faces[i * 4 + 2]!, Math.sqrt(3))).toBe(true)
       }
       for (let i = 0; i < c.edgeCount; i++) {
@@ -41,7 +41,7 @@ describe('chunkShell', () => {
     expect(CHUNK_SPHERE_PAD).toBeGreaterThan(1)
   })
 
-  test('грани одной клетки остаются подряд внутри куска', () => {
+  test('faces of one cell stay contiguous within a chunk', () => {
     for (const c of chunks) {
       const seen = new Set<string>()
       let last = ''
@@ -56,7 +56,7 @@ describe('chunkShell', () => {
     }
   })
 
-  test('пустая арена и арена меньше куска', () => {
+  test('empty arena and an arena smaller than a chunk', () => {
     expect(chunkShell(new Float32Array(0), 0, new Float32Array(0), 0, 20, 25)).toEqual([])
     const small = computeShell(new Set([5 + 20 * (5 + 20 * 5)]), 20, half)
     const cs = chunkShell(small.faces, small.faceCount, small.edges, small.edgeCount, 20, 25)

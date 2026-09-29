@@ -1,6 +1,6 @@
-// Настройки камеры для вида: числа приходят из config.camera (их добавляет
-// агент ядра). Запасные значения нужны, пока поля не появились в Config;
-// после появления config.json их не используют.
+// Camera settings for the view: the numbers come from config.camera (added by
+// the core agent). The fallback values are needed until the fields appear in Config;
+// once they are in config.json, the fallbacks are not used.
 
 import type { Config } from '../core/rules'
 
@@ -13,7 +13,7 @@ type CameraConfigExt = Config['camera'] & {
   modeSwitchMs?: number
 }
 
-// Запасные значения, а не числа баланса: см. комментарий выше.
+// Fallback values, not balance numbers: see the comment above.
 const FALLBACK_FOLLOW_DISTANCE = 2
 const FALLBACK_FOLLOW_HEIGHT = 1
 const FALLBACK_LATERAL_OFFSET = 0.7

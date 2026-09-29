@@ -1,5 +1,5 @@
-// Единственное место, где вид узнаёт фазу камеры.
-// Правило 2 AGENTS.md: вид читает состояние только через queries.
+// The only place where the view learns the camera mode.
+// AGENTS.md rule 2: the view reads state only through queries.
 
 import type { GameState } from '../core/state'
 import { gameMode } from '../core/queries'

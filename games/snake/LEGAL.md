@@ -1,68 +1,69 @@
-# Юридические экраны — исходный текст
+# Legal screens: source text
 
-Черновик написан агентом по просьбе геймдизайнера («сам придумай стандартный текст»).
-**Читает и утверждает геймдизайнер** — это его имя стоит под текстом, не агента.
-Отсюда строки уезжают в `i18n/dictionaries.ts` и переводятся на пять языков.
-
----
-
-## Экран 1. Предупреждение о светочувствительности
-
-Показывается **при каждом открытии сайта**, до меню. Закрывается одной кнопкой.
-
-> ### Внимание: мигающие огни
->
-> Игра использует яркие неоновые цвета, вспышки и быстро меняющиеся изображения.
-> У небольшой доли людей такие изображения могут вызвать приступ — даже если
-> приступов никогда раньше не было.
->
-> Если во время игры вы почувствуете головокружение, изменение зрения,
-> подёргивание мышц, дезориентацию или потеряете сознание — **немедленно
-> прекратите играть** и обратитесь к врачу.
->
-> Играйте в освещённой комнате, не играйте уставшим и делайте перерывы.
->
-> `[ Понятно ]`
+A draft written by the agent at the game designer's request ("come up with a standard text yourself").
+**The game designer reads and approves it**: it is his name under the text, not the agent's.
+From here the strings go into `i18n/dictionaries.ts` and get translated into five languages.
 
 ---
 
-## Экран 2. Условия использования
+## Screen 1. Photosensitivity warning
 
-Показывается **только при самом первом открытии**, после экрана 1. Выбор запоминается.
+Shown **every time the site is opened**, before the menu. Dismissed with one button.
 
-> ### Условия использования
+> ### Warning: flashing lights
 >
-> - Игра бесплатна и предоставляется «как есть», без каких-либо гарантий.
->   Автор не отвечает за ущерб, связанный с её использованием.
-> - Игра **не отправляет ничего личного**: ни имени, ни ваших трёх букв,
->   ни счёта, ни идентификатора игрока. Наружу уходят только посещение и
->   несколько безымянных отметок о ходе игры (например, партия началась,
->   партия закончилась, вы вернулись в другой день) через счётчик GoatCounter —
->   чтобы автор понимал, интересна ли игра. Как любой сайт в интернете, счётчик
->   и хостинг сайта (GitHub Pages, itch.io) видят технические данные запроса.
-> - Рекорды, ваши три буквы, настройки, монеты с покупками и отметка о прошлом
->   визите хранятся только в вашем браузере и исчезают вместе с данными сайта.
-> - Музыка: *Cyber Runner*, автор Luis Zuno (ansimuz), лицензия CC0 1.0.
-> - Продолжая, вы подтверждаете, что прочли предупреждение о мигающих огнях.
+> The game uses bright neon colors, flashes and rapidly changing images.
+> For a small share of people, such images can trigger a seizure, even if they
+> have never had one before.
 >
-> `[ Принимаю ]`
+> If while playing you feel dizzy, notice changes in your vision, muscle
+> twitching or disorientation, or lose consciousness, **stop playing
+> immediately** and see a doctor.
+>
+> Play in a well-lit room, do not play when tired, and take breaks.
+>
+> `[ Got it ]`
 
 ---
 
-## Что обязательно проверить перед выкладкой
+## Screen 2. Terms of use
 
-1. **Аналитика и второй пункт — сделано.** Аналитика (GoatCounter, пять
-   счётчиков: начал, дошёл до твиста, доиграл, вторая партия, вернулся) подключена,
-   и второй пункт условий переписан под неё: он больше не говорит «ничего не
-   отправляет», а называет род событий («например, …») и что не уходит. Полный
-   перечень пяти событий — в `analytics/events.ts`; текст намеренно не перечисляет
-   их все, но и не обещает лишнего. Если событий станет больше
-   или в них появится хоть что-то о конкретном игроке (счёт, буквы, идентификатор) —
-   текст пересматривать снова. Проверить руками после выкладки: события из iframe
-   на itch.io доходят до панели (если нет — смотреть, какие домены разрешены
-   в настройках GoatCounter).
-2. **Возраст и юрисдикция.** Здесь их нет намеренно: игра бесплатна, личных данных
-   не собирает, покупок нет. Если что-то из этого изменится — текст пересматривать.
-3. **Перевод юридического текста** делает агент. Формулировки намеренно короткие
-   и простые, чтобы перевод не исказил смысл, но ответственность за итог —
-   на геймдизайнере.
+Shown **only on the very first open**, after screen 1. The choice is remembered.
+
+> ### Terms of use
+>
+> - The game is free and provided “as is”, without warranties of any kind.
+>   The author is not liable for any damage arising from its use.
+> - The game **sends nothing personal**: no name, no three letters,
+>   no score, no player ID. Only a visit and a few nameless markers of how the
+>   game went (for example, a round started, a round ended, you came back on
+>   another day) leave it, through the GoatCounter counter, so the author can
+>   tell whether the game is interesting. Like any website, the counter and the
+>   site’s host (GitHub Pages, itch.io) can see technical request data.
+> - High scores, your three letters, settings, coins with purchases, and a note
+>   of your last visit are stored only in your browser and disappear along with
+>   the site’s data.
+> - Music: *Cyber Runner* by Luis Zuno (ansimuz), CC0 1.0 license.
+> - By continuing, you confirm that you have read the warning about flashing lights.
+>
+> `[ I accept ]`
+
+---
+
+## What must be checked before release
+
+1. **Analytics and the second bullet: done.** Analytics (GoatCounter, five
+   counters: started, reached the twist, finished, second game, returned) is connected,
+   and the second bullet of the terms has been rewritten for it: it no longer says "sends
+   nothing", it names the kind of events ("for example, …") and what does not leave.
+   The full list of the five events is in `analytics/events.ts`; the text deliberately
+   does not list them all, but does not promise too much either. If there become more events
+   or anything about a specific player shows up in them (score, letters, an ID),
+   revisit the text again. Check by hand after release: events from the iframe
+   on itch.io reach the dashboard (if not, look at which domains are allowed
+   in the GoatCounter settings).
+2. **Age and jurisdiction.** They are absent here on purpose: the game is free, does not
+   collect personal data, has no purchases. If any of that changes, revisit the text.
+3. **Translation of the legal text** is done by the agent. The wording is deliberately short
+   and simple so that translation does not distort the meaning, but responsibility for the result
+   is on the game designer.

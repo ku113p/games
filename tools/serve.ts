@@ -1,5 +1,5 @@
-// Проверочный сервер: bun tools/serve.ts [порт] [префикс]  (по умолчанию 4173 и /games/)
-// Раздаёт dist/ по вложенному пути, имитируя GitHub Pages: /<префикс>/<игра>/ . Вне префикса — 404.
+// Verification server: bun tools/serve.ts [port] [prefix]  (defaults: 4173 and /games/)
+// Serves dist/ under a nested path, imitating GitHub Pages: /<prefix>/<game>/ . Outside the prefix - 404.
 import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 

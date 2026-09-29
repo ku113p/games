@@ -1,31 +1,31 @@
 import { describe, expect, test } from 'bun:test'
 import { attachKeyboard, keyAction } from './keyboard'
 
-describe('keyAction (по e.code, не зависит от раскладки)', () => {
-  test('WASD по физическим кодам', () => {
+describe('keyAction (by e.code, layout-independent)', () => {
+  test('WASD by physical codes', () => {
     expect(keyAction('KeyW')).toEqual({ plane: 'up', axis: null })
     expect(keyAction('KeyA')).toEqual({ plane: 'left', axis: null })
     expect(keyAction('KeyS')).toEqual({ plane: 'down', axis: null })
     expect(keyAction('KeyD')).toEqual({ plane: 'right', axis: null })
   })
 
-  test('стрелки', () => {
+  test('arrows', () => {
     expect(keyAction('ArrowUp')?.plane).toBe('up')
     expect(keyAction('ArrowLeft')?.plane).toBe('left')
   })
 
-  test('Q/E — третья ось', () => {
+  test('Q/E: third axis', () => {
     expect(keyAction('KeyQ')).toEqual({ plane: null, axis: 'into' })
     expect(keyAction('KeyE')).toEqual({ plane: null, axis: 'out' })
   })
 
-  test('символы русской раскладки — не коды, игнорируются', () => {
+  test('Russian-layout characters are not codes, ignored', () => {
     expect(keyAction('ц')).toBeNull()
     expect(keyAction('Space')).toBeNull()
   })
 })
 
-describe('attachKeyboard: ускорение Shift/Space', () => {
+describe('attachKeyboard: boost Shift/Space', () => {
   type L = (e: unknown) => void
   function setup(extra: object = {}) {
     const win = new Map<string, L>()
@@ -55,7 +55,7 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     }
   }
 
-  test('зажал Shift — вкл, автоповтор не дублирует, отпустил — выкл', () => {
+  test('hold Shift: on, auto-repeat does not duplicate, release: off', () => {
     const t = setup()
     t.win.get('keydown')?.(t.key('ShiftLeft'))
     t.win.get('keydown')?.(t.key('ShiftLeft', { repeat: true }))
@@ -64,7 +64,7 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     t.restore()
   })
 
-  test('потеря фокуса окна выключает ускорение', () => {
+  test('window blur turns boost off', () => {
     const t = setup()
     t.win.get('keydown')?.(t.key('Space'))
     t.win.get('blur')?.({})
@@ -72,7 +72,7 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     t.restore()
   })
 
-  test('скрытая вкладка выключает ускорение, видимая — нет', () => {
+  test('hidden tab turns boost off, a visible one does not', () => {
     const t = setup()
     t.win.get('keydown')?.(t.key('ShiftRight'))
     t.doc.get('visibilitychange')?.({})
@@ -83,7 +83,7 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     t.restore()
   })
 
-  test('detach выключает ускорение и снимает слушатели', () => {
+  test('detach turns boost off and removes listeners', () => {
     const t = setup()
     t.win.get('keydown')?.(t.key('ShiftLeft'))
     t.detach()
@@ -92,7 +92,7 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     t.restore()
   })
 
-  test('Ctrl+Shift не включает ускорение (шорткат браузера)', () => {
+  test('Ctrl+Shift does not turn boost on (browser shortcut)', () => {
     const t = setup()
     t.win.get('keydown')?.(t.key('ShiftLeft', { ctrlKey: true }))
     expect(t.log).toEqual([])
@@ -100,8 +100,8 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
   })
 })
 
-describe('attachKeyboard: R — сброс камеры', () => {
-  test('R вызывает onCameraReset один раз, автоповтор и модификаторы не считаются', () => {
+describe('attachKeyboard: R - camera reset', () => {
+  test('R calls onCameraReset once, auto-repeat and modifiers do not count', () => {
     let resets = 0
     let prevented = 0
     type L = (e: unknown) => void
@@ -115,15 +115,15 @@ describe('attachKeyboard: R — сброс камеры', () => {
     const key = (extra: object = {}) => ({ code: 'KeyR', repeat: false, preventDefault: () => prevented++, ...extra })
     win.get('keydown')?.(key())
     win.get('keydown')?.(key({ repeat: true }))
-    win.get('keydown')?.(key({ ctrlKey: true })) // Ctrl+R — перезагрузка страницы, не наше
+    win.get('keydown')?.(key({ ctrlKey: true })) // Ctrl+R reloads the page, not ours
     expect(resets).toBe(1)
-    expect(prevented).toBe(2) // R (и повтор R) глушим, Ctrl+R не трогаем
+    expect(prevented).toBe(2) // we swallow R (and its repeat), leave Ctrl+R alone
     detach()
     g['window'] = prevW
     g['document'] = prevD
   })
 
-  test('без обработчика onCameraReset R ничего не ломает', () => {
+  test('without an onCameraReset handler R breaks nothing', () => {
     type L = (e: unknown) => void
     const win = new Map<string, L>()
     const g = globalThis as unknown as Record<string, unknown>

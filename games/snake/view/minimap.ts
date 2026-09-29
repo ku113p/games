@@ -1,41 +1,41 @@
-// Мини-карта в углу: второй проход рендера ортографической камерой в scissor-область
-// канваса (не DOM). Приглушённая подсказка боковым зрением.
+// Minimap in the corner: a second render pass with an orthographic camera into a scissor region
+// of the canvas (not DOM). A muted hint for peripheral vision.
 //
-// Только в фазе free, в plane скрыта: там игра «обычная змейка».
+// Only in free mode; hidden in plane mode, where the game is an "ordinary snake".
 //
-// Две части рядом (решение дизайнера):
-//  1. КАРТА «сверху» (подпись XZ): квадрат windowCells x windowCells клеток (config.minimap),
-//     X по горизонтали, Z по вертикали, срез на высоте головы (Y). ЖЁСТКО привязана к осям мира:
-//     при поворотах змейки не переориентируется. Окно скроллится вслед за головой и упирается
-//     в границы арены (см. map-window.ts): у стены окно стоит и метка ходит внутри, в середине
-//     большой арены метка в центре, а «мир» проезжает под ней. Арена не больше окна — окно равно арене.
-//  2. УРОВНЕМЕР (подпись Y): узкая вертикальная полоса, одна линия. Верх полосы — верх мира,
-//     низ — низ, независимо от камеры. Показывает не всю высоту арены, а ОКНО ±levelWindowCells/2 клеток
-//     вокруг головы (config.minimap, та же арифметика, что у карты: map-window.ts): один шаг всегда
-//     двигает картинку на целую клетку полосы при любом размере арены (на 100³ вся высота дала бы
-//     ~1.5 px за шаг). Метка головы (жёлтая черта) в центре окна, мимо неё едут деления (привязаны к
-//     миру: мелкие каждую клетку, крупные каждые TICK_MAJOR_EVERY); у стены окно упирается и метка ходит
-//     внутри. Пол и потолок арены — яркие линии, но только когда попали в окно. Яблоко — розовый ромб
-//     в окне, а вне окна — стрелка вверх/вниз у края. По правому краю полосы тонкий жёлоб во всю
-//     высоту арены с двумя точками (я и яблоко): страховка «где я во всей арене». Препятствия и тело
-//     на полосу не выносятся.
+// Two parts side by side (designer's decision):
+//  1. TOP MAP (label XZ): a windowCells x windowCells square of cells (config.minimap),
+//     X horizontal, Z vertical, a slice at head height (Y). RIGIDLY tied to the world axes:
+//     it does not reorient when the snake turns. The window scrolls after the head and stops at
+//     the arena bounds (see map-window.ts): at a wall the window stands still and the marker moves inside it; in the middle of a
+//     large arena the marker stays centered and the "world" slides under it. If the arena is no larger than the window, the window equals the arena.
+//  2. LEVEL GAUGE (label Y): a narrow vertical strip, one line. Top of the strip is the top of the world,
+//     bottom is the bottom, regardless of the camera. It shows not the whole arena height but a WINDOW of ±levelWindowCells/2 cells
+//     around the head (config.minimap, same arithmetic as the map: map-window.ts): one step always
+//     moves the picture by a whole strip cell at any arena size (on 100³ the full height would give
+//     ~1.5 px per step). The head marker (yellow dash) is at the window center, ticks slide past it (tied to
+//     the world: minor ones every cell, major ones every TICK_MAJOR_EVERY); at a wall the window stops and the marker moves
+//     inside it. Arena floor and ceiling are bright lines, but only when they fall in the window. The apple is a pink diamond
+//     in the window, and outside the window an up/down arrow at the edge. Along the right edge of the strip a thin trough spans the full
+//     arena height with two dots (me and the apple): insurance for "where am I in the whole arena". Obstacles and body
+//     are not shown on the strip.
 //
-// Рамка карты — край ОКНА, а не стена. Настоящая стена арены рисуется яркой сплошной
-// линией по той стороне окна, где оно упёрлось в границу; тихая тонкая рамка — просто
-// край обзора, мир за ним продолжается. У полосы пол и потолок — настоящие стены, яркие всегда.
+// The map frame is the edge of the WINDOW, not a wall. The real arena wall is drawn as a bright solid
+// line on the side of the window where it hit the boundary; the quiet thin frame is just the
+// edge of view, the world continues beyond it. On the strip, floor and ceiling are real walls, always bright.
 //
-// Что рисуется на карте: препятствия — тихие квадратики СТРОГО своего среза (только клетки на
-// уровне головы), тело змейки — тем же правилом зелёно-голубым градиентом как в игре,
-// голова — самая заметная метка: остриё по ходу в осях карты, а если змейка идёт
-// перпендикулярно карте (вдоль оси Y) — вложенные шевроны «из экрана» (вверх: расходятся от центра,
-// карта — вид сверху, вверх = к глазу) или «в экран» (вниз: сходятся к центру) с пульсом на каждом такте.
-// Яблоко видно всегда:
-//  - ромб — яблоко прямо здесь, на уровне головы (в срезе);
-//  - пустой ромб-контур с ножкой вверх/вниз — яблоко в окне, но на другом уровне (проекция);
-//    длина ножки пропорциональна разнице высот и упирается в максимум/край окна;
-//  - треугольник-стрелка у края окна — яблоко вне окна, стрелка указывает, куда идти.
-// Наборы клеток пересобираются раз в шаг (смена головы/длины/размера), а не каждый кадр;
-// метки полосы двигаются позицией. Состояние читается через core/queries. В кадре объектов не создаётся.
+// What the map draws: obstacles are quiet squares STRICTLY of their own slice (only cells at
+// head level), the snake body follows the same rule with the green-cyan gradient as in the game,
+// the head is the most prominent marker: a point along the heading in map axes, and if the snake moves
+// perpendicular to the map (along the Y axis) - nested chevrons "out of the screen" (up: they diverge from the center;
+// the map is a top view, up = toward the eye) or "into the screen" (down: they converge to the center) with a pulse on every step.
+// The apple is always visible:
+//  - diamond: the apple is right here, at head level (in the slice);
+//  - empty diamond outline with a stem up/down: the apple is in the window but on another level (projection);
+//    the stem length is proportional to the height difference and is capped at the maximum / window edge;
+//  - triangle arrow at the window edge: the apple is outside the window, the arrow points where to go.
+// Cell sets are rebuilt once per step (head/length/size change), not every frame;
+// strip markers move by position. State is read through core/queries. No objects are created per frame.
 
 import {
   BufferGeometry,
@@ -82,61 +82,61 @@ import {
   SNAKE_TAIL_COLOR,
 } from './palette'
 
-// Оформительские константы, не числа баланса. Экранные размеры — в CSS-пикселях.
-// Карта + уровнемер вместе: доля ширины экрана, границы и потолок по высоте (верх экрана, портрет:
-// нижняя половина занята управлением).
+// Presentation constants, not balance values. Screen sizes are in CSS pixels.
+// Map + level gauge together: share of screen width, bounds and a height ceiling (top of the screen, portrait:
+// the lower half is taken by controls).
 const WIDTH_FRACTION = 0.52
 const WIDTH_MIN_PX = 170
 const WIDTH_MAX_PX = 380
 const HEIGHT_MAX_FRACTION = 0.26
-// Верхний левый угол: низ экрана занят тап-зонами, верх по центру — счёт, справа — пауза.
-// Отступ сверху с запасом под вырез/статус-бар (канвас не знает safe-area).
+// Top-left corner: the bottom of the screen is taken by tap zones, top center by the score, right by pause.
+// Generous top offset for the notch/status bar (the canvas does not know the safe area).
 const MARGIN_LEFT_PX = 12
 const MARGIN_TOP_PX = 48
-// Геометрия в клетках карты. Размер клетки на экране выходит из ширины панели.
-const GAP = 1.8 // промежуток между картой и полосой
-const STRIP_W = 3.2 // ширина полосы-уровнемера
-const LEVEL_MARK_H = 0.9 // толщина черты головы на полосе (не зависит от высоты арены)
-const TROUGH_ZONE = 0.9 // ширина правой зоны полосы под жёлоб
-const TROUGH_W = 0.35 // толщина жёлоба (~2.5 px при типичной панели)
-const TROUGH_DOT = 0.9 // диаметр точек «я» и «яблоко» в жёлобе
-const TICK_H = 0.16 // толщина деления окна полосы
-const TICK_MINOR_W = 0.8 // длина мелкого деления (от левого края полосы)
-const TICK_MAJOR_W = 1.6 // длина крупного деления
-const TICK_MAJOR_EVERY = 5 // крупное деление каждые столько клеток мира
-const LEVEL_ARROW = 1.6 // размер стрелки яблока вне окна полосы
-const LEVEL_ARROW_INSET = 1.0 // отступ этой стрелки от края полосы
-const LEVEL_APPLE_R = 1.35 // «радиус» ромба яблока на полосе
-const WALL_THICK = 0.7 // толщина линии настоящей стены (вне окна, в рамке)
-const EDGE_PAD = 0.4 // запас за стеной до края камеры
-const MARKER = 1.8 // размер метки головы
-const APPLE_R = 1.35 // «радиус» ромба яблока
-const RING_INNER = 0.55 // внутренний радиус контура ромба (доля внешнего)
-const ARROW = 2.2 // размер стрелки яблока вне окна
-// Шевроны головы при ходе вдоль Y: четыре стороны x два вложенных слоя.
-const CHEV_ARM = 0.5 // вынос «плеча» галочки
-const CHEV_THICK = 0.3 // толщина штриха
-const CHEV_R0 = 0.55 // радиус внутреннего слоя
-const CHEV_GAP = 0.8 // шаг между слоями
-const CHEV_SCALE = 1.4 // общий масштаб шевронов (метка головы должна быть не мельче остриё-треугольника)
-const PULSE_MS = 200 // пульс шеврона на каждом такте
-const PULSE_GAIN = 0.5 // прибавка масштаба в начале пульса
-// Ножка яблока (яблоко в окне, но на другом уровне): единицы карты.
-const LEG_PER_CELL = 0.5 // длина ножки на клетку разницы высот
-const LEG_MAX = 5 // упор: дальше не растёт
+// Geometry in map cells. On-screen cell size derives from the panel width.
+const GAP = 1.8 // gap between the map and the strip
+const STRIP_W = 3.2 // width of the level-gauge strip
+const LEVEL_MARK_H = 0.9 // thickness of the head dash on the strip (independent of arena height)
+const TROUGH_ZONE = 0.9 // width of the strip's right zone reserved for the trough
+const TROUGH_W = 0.35 // trough thickness (~2.5 px with a typical panel)
+const TROUGH_DOT = 0.9 // diameter of the "me" and "apple" dots in the trough
+const TICK_H = 0.16 // thickness of a strip window tick
+const TICK_MINOR_W = 0.8 // length of a minor tick (from the strip's left edge)
+const TICK_MAJOR_W = 1.6 // length of a major tick
+const TICK_MAJOR_EVERY = 5 // major tick every this many world cells
+const LEVEL_ARROW = 1.6 // size of the apple arrow when the apple is outside the strip window
+const LEVEL_ARROW_INSET = 1.0 // inset of that arrow from the strip edge
+const LEVEL_APPLE_R = 1.35 // apple diamond "radius" on the strip
+const WALL_THICK = 0.7 // thickness of the real wall line (outside the window, in the frame)
+const EDGE_PAD = 0.4 // margin behind the wall up to the camera edge
+const MARKER = 1.8 // head marker size
+const APPLE_R = 1.35 // apple diamond "radius"
+const RING_INNER = 0.55 // inner radius of the diamond outline (fraction of the outer)
+const ARROW = 2.2 // size of the apple arrow outside the window
+// Head chevrons when moving along Y: four sides x two nested layers.
+const CHEV_ARM = 0.5 // reach of the chevron "arm"
+const CHEV_THICK = 0.3 // stroke thickness
+const CHEV_R0 = 0.55 // radius of the inner layer
+const CHEV_GAP = 0.8 // step between layers
+const CHEV_SCALE = 1.4 // overall chevron scale (the head marker must be no smaller than the point-triangle)
+const PULSE_MS = 200 // chevron pulse on every step
+const PULSE_GAIN = 0.5 // scale gain at the start of the pulse
+// Apple stem (apple in the window but on another level): map units.
+const LEG_PER_CELL = 0.5 // stem length per cell of height difference
+const LEG_MAX = 5 // cap: it does not grow beyond this
 const LEG_THICK = 0.3
-const LEG_CAP_W = 1.0 // поперечина на конце ножки
-const LEG_EDGE_PAD = 0.2 // запас до края окна
-const OBSTACLE_CELL = 0.9 // размер квадратика препятствия/тела в клетках
-const LABEL_H = 1.8 // высота буквы подписи оси
+const LEG_CAP_W = 1.0 // crossbar at the end of the stem
+const LEG_EDGE_PAD = 0.2 // margin to the window edge
+const OBSTACLE_CELL = 0.9 // size of an obstacle/body square in cells
+const LABEL_H = 1.8 // height of the axis label letter
 const LABEL_W = 1.2
 const LABEL_GAP = 0.5
-// Ниже этого веса фазы free карта не рисуется вовсе.
+// Below this free-mode weight the map is not drawn at all.
 const MIN_AMOUNT = 0.02
-// Полосы для стен: 4 стороны карты + пол и потолок полосы.
+// Strips for walls: 4 sides of the map + strip floor and ceiling.
 const WALL_BARS = 6
 
-/** Шевроны головы: 4 стороны x 2 вложенных слоя; outward — вершины смотрят от центра (из экрана), иначе к центру (в экран). Холодный путь. */
+/** Head chevrons: 4 sides x 2 nested layers; outward - vertices point away from the center (out of the screen), otherwise toward the center (into the screen). Cold path. */
 function chevronGeometry(outward: boolean): BufferGeometry {
   const pos: number[] = []
   const idx: number[] = []
@@ -158,7 +158,7 @@ function chevronGeometry(outward: boolean): BufferGeometry {
     const vy = ux
     for (let layer = 0; layer < 2; layer++) {
       const r = CHEV_R0 + layer * CHEV_GAP
-      // Вершина ближе к центру (в экран) или дальше (из экрана); плечи на другой глубине.
+      // Vertex nearer the center (into the screen) or farther (out of the screen); the arms are at a different depth.
       const tipR = outward ? r + CHEV_ARM : r
       const armR = outward ? r : r + CHEV_ARM
       const tx = ux * tipR
@@ -211,7 +211,7 @@ export class MiniMap {
   private tmpMatrix = new Matrix4()
   private tmpColor = new Color()
 
-  // Метки карты «сверху».
+  // Top-map markers.
   private headTri: Mesh
   private headDot: Mesh
   private appleHere: Mesh
@@ -223,21 +223,21 @@ export class MiniMap {
   private headChevOut: Mesh
   private pulseT0 = -1e9
 
-  // Раскладка (холодный путь, setSize).
+  // Layout (cold path, setSize).
   private windowCells: number
   private levelWindowCells: number
-  private levelLen = 1 // высота окна полосы в клетках мира
-  private cellH = 1 // высота клетки на полосе, единиц карты
+  private levelLen = 1 // strip window height in world cells
+  private cellH = 1 // cell height on the strip, in map units
   private size = -1
-  private len = 1 // сторона окна в клетках
-  private stripX0 = 0 // левый край полосы по X
-  private mainX = 0 // центр основной части полосы (метки окна)
-  private troughX = 0 // центр жёлоба
-  // Окно текущего шага (начала по осям мира).
+  private len = 1 // window side in cells
+  private stripX0 = 0 // left edge of the strip along X
+  private mainX = 0 // center of the strip's main part (window markers)
+  private troughX = 0 // center of the trough
+  // Window of the current step (origins along the world axes).
   private sx = 0
   private sz = 0
   private hy = 0
-  private sy = 0 // начало окна полосы по Y
+  private sy = 0 // origin of the strip window along Y
 
   private screenW = 1
   private screenH = 1
@@ -247,7 +247,7 @@ export class MiniMap {
   constructor(windowCells: number, levelWindowCells: number) {
     this.windowCells = Math.max(1, Math.floor(windowCells))
     this.levelWindowCells = Math.max(2, Math.floor(levelWindowCells))
-    const cap = this.windowCells * this.windowCells // срез карты не больше окна
+    const cap = this.windowCells * this.windowCells // map slice is no larger than the window
     const quad = new PlaneGeometry(1, 1)
     const tri = new BufferGeometry()
     tri.setAttribute('position', new Float32BufferAttribute([0, 0.6, 0, -0.45, -0.4, 0, 0.45, -0.4, 0], 3))
@@ -268,7 +268,7 @@ export class MiniMap {
 
     this.walls = this.instanced(quad, MINIMAP_WALL_COLOR, MINIMAP_WALL_ALPHA, WALL_BARS, 5)
     this.obstacles = this.instanced(quad, MINIMAP_OBSTACLE_COLOR, MINIMAP_OBSTACLE_ALPHA, cap, 1)
-    // Цвет инстансов препятствий — белый (цвет даёт материал); заполняем заранее, один раз.
+    // Obstacle instance color is white (the material supplies the color); filled up front, once.
     for (let i = 0; i < cap; i++) this.obstacles.setColorAt(i, this.tmpColor.setRGB(1, 1, 1))
     this.body = this.instanced(quad, new Color(1, 1, 1), MINIMAP_BODY_ALPHA, cap, 2)
     this.body.setColorAt(0, this.tmpColor.setRGB(1, 1, 1))
@@ -282,11 +282,11 @@ export class MiniMap {
     this.headChevOut = this.mesh(chevOut, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 6)
     this.appleLeg = this.mesh(quad, APPLE_COLOR, MINIMAP_APPLE_RING_ALPHA, 3)
     this.appleLegCap = this.mesh(quad, APPLE_COLOR, MINIMAP_APPLE_RING_ALPHA, 3)
-    // Метки уровнемера: черта головы и ромб яблока (яблоко выше по порядку, чтобы не пропало под чертой).
+    // Level-gauge markers: head dash and apple diamond (apple is later in order so it does not vanish under the dash).
     this.levelHead = this.mesh(quad, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 5)
     this.levelApple = this.mesh(diamond, APPLE_COLOR, MINIMAP_APPLE_ALPHA, 6)
     this.levelArrow = this.mesh(tri, APPLE_COLOR, MINIMAP_APPLE_RING_ALPHA, 6)
-    // Жёлоб во всю высоту арены и точки в нём; деления окна.
+    // Full-arena-height trough and the dots in it; window ticks.
     this.troughLine = this.mesh(quad, MINIMAP_BORDER_COLOR, MINIMAP_TROUGH_ALPHA, 2)
     this.troughHead = this.mesh(dot, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 5)
     this.troughApple = this.mesh(dot, APPLE_COLOR, MINIMAP_APPLE_ALPHA, 6)
@@ -335,12 +335,12 @@ export class MiniMap {
     return l
   }
 
-  /** Холодный путь: партия началась (набор препятствий мог смениться). */
+  /** Cold path: the game started (the obstacle set may have changed). */
   invalidate(): void {
     this.obstaclesDirty = true
   }
 
-  // Клетка среза -> позиция в клетках камеры карты: (x, z) при y == hy. Колбэки созданы один раз.
+  // Slice cell -> position in map-camera cells: (x, z) at y == hy. Callbacks are created once.
   private putCell(im: InstancedMesh, i: number, px: number, py: number): void {
     this.tmpMatrix.makeScale(OBSTACLE_CELL, OBSTACLE_CELL, 1).setPosition(px, py, 0)
     im.setMatrixAt(i, this.tmpMatrix)
@@ -357,7 +357,7 @@ export class MiniMap {
     }
   }
 
-  // Сегмент тела (кроме головы): то же правило среза, что у препятствий.
+  // Body segment (except the head): same slice rule as for obstacles.
   private readonly writeBody = (x: number, y: number, z: number, i: number): void => {
     if (i === 0 || y !== this.hy) return
     const len = this.len
@@ -371,14 +371,14 @@ export class MiniMap {
     }
   }
 
-  /** Полоса настоящей стены: центр и размеры в клетках камеры. */
+  /** Real-wall strip: center and size in camera cells. */
   private putWall(i: number, cx: number, cy: number, w: number, h: number): number {
     this.tmpMatrix.makeScale(w, h, 1).setPosition(cx, cy, 0)
     this.walls.setMatrixAt(i, this.tmpMatrix)
     return i + 1
   }
 
-  /** Стены карты: полоса только там, где окно упёрлось в границу арены. */
+  /** Map walls: a strip only where the window hit the arena boundary. */
   private putMapWalls(n: number, sH: number, sV: number): number {
     const len = this.len
     const t = WALL_THICK
@@ -389,7 +389,7 @@ export class MiniMap {
     return n
   }
 
-  /** Пересборка слоёв под окно вокруг головы; раз в шаг, не каждый кадр. */
+  /** Rebuild layers for the window around the head; once per step, not every frame. */
   private refresh(s: GameState, hx: number, hy: number, hz: number): void {
     const size = cubeSize(s)
     this.len = windowLength(size, this.windowCells)
@@ -413,7 +413,7 @@ export class MiniMap {
     if (this.body.instanceColor) this.body.instanceColor.needsUpdate = true
 
     let n = this.putMapWalls(0, this.sx, this.sz)
-    // Пол и потолок уровнемера: настоящие стены, только когда попали в окно полосы.
+    // Level-gauge floor and ceiling: real walls, only when they fall in the strip window.
     const t = WALL_THICK
     const cx = this.stripX0 + STRIP_W / 2
     if (touchesLowWall(this.sy)) n = this.putWall(n, cx, -t / 2, STRIP_W + 2 * t, t)
@@ -423,7 +423,7 @@ export class MiniMap {
     this.putTicks(size)
   }
 
-  /** Деления окна полосы: границы клеток мира внутри окна (стены и края окна рисуют рамка/стены). */
+  /** Window ticks of the strip: world cell boundaries inside the window (walls and window edges are drawn by the frame/walls). */
   private putTicks(size: number): void {
     let nm = 0
     let nM = 0
@@ -445,7 +445,7 @@ export class MiniMap {
     this.tickMajor.instanceMatrix.needsUpdate = true
   }
 
-  /** Метки яблока на карте: здесь / в окне другим уровнем / вне окна. */
+  /** Apple markers on the map: here / in the window on another level / outside the window. */
   private placeApple(va: number, vb: number, sa: number, sb: number, inSlice: boolean, dy: number): void {
     const len = this.len
     const here = this.appleHere
@@ -457,7 +457,7 @@ export class MiniMap {
     here.visible = inside && inSlice
     ring.visible = inside && !inSlice
     arrow.visible = !inside
-    // Ножка: только у контура (яблоко в окне, но на другом уровне). Вверх — яблоко выше.
+    // Stem: only on the outline (apple in the window but on another level). Up - the apple is higher.
     const leg = this.appleLeg
     const cap = this.appleLegCap
     let legLen = 0
@@ -481,15 +481,15 @@ export class MiniMap {
       target.position.set(px, py, 0)
     } else {
       arrow.position.set(px, py, 0)
-      // Стрелка смотрит от центра окна к яблоку (направление «куда идти»).
+      // The arrow points from the window center to the apple (the "where to go" direction).
       const c = (len - 1) / 2
       arrow.rotation.z = Math.atan2(-(va - sa - c), vb - sb - c)
     }
   }
 
   /**
-   * Метка головы: остриё по ходу в осях карты; идём вдоль нормали среза (ось Y) — вложенные шевроны:
-   * вверх (к глазу над картой) расходятся от центра «из экрана», вниз сходятся «в экран». Пульс — на такте.
+   * Head marker: a point along the heading in map axes; when moving along the slice normal (Y axis) - nested chevrons:
+   * up (toward the eye above the map) they diverge from the center "out of the screen", down they converge "into the screen". The pulse is on a step.
    */
   private placeHead(px: number, py: number, hmx: number, hmy: number, vy: number): void {
     const tri = this.headTri
@@ -512,7 +512,7 @@ export class MiniMap {
     cout.scale.set(sc, sc, 1)
   }
 
-  /** Холодный путь: размер куба сменился — раскладка карт в клетках. */
+  /** Cold path: the cube size changed - layout of the maps in cells. */
   setSize(size: number): void {
     if (size === this.size) return
     this.size = size
@@ -531,8 +531,8 @@ export class MiniMap {
 
     const cx = this.stripX0 + STRIP_W / 2
     const mainW = STRIP_W - TROUGH_ZONE
-    const mx = this.stripX0 + mainW / 2 // центр основной части полосы
-    const tx = this.stripX0 + STRIP_W - TROUGH_ZONE / 2 // центр жёлоба
+    const mx = this.stripX0 + mainW / 2 // center of the strip's main part
+    const tx = this.stripX0 + STRIP_W - TROUGH_ZONE / 2 // center of the trough
     this.bgTop.position.set(len / 2, len / 2, 0)
     this.bgTop.scale.set(len + 2 * t, len + 2 * t, 1)
     this.bgStrip.position.set(cx, len / 2, 0)
@@ -541,7 +541,7 @@ export class MiniMap {
     this.borderTop.scale.set(len, len, 1)
     this.borderStrip.position.set(cx, len / 2, 0)
     this.borderStrip.scale.set(STRIP_W, len, 1)
-    // Осевая линия полосы: «1 линия — уровень».
+    // Strip center line: "1 line = level".
     this.stripTrack.position.set(mx, len / 2, 0)
     this.stripTrack.scale.set(LEVEL_MARK_H * 0.25, len, 1)
     this.levelHead.scale.set(mainW, LEVEL_MARK_H, 1)
@@ -564,7 +564,7 @@ export class MiniMap {
     this.layout()
   }
 
-  // Подписи: «XZ» над картой, «Y» над полосой, отрезками. Холодный путь.
+  // Labels: "XZ" above the map, "Y" above the strip, as segments. Cold path.
   private labelSegs: number[] = []
   private buildLabels(y0: number): void {
     this.labelSegs.length = 0
@@ -597,7 +597,7 @@ export class MiniMap {
     }
   }
 
-  /** Нижний край панели карт в CSS px от верха окна (для отладочной панели). */
+  /** Bottom edge of the map panel in CSS px from the top of the window (for the debug panel). */
   get bottomCssPx(): number {
     return MARGIN_TOP_PX + this.panelH
   }
@@ -619,30 +619,30 @@ export class MiniMap {
     this.panelH = (w * contentH) / contentW
   }
 
-  /** Кадр, без аллокаций: рисует карты поверх уже готового кадра на экране. */
+  /** Frame, allocation-free: draws the maps over the already finished frame on screen. */
   render(renderer: WebGLRenderer, s: GameState, freeAmount: number): void {
     if (freeAmount < MIN_AMOUNT || this.size < 0) return
     const size = cubeSize(s)
     const hd = head(s)
     const ap = applePos(s)
-    // viewFrame: стрелка головы на карте должна разворачиваться сразу по вводу,
-    // вместе с камерой и подсказками, а не на следующем такте.
+    // viewFrame: the head arrow on the map must turn immediately on input,
+    // together with the camera and hints, not on the next step.
     const f = viewFrame(s)
 
-    // Слои: пересборка только при смене головы/размера/партии/длины (то есть раз в шаг).
+    // Layers: rebuilt only when head/size/game/length changes (i.e. once per step).
     const key = hd.x + size * (hd.y + size * hd.z)
     if (this.obstaclesDirty || key !== this.obstacleKey || snakeLength(s) !== this.bodyLen) {
       this.obstaclesDirty = false
       this.obstacleKey = key
-      this.pulseT0 = performance.now() // такт: пульс шеврона
+      this.pulseT0 = performance.now() // step: chevron pulse
       this.refresh(s, hd.x, hd.y, hd.z)
     }
 
-    // Метки в осях мира; ход = -depth (лежит в плоскости кадра), проекция на оси карты.
+    // Markers in world axes; heading = -depth (lies in the frame plane), projected onto the map axes.
     const sx = this.sx, sz = this.sz
     this.placeHead(hd.x - sx + 0.5, hd.z - sz + 0.5, -f.depth.x, -f.depth.z, -f.depth.y)
     this.placeApple(ap.x, ap.z, sx, sz, ap.y === hd.y, ap.y - hd.y)
-    // Уровнемер: окно вокруг головы (метка в центре, у стены ходит внутри), один шаг = клетка полосы.
+    // Level gauge: window around the head (marker centered, moves inside at a wall), one step = one strip cell.
     const mx = this.mainX
     const sy = this.sy
     const ll = this.levelLen
@@ -657,11 +657,11 @@ export class MiniMap {
       this.levelArrow.position.set(mx, up ? this.len - LEVEL_ARROW_INSET : LEVEL_ARROW_INSET, 0)
       this.levelArrow.rotation.z = up ? 0 : Math.PI
     }
-    // Жёлоб: вся высота арены, общая картина (1.5 px за шаг на 100³ — это страховка, не индикатор хода).
+    // Trough: the whole arena height, the overall picture (1.5 px per step on 100³ - insurance, not a movement indicator).
     this.troughHead.position.set(this.troughX, levelFraction(hd.y, size) * this.len, 0)
     this.troughApple.position.set(this.troughX, levelFraction(ap.y, size) * this.len, 0)
 
-    // Прозрачность: вес фазы free.
+    // Transparency: free-mode weight.
     for (let i = 0; i < this.layers.length; i++) {
       const l = this.layers[i]!
       l.material.opacity = l.base * freeAmount

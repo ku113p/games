@@ -1,7 +1,7 @@
-// Косметика, надетая в магазине: какой набор цветов и какие виды змейки, яблока, стрелки-компаса.
-// view/ ничего не знает о магазине и деньгах: сюда приходят только строки из payload предметов
-// (config.shop.items[].payload.palette / .skin), а main.ts достаёт их из shop/ (equippedItem) и передаёт в createView.
-// Неизвестное или пустое значение — вид по умолчанию: битое сохранение не должно ломать партию.
+// Cosmetics equipped in the shop: which color set and which skins for the snake, apple and compass arrow.
+// view/ knows nothing about the shop or money: it only receives strings from the items' payload
+// (config.shop.items[].payload.palette / .skin); main.ts pulls them from shop/ (equippedItem) and passes them to createView.
+// An unknown or empty value means the default skin: a corrupted save must not break a game.
 
 export const SNAKE_SKINS = ['classic', 'tailGuides'] as const
 export const APPLE_SKINS = ['diamond', 'orb', 'star'] as const
@@ -11,7 +11,7 @@ export type SnakeSkin = (typeof SNAKE_SKINS)[number]
 export type AppleSkin = (typeof APPLE_SKINS)[number]
 export type CompassSkin = (typeof COMPASS_SKINS)[number]
 
-/** Что пришло снаружи (payload предметов). Всё необязательно. */
+/** What came from outside (the items' payload). Everything is optional. */
 export interface CosmeticsInput {
   palette?: string | undefined
   snakeSkin?: string | undefined
@@ -19,7 +19,7 @@ export interface CosmeticsInput {
   compassSkin?: string | undefined
 }
 
-/** Проверенный выбор партии. palette здесь id набора, существует ли он в config.palettes, проверяет applyPaletteById. */
+/** The validated choice for a game. Here palette is the set id; whether it exists in config.palettes is checked by applyPaletteById. */
 export interface Cosmetics {
   palette: string
   snakeSkin: SnakeSkin
@@ -38,7 +38,7 @@ function pick<T extends string>(list: readonly T[], value: string | undefined, f
   return value !== undefined && (list as readonly string[]).includes(value) ? (value as T) : fallback
 }
 
-/** Холодный путь: проверить выбор и подставить умолчания. */
+/** Cold path: validate the choice and fill in defaults. */
 export function resolveCosmetics(input?: CosmeticsInput): Cosmetics {
   return {
     palette: input?.palette ?? DEFAULT_COSMETICS.palette,

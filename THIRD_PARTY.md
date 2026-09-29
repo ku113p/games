@@ -1,12 +1,12 @@
-# Сторонние компоненты
+# Third-party components
 
-Собственный код репозитория распространяется по лицензии MIT (см. `LICENSE`).
-Ниже — то, что взято у других авторов.
+The repository's own code is distributed under the MIT license (see `LICENSE`).
+Below is what was taken from other authors.
 
 ## three.js 0.186.1 (MIT)
 
-Сайт: https://threejs.org/ — пакет `three@0.186.1`. Уведомление об авторских правах
-и текст лицензии, как в `node_modules/three/LICENSE`:
+Website: https://threejs.org/ - package `three@0.186.1`. Copyright notice
+and license text, as in `node_modules/three/LICENSE`:
 
 ```text
 The MIT License
@@ -32,13 +32,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## Музыка: Cyber Runner (CC0 1.0)
+## Music: Cyber Runner (CC0 1.0)
 
-- Трек: *Cyber Runner Music* (`cyber-runner.mp3`)
-- Автор: Luis Zuno («ansimuz»)
-- Источник: https://opengameart.org/content/cyber-runner-music
-- Лицензия: CC0 1.0 Universal (Public Domain Dedication), https://creativecommons.org/publicdomain/zero/1.0/
-- Указание автора лицензией не требуется (по желанию: «Music: Cyber Runner by Luis Zuno (ansimuz) — CC0»).
-- Изменения: оригинал `cyber_runner.ogg` (48 кГц, стерео, 98 с) перекодирован для игры
-  в моно, 24 кГц, MP3 48 кбит/с (`ffmpeg -ac 1 -ar 24000 -c:a libmp3lame -b:a 48k`);
-  содержание не менялось. Подробности: `games/snake/assets/music/LICENSE.txt`.
+- Track: *Cyber Runner Music* (`cyber-runner.mp3`)
+- Author: Luis Zuno («ansimuz»)
+- Source: https://opengameart.org/content/cyber-runner-music
+- License: CC0 1.0 Universal (Public Domain Dedication), https://creativecommons.org/publicdomain/zero/1.0/
+- Attribution is not required by the license (optional: "Music: Cyber Runner by Luis Zuno (ansimuz) — CC0").
+- Changes: the original `cyber_runner.ogg` (48 kHz, stereo, 98 s) was re-encoded for the game
+  to mono, 24 kHz, MP3 48 kbit/s (`ffmpeg -ac 1 -ar 24000 -c:a libmp3lame -b:a 48k`);
+  the content was not changed. Details: `games/snake/assets/music/LICENSE.txt`.

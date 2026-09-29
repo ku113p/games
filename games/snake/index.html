@@ -32,7 +32,7 @@
         overscroll-behavior: none;
         -webkit-tap-highlight-color: transparent;
         touch-action: none;
-        /* iOS: без выделения текста и системного меню при долгом нажатии */
+        /* iOS: no text selection or system menu on long press */
         -webkit-user-select: none;
         user-select: none;
         -webkit-touch-callout: none;
@@ -214,9 +214,9 @@
         min-width: 120px;
       }
 
-      /* Схема «Тапы»: компактный пульт в нижнем углу (по умолчанию справа, в меню можно слева; в «Свайпах» пульта нет).
-         Кнопка не меньше 44 px (на телефоне ~15vmin), поля — безопасные зоны выреза и домашней полоски.
-         Мини-карта живёт слева сверху, поле по центру — пульт их не закрывает. */
+      /* Scheme "Taps": a compact pad in the bottom corner (right by default, can be moved left in the menu; in "Swipes" there is no pad).
+         A button is at least 44 px (about 15vmin on a phone), the margins are the notch and home-indicator safe areas.
+         The minimap lives top left, the play field is in the center - the pad does not cover them. */
       #pad {
         --btn: clamp(48px, 15vmin, 72px);
         position: absolute;
@@ -252,7 +252,7 @@
         gap: 4px;
       }
 
-      /* Фаза 'free': третьей оси нет, её кнопки не показываются. */
+      /* 'free' mode: no third axis, its buttons are not shown. */
       #pad.no-axis .axis {
         display: none;
       }
@@ -279,7 +279,7 @@
         transform: scale(0.94);
       }
 
-      /* Команда принята, змейка её ещё не выполнила (шаг может длиться больше секунды). */
+      /* Command accepted, the snake has not executed it yet (a step can last more than a second). */
       #pad button.queued {
         border-color: var(--neon);
         color: var(--bg);
@@ -306,8 +306,8 @@
         letter-spacing: 0.02em;
       }
 
-      /* Кнопка ускорения (обе схемы): зажать — змейка идёт быстрее. В «Свайпах» — внизу
-         в углу стороны пульта, в «Тапах» — в центре крестовины (см. ниже). Не меньше 44 px, поля — безопасные зоны. */
+      /* Boost button (both schemes): hold - the snake goes faster. In "Swipes" - at the bottom
+         in the corner on the pad's side, in "Taps" - in the center of the cross (see below). At least 44 px, the margins are the safe areas. */
       #boost {
         --boost: clamp(64px, 20vmin, 96px);
         position: absolute;
@@ -335,8 +335,8 @@
         left: auto;
         right: max(12px, env(safe-area-inset-right));
       }
-      /* Схема «Тапы»: «×2» лежит в пустой центральной ячейке крестовины пульта (main.ts переносит её в .cross).
-         Ячейка = кнопка пульта (≥ 48 px), зазор 4 px до стрелок — как между самими стрелками. */
+      /* Scheme "Taps": "×2" sits in the empty central cell of the pad's cross (main.ts moves it into .cross).
+         The cell = a pad button (≥ 48 px), a 4 px gap to the arrows - same as between the arrows themselves. */
       #pad #boost.in-cross {
         position: static;
         grid-area: 2 / 2;
@@ -362,7 +362,7 @@
       #boost.pressed {
         transform: scale(0.94);
       }
-      /* Ускорение включено (в т.ч. с клавиатуры): кнопка горит. */
+      /* Boost is on (including from the keyboard): the button glows. */
       #boost.boosting {
         border-color: var(--accent);
         color: var(--bg);
@@ -370,14 +370,14 @@
         box-shadow: 0 0 22px var(--accent);
       }
 
-      /* Стик поворота камеры (обе схемы): маленький, внизу у края, противоположного пульту/«×2» (по умолчанию слева).
-         Самовозвращающийся: держишь — камера едет, отпустил — ручка в центре, камера остаётся. Размер ставит main из config.json. */
+      /* Camera turn stick (both schemes): small, at the bottom edge, opposite the pad/"×2" (left by default).
+         Self-centering: hold - the camera moves, release - the knob is centered, the camera stays. The size is set by main from config.json. */
       #stick {
         --stick: 92px;
-        /* Высота ряда, с которым стик на одной горизонтали: «×2» (Свайпы) или крестовина пульта (Тапы, .beside-pad).
-           Стик стоит центром на середине ряда, но не ниже безопасной зоны экрана. */
+        /* Height of the row the stick is level with: "×2" (Swipes) or the pad cross (Taps, .beside-pad).
+           The stick is centered on the middle of the row, but not below the screen safe area. */
         --row: clamp(64px, 20vmin, 96px);
-        display: none; /* стик — только для сенсорных устройств (см. @media ниже); на ПК камеру крутят мышью, сброс — клавиша R */
+        display: none; /* the stick is for touch devices only (see @media below); on PC the camera is turned with the mouse, reset is the R key */
         position: absolute;
         z-index: 4;
         bottom: calc(max(12px, env(safe-area-inset-bottom)) + max(0px, (var(--row) - var(--stick)) / 2));
@@ -394,8 +394,8 @@
         opacity: 0.8;
         transition: opacity 120ms;
       }
-      /* any-pointer, а не pointer: у ноутбука с тач-экраном и у планшета с мышью основной указатель — не сенсор,
-         но пальцем играть можно. Медиазапрос живой: переживает поворот экрана и смену устройств ввода. */
+      /* any-pointer, not pointer: on a laptop with a touch screen and on a tablet with a mouse the primary pointer is not a touch,
+         but you can play with a finger. The media query is live: it survives screen rotation and changes of input devices. */
       @media (any-pointer: coarse) {
         #stick {
           display: block;
@@ -412,7 +412,7 @@
         opacity: 1;
         border-color: var(--neon);
       }
-      /* Быстрый тап = сброс камеры: короткая вспышка кольца. */
+      /* Quick tap = camera reset: a short ring flash. */
       #stick.flash {
         animation: stick-flash 260ms ease-out 1;
       }
@@ -444,8 +444,8 @@
         pointer-events: none;
       }
 
-      /* Ручная пауза: правый верхний угол — подальше от больших пальцев внизу (не нажать случайно),
-         мини-карта слева сверху, счёт по центру. Иконка без подписи. */
+      /* Manual pause: top right corner - away from the big thumbs at the bottom (no accidental press),
+         the minimap is top left, the score in the center. An icon without a label. */
       #pause-btn {
         position: absolute;
         top: max(12px, env(safe-area-inset-top));
@@ -457,7 +457,7 @@
         padding: 0;
         border-radius: 50%;
         display: grid;
-        place-items: center; /* иконка — SVG-штрихи, а не глиф шрифта: у «❚❚» несимметричные поля и межбуквенный зазор сдвигали её */
+        place-items: center; /* the icon is SVG strokes, not a font glyph: "❚❚" has asymmetric side bearings and letter spacing that shifted it */
         background: rgba(5, 6, 10, 0.6);
         border: 1px solid var(--neon);
         color: var(--neon);
@@ -475,9 +475,9 @@
         display: none;
       }
 
-      /* Сброс камеры (наклон и зум). Над кнопкой ускорения (в «Тапах» — над пультом), на той же стороне: низ экрана
-         под большие пальцы, счёт/карты/пауза сверху не тронуты. Выше оверлеев
-         (z-index), чтобы жаться и на паузе. Тускнеет, пока камера в исходном виде. */
+      /* Camera reset (tilt and zoom). Above the boost button (in "Taps" - above the pad), on the same side: the bottom of the screen
+         is for big thumbs, the score/maps/pause at the top are untouched. Above the overlays
+         (z-index), so it can be pressed during pause too. Dims while the camera is at its default view. */
       #cam-reset {
         --boost: clamp(64px, 20vmin, 96px);
         --size: 48px;
@@ -506,7 +506,7 @@
         left: auto;
         right: calc(max(12px, env(safe-area-inset-right)) + (var(--boost) - var(--size)) / 2);
       }
-      /* Схема «Тапы»: сброс над пультом (над колонкой третьей оси, у края экрана), высота пульта = 3 кнопки + 2 зазора. */
+      /* Scheme "Taps": reset above the pad (above the third-axis column, at the screen edge), pad height = 3 buttons + 2 gaps. */
       #cam-reset.above-pad {
         --btn: clamp(48px, 15vmin, 72px);
         bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--btn) * 3 + 8px + 10px);
@@ -528,8 +528,8 @@
         pointer-events: none;
       }
 
-      /* ---- Экран проигрыша: неоновая надпись GAME OVER (HTML+CSS, свечение — слоями text-shadow: bloom на DOM не действует).
-         Палитра из :root: розовый --accent для трубки, --neon для глитч-слоя. Текст не переводится (аркадная формула). ---- */
+      /* ---- Game-over screen: neon GAME OVER caption (HTML+CSS, the glow is layered text-shadow: bloom does not apply to the DOM).
+         Palette from :root: pink --accent for the tube, --neon for the glitch layer. The text is not translated (arcade formula). ---- */
       #game-over {
         justify-content: center;
         gap: 12px;
@@ -558,10 +558,10 @@
       .neon-title .word {
         display: block;
         position: relative;
-        /* letter-spacing добавляет хвост справа: компенсируем, чтобы слово стояло по центру */
+        /* letter-spacing adds a tail on the right: compensate so the word stays centered */
         padding-left: 0.1em;
       }
-      /* Глитч на появлении: циановая копия со смещёнными срезами, ~0.6 с, дальше clip схлопывается в ноль. */
+      /* Glitch on appearance: a cyan copy with shifted slices, ~0.6 s, then clip collapses to zero. */
       .neon-title .word::before {
         content: attr(data-text);
         position: absolute;
@@ -576,7 +576,7 @@
       .neon-title .word:last-child::before {
         animation-delay: 90ms;
       }
-      /* Тонкая неоновая линия под надписью. */
+      /* A thin neon line under the caption. */
       .neon-rule {
         width: min(70%, 320px);
         height: 2px;
@@ -594,7 +594,7 @@
         26% { opacity: 0.35; }
         32%, 100% { opacity: 1; }
       }
-      /* Редкое дрожание трубки: пара коротких провалов яркости раз в несколько секунд. */
+      /* Rare tube flicker: a couple of short brightness dips every few seconds. */
       @keyframes neon-flicker {
         0%, 4%, 7%, 60%, 63%, 65%, 100% { opacity: 1; }
         5% { opacity: 0.55; }
@@ -629,7 +629,7 @@
         letter-spacing: 0.04em;
       }
 
-      /* Таблица лучших (экран проигрыша и меню). */
+      /* Leaderboard (game-over screen and menu). */
       .board-wrap {
         width: 100%;
         max-width: 340px;
@@ -679,7 +679,7 @@
       }
       .board-row.mine .name { color: var(--accent); text-shadow: 0 0 8px var(--accent); }
 
-      /* Барабан ввода имени: три слота, тап по стрелкам (не меньше 44 px), удержание прокручивает. */
+      /* Name-entry drum: three slots, tap the arrows (at least 44 px), holding scrolls. */
       .drum {
         display: flex;
         gap: 12px;
@@ -736,7 +736,7 @@
         gap: 10px;
         width: 100%;
       }
-      /* Языки: китайский без разрядки и капса (иероглифам они не нужны), с CJK-шрифтами из системы. */
+      /* Languages: Chinese without letter-spacing and caps (glyphs do not need them), with CJK fonts from the system. */
       :lang(zh) {
         font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Droid Sans Fallback", sans-serif;
       }
@@ -747,8 +747,8 @@
       :lang(zh) .screen h1 {
         letter-spacing: 0.02em;
       }
-      /* Переключатель языка: строка кнопок из двух букв, тише кнопки игры. Один на главном и на юридических экранах.
-         Каждая кнопка 44x44 (AGENTS.md, раздел 5); выбранный язык подсвечен обычным .selected. */
+      /* Language switcher: a row of two-letter buttons, quieter than the game button. One on the main and on the legal screens.
+         Each button is 44x44 (AGENTS.md, section 5); the selected language is highlighted with the usual .selected. */
       .lang-switch {
         display: flex;
         gap: 6px;
@@ -769,7 +769,7 @@
         opacity: 1;
         box-shadow: 0 0 8px rgba(57, 255, 224, 0.45);
       }
-      /* Иконочная кнопка (шестерёнка, назад): 48x48, значок 24. */
+      /* Icon button (gear, back): 48x48, glyph 24. */
       .icon-btn {
         width: 48px;
         height: 48px;
@@ -783,10 +783,10 @@
         width: 24px;
         height: 24px;
       }
-      /* Главный экран: название, рекорд, кнопка игры, подвал. Кнопка игры крупнее всего остального и в нижней половине;
-         свободное место делится автоотступами между названием и кнопкой. Если экран низкий (альбом) — прокручивается. */
+      /* Main screen: title, high score, game button, footer. The game button is bigger than everything else and in the bottom half;
+         free space is divided by auto margins between the title and the button. If the screen is short (landscape) - it scrolls. */
       #menu {
-        justify-content: flex-start; /* flex-end при переполнении уводит верх за край, до него не докрутить */
+        justify-content: flex-start; /* flex-end on overflow pushes the top past the edge, and it cannot be scrolled to */
         overflow-y: auto;
         touch-action: pan-y;
         gap: 12px;
@@ -805,7 +805,7 @@
         font-size: 19px;
         letter-spacing: 0.04em;
       }
-      /* Строка рекорда №1: тап открывает таблицу. Тихая: без заливки, чтобы не спорить с кнопкой игры. */
+      /* The #1 high score row: a tap opens the table. Quiet: no fill, so as not to compete with the game button. */
       .record-line {
         display: inline-flex;
         align-items: baseline;
@@ -854,7 +854,7 @@
         justify-content: space-between;
         width: min(100%, 420px);
       }
-      /* Экраны второго уровня (настройки, рекорды): шапка со стрелкой назад, прокручиваемое тело, кнопка «Назад» внизу. */
+      /* Second-level screens (settings, records): a header with a back arrow, a scrollable body, a "Back" button at the bottom. */
       .screen.sub {
         justify-content: flex-start;
         gap: 12px;
@@ -899,7 +899,7 @@
       #records-board .board-row .time {
         font-size: 15px;
       }
-      /* Три кнопки качества в одну строку, даже на 360 px. */
+      /* Three quality buttons in one row, even at 360 px. */
       .sub-body .options {
         gap: 8px;
       }
@@ -916,7 +916,7 @@
         width: min(100%, 420px);
         min-height: 52px;
       }
-      /* Переключатель языка на юридическом экране — первая строка текста, справа. */
+      /* Language switcher on the legal screen - the first line of text, on the right. */
       .legal-body > .lang-switch {
         align-self: flex-end;
       }
@@ -937,7 +937,7 @@
           gap: 4px;
         }
       }
-      /* ---- Магазин и монеты. Монета — золотая точка (одна на всё: баланс, цены, «+N»), чтобы валюта не зависела от языка. ---- */
+      /* ---- Shop and coins. The coin is a gold dot (one for everything: balance, prices, "+N"), so the currency does not depend on the language. ---- */
       .coin {
         display: inline-block;
         flex: none;
@@ -1014,10 +1014,10 @@
       #game-over .to-shop.hidden {
         display: none;
       }
-      /* Витрина: прокручиваемое тело; снизу текст гаснет, чтобы было видно, что список продолжается. */
+      /* Shop view: a scrollable body; the text fades at the bottom so it is clear that the list continues. */
       .screen.sub > .shop-body {
         gap: 8px;
-        padding: 8px 10px 28px; /* поля с запасом: свечение надетой карточки не должно упираться в край прокрутки */
+        padding: 8px 10px 28px; /* generous padding: the glow of the equipped card must not hit the scroll edge */
         margin: -6px -8px 0;
         width: min(calc(100% + 16px), 436px);
         -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
@@ -1198,8 +1198,8 @@
           min-height: 60px;
         }
       }
-      /* Юридические экраны (предупреждение о мигающих огнях, условия): поверх меню, без анимации и мигания.
-         Текст прокручивается, кнопка всегда внизу и на виду. */
+      /* Legal screens (flashing-lights warning, terms): over the menu, no animation or flashing.
+         The text scrolls, the button is always at the bottom and in view. */
       .screen.legal {
         z-index: 20;
         justify-content: flex-start;
@@ -1221,15 +1221,15 @@
         gap: 14px;
         position: relative;
       }
-      /* Подсказка «текст продолжается» (класс more ставит main.ts, пока снизу осталось непрочитанное): текст гаснет
-         к фону и по центру стоит стрелка вниз. Всё статично: экран про мигающие огни, анимации здесь нет. */
+      /* The "text continues" hint (class more is set by main.ts while unread content remains below): the text fades
+         into the background and a down arrow sits in the center. All static: the screen is about flashing lights, no animation here. */
       .screen.legal .legal-body.more::after {
         content: '▼';
         position: sticky;
         bottom: 0;
         flex-shrink: 0;
         height: 64px;
-        margin-top: -78px; /* 64px высоты + 14px gap: подсказка не прибавляет прокручиваемой высоты */
+        margin-top: -78px; /* 64px of height + 14px gap: the hint adds no scrollable height */
         display: flex;
         align-items: flex-end;
         justify-content: center;
@@ -1241,7 +1241,7 @@
         pointer-events: none;
       }
       .screen.legal .legal-body > h2 {
-        margin: auto 0 0; /* короткий текст прижат к кнопке, длинный — прокручивается с самого верха */
+        margin: auto 0 0; /* a short text is pressed to the button, a long one scrolls from the very top */
         text-align: center;
       }
       .screen.legal .legal-body > :not(h2) {
@@ -1309,11 +1309,11 @@
         <div class="score-pill"><span data-i18n="hud.score"></span> <span id="score">0</span></div>
       </div>
 
-      <!-- Главный экран голый: название, рекорд №1 (тап — таблица), кнопка игры, шестерёнка и язык. -->
+      <!-- Main screen is bare: title, #1 high score (tap - table), game button, gear and language. -->
       <div id="menu" class="screen">
         <h1 data-i18n="menu.title"></h1>
 
-        <!-- Кошелёк-вход в магазин: чип в правом верхнем углу, скрыт до первой законченной партии (main.ts: syncShopEntry). -->
+        <!-- Wallet entry to the shop: a chip in the top right corner, hidden until the first finished game (main.ts: syncShopEntry). -->
         <button type="button" id="open-shop" class="shop-btn hidden" data-i18n-aria="aria.shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg><span class="coin" aria-hidden="true"></span><b id="menu-balance">0</b></button>
 
         <button type="button" id="record-line" class="record-line" data-i18n-aria="aria.records"></button>
@@ -1390,7 +1390,7 @@
         <button type="button" id="records-done" class="secondary wide" data-i18n="nav.back"></button>
       </div>
 
-      <!-- Магазин: шапка (назад, название, баланс на виду), прокручиваемая витрина, внизу крупная «Играть». Витрину рисует screens/shop-view.ts. -->
+      <!-- Shop: header (back, title, balance in view), scrollable shop view, a big "Play" at the bottom. The shop view is drawn by screens/shop-view.ts. -->
       <div id="shop" class="screen sub hidden">
         <header class="screen-head">
           <button type="button" id="shop-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>

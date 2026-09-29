@@ -1,21 +1,21 @@
-// view/sfx.ts — процедурные звуки на WebAudio (осциллятор + огибающая), файлов нет.
-// Вызывается ТОЛЬКО из обработки событий игры и нажатий кнопок, не из кадра:
-// OscillatorNode одноразовый, на каждый звук создаётся новая нода (события редкие).
+// view/sfx.ts - procedural WebAudio sounds (oscillator + envelope), no files.
+// Called ONLY from game-event handling and button presses, not from the frame:
+// an OscillatorNode is single-use, a new node is created for each sound (events are rare).
 //
-// Как добавить звук: 1) имя в SfxName, 2) запись в config.json → sound.blips, 3) вызов sfx.play('имя').
-// Больше ничего. Старт партии намеренно НЕ заведён: его дизайнер не заказывал.
-// Смерть ('death') — тот же путь; ей нужны два необязательных слоя блипа: `layer` (второй тон) и `noise` (шумовой всплеск).
+// How to add a sound: 1) a name in SfxName, 2) an entry in config.json -> sound.blips, 3) a sfx.play('name') call.
+// Nothing else. Game start is deliberately NOT wired: the designer did not ask for it.
+// Death ('death') takes the same path; it needs two optional blip layers: `layer` (a second tone) and `noise` (a noise burst).
 
 export type SfxName = 'eat' | 'click' | 'death' | 'tick'
 
-/** Второй осциллятор на ту же огибающую: тон основного × ratio (0.5 — октавой ниже, для веса). */
+/** A second oscillator on the same envelope: main tone x ratio (0.5 - an octave lower, for weight). */
 export interface LayerConfig {
   wave: OscillatorType
   ratio: number
   gain: number
 }
 
-/** Всплеск белого шума через ФНЧ, частота среза падает freqFrom → freqTo за decayMs: «удар» в начале звука. */
+/** A white-noise burst through a low-pass filter, cutoff falling freqFrom -> freqTo over decayMs: a "hit" at the start of the sound. */
 export interface NoiseConfig {
   gain: number
   decayMs: number
@@ -24,23 +24,23 @@ export interface NoiseConfig {
 }
 
 /**
- * Зависимость звука шага от темпа (только у 'tick'). stepMs — действующая длительность шага с учётом ускорения.
- * Чем короче шаг, тем тише тик: на разгоне с ускорением он уходит в фон, а не стрекочет.
+ * How the step sound depends on pace (only for 'tick'). stepMs - the actual step duration including boost.
+ * The shorter the step, the quieter the tick: when speeding up with boost it fades into the background instead of chattering.
  */
 export interface SpeedConfig {
-  /** Длительность шага, при которой тик звучит на полную громкость (и дольше). */
+  /** Step duration at which the tick plays at full volume (and longer). */
   slowStepMs: number
-  /** Длительность шага, при которой громкость падает до fastGain (и короче). */
+  /** Step duration at which the volume drops to fastGain (and shorter). */
   fastStepMs: number
-  /** Множитель громкости на fastStepMs, 0..1. Между slow и fast — линейно по длительности шага. */
+  /** Volume multiplier at fastStepMs, 0..1. Linear in step duration between slow and fast. */
   fastGain: number
-  /** Шаги короче этого озвучиваются не все, а каждый skipEvery-й; 0 — озвучивать все. */
+  /** Steps shorter than this are not all voiced, only every skipEvery-th; 0 - voice all. */
   skipBelowStepMs: number
-  /** Каждый какой шаг озвучивать на быстром ходу (2 — через один). */
+  /** Which step to voice at fast pace (2 - every other one). */
   skipEvery: number
-  /** Разброс высоты тона от шага к шагу, ±центов (100 — полутон); 0 — одна нота. */
+  /** Pitch spread from step to step, +/- cents (100 - a semitone); 0 - a single note. */
   jitterCents: number
-  /** Не чаще, чем раз в столько мс (защита, если за кадр случилось несколько шагов). */
+  /** No more often than once per this many ms (a guard in case several steps happen in one frame). */
   minGapMs: number
 }
 
@@ -52,7 +52,7 @@ export interface BlipConfig {
   attackMs: number
   decayMs: number
   gain: number
-  /** Сдвигать тон по комбо (следующее яблоко выше предыдущего). */
+  /** Shift pitch by combo (each next apple higher than the previous). */
   combo: boolean
   layer?: LayerConfig
   noise?: NoiseConfig
@@ -60,31 +60,31 @@ export interface BlipConfig {
 }
 
 export interface ComboConfig {
-  /** На сколько полутонов выше каждое следующее яблоко; 0 — комбо выключено. */
+  /** How many semitones higher each next apple is; 0 - combo disabled. */
   semitonesPerApple: number
-  /** Потолок сдвига в полутонах, чтобы не уползало в писк. */
+  /** Cap on the shift in semitones, so it does not creep into a squeal. */
   maxSemitones: number
 }
 
 export interface Sfx {
-  /** stepMs нужен только 'tick' (темп шага для громкости и пропусков); остальным не нужен. */
+  /** stepMs is needed only by 'tick' (step pace for volume and skipping); not needed by the others. */
   play(name: SfxName, stepMs?: number): void
-  /** Новая партия: комбо возвращается к базовой ноте. */
+  /** New game: the combo returns to the base note. */
   resetCombo(): void
 }
 
-/** Сдвиг тона в полутонах для яблока номер `index` (0 — первое). Чистая функция. */
+/** Pitch shift in semitones for apple number `index` (0 - the first). Pure function. */
 export function comboSemitones(index: number, combo: ComboConfig): number {
   if (combo.semitonesPerApple <= 0 || index <= 0) return 0
   return Math.min(index * combo.semitonesPerApple, combo.maxSemitones)
 }
 
-/** Множитель частоты для сдвига в полутонах (равномерно темперированный строй). */
+/** Frequency multiplier for a shift in semitones (equal temperament). */
 export function semitoneRatio(semitones: number): number {
   return Math.pow(2, semitones / 12)
 }
 
-/** Громкость тика от длительности шага: 1 на медленном ходу, fastGain на быстром, между — линейно. Чистая функция. */
+/** Tick volume from step duration: 1 at slow pace, fastGain at fast, linear in between. Pure function. */
 export function tickGainFactor(stepMs: number, speed: SpeedConfig): number {
   const span = speed.slowStepMs - speed.fastStepMs
   if (!(span > 0) || !(stepMs === stepMs)) return 1
@@ -92,14 +92,14 @@ export function tickGainFactor(stepMs: number, speed: SpeedConfig): number {
   return 1 + (speed.fastGain - 1) * t
 }
 
-/** Озвучивать ли шаг номер `index` при данной длительности шага (на быстром ходу — каждый skipEvery-й). Чистая функция. */
+/** Whether to voice step number `index` at the given step duration (at fast pace - every skipEvery-th). Pure function. */
 export function tickAudible(stepMs: number, index: number, speed: SpeedConfig): boolean {
   if (speed.skipBelowStepMs <= 0 || speed.skipEvery <= 1) return true
   if (stepMs >= speed.skipBelowStepMs) return true
   return index % speed.skipEvery === 0
 }
 
-/** Детерминированный множитель частоты тика номер `index`: псевдослучайный сдвиг в ±jitterCents. Чистая функция. */
+/** Deterministic frequency multiplier of tick number `index`: a pseudo-random shift within +/-jitterCents. Pure function. */
 export function tickPitchRatio(index: number, jitterCents: number): number {
   if (jitterCents <= 0) return 1
   let h = Math.imul(index + 1, 0x9e3779b1)
@@ -111,10 +111,10 @@ export function tickPitchRatio(index: number, jitterCents: number): number {
 }
 
 /**
- * Огибающая блипа в момент tMs от старта: линейная атака от SILENCE до peak за attackMs, затем экспонента peak → SILENCE за decayMs.
- * Ровно то, что строит play() через setValueAtTime/linearRamp/exponentialRamp. Чистая функция; нужна тестам громкости.
- * Важно: decayMs — время спада на все 60 дБ (peak/SILENCE), слышимая часть (до −30 дБ) ≈ половина decayMs,
- * поэтому «тук» длиной 40 мс требует decayMs около 100, а не 40.
+ * Blip envelope at time tMs from the start: linear attack from SILENCE to peak over attackMs, then exponential peak -> SILENCE over decayMs.
+ * Exactly what play() builds via setValueAtTime/linearRamp/exponentialRamp. Pure function; needed by the volume tests.
+ * Note: decayMs is the decay time over the full 60 dB (peak/SILENCE), the audible part (down to -30 dB) is about half of decayMs,
+ * so a 40 ms "thock" needs decayMs of about 100, not 40.
  */
 export function blipEnvelope(tMs: number, attackMs: number, decayMs: number, peak: number): number {
   if (tMs <= 0) return SILENCE
@@ -123,10 +123,10 @@ export function blipEnvelope(tMs: number, attackMs: number, decayMs: number, pea
   return peak * Math.pow(SILENCE / peak, (tMs - attackMs) / decayMs)
 }
 
-// Нижняя граница экспоненциальной огибающей (exponentialRamp не умеет в 0). Техническая константа WebAudio.
+// Lower bound of the exponential envelope (exponentialRamp cannot reach 0). A technical WebAudio constant.
 const SILENCE = 0.0001
 const MS = 0.001
-// Длина буфера шума; всплеск не может быть длиннее (decayMs шума в конфиге обрезается им).
+// Noise buffer length; a burst cannot be longer (the noise decayMs in config is clamped by it).
 const NOISE_BUFFER_SEC = 2
 
 export function createSfx(
@@ -138,7 +138,7 @@ export function createSfx(
   let comboIndex = 0
   let tickIndex = 0
   let lastTickAt = -Infinity
-  // Буфер белого шума нужен только смерти: создаётся лениво один раз и переиспользуется.
+  // The white-noise buffer is needed only by death: created lazily once and reused.
   let noiseBuffer: AudioBuffer | null = null
 
   function getNoise(): AudioBuffer {
@@ -164,7 +164,7 @@ export function createSfx(
       if (!tickAudible(stepMs, idx, sp)) return
       if ((t0 - lastTickAt) * 1000 < sp.minGapMs) return
       peak = b.gain * tickGainFactor(stepMs, sp)
-      if (!(peak > SILENCE)) return // gain: 0 в конфиге — тик выключен, нода не создаётся
+      if (!(peak > SILENCE)) return // gain: 0 in config - the tick is off, no node is created
       lastTickAt = t0
       ratio *= tickPitchRatio(idx, sp.jitterCents)
     }
@@ -190,7 +190,7 @@ export function createSfx(
     osc.start(t0)
     osc.stop(end + 0.02)
 
-    // Слой-тон: та же огибающая и тот же свип, частоты масштабированы (ratio).
+    // Tone layer: the same envelope and the same sweep, frequencies scaled (ratio).
     const layer = b.layer
     if (layer !== undefined) {
       const lo = ctx.createOscillator()
@@ -198,7 +198,7 @@ export function createSfx(
       lo.frequency.setValueAtTime(b.freqFrom * ratio * layer.ratio, t0)
       lo.frequency.exponentialRampToValueAtTime(b.freqTo * ratio * layer.ratio, t0 + b.sweepMs * MS)
       const lg = ctx.createGain()
-      lg.gain.value = layer.gain / b.gain // огибающая env уже несёт b.gain: слой задаётся в абсолютных долях
+      lg.gain.value = layer.gain / b.gain // the env envelope already carries b.gain: the layer is given in absolute fractions
       lo.connect(lg)
       lg.connect(env)
       lo.onended = () => {

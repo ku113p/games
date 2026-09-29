@@ -5,7 +5,7 @@ import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from
 import { cameraFrame, isBoostActive, isBoosting, stepProgress } from './queries'
 import { config, makeRng, makeState, v } from './test-helpers'
 
-/** Прогоняет время мелкими порциями, пока не случится шаг; возвращает копию событий шага. */
+/** Feeds time in small chunks until a step happens; returns a copy of that step's events. */
 function stepOnce(s: GameState, cfg: Config = config): GameEvent[] {
   for (let i = 0; i < 1000; i++) {
     const ev = tick(s, cfg, 10)
@@ -18,7 +18,7 @@ function cfgWith(patch: Partial<Config>): Config {
   return { ...config, ...patch }
 }
 
-/** -v без знаковых нулей (toEqual различает -0 и 0). */
+/** -v without signed zeros (toEqual distinguishes -0 from 0). */
 function neg(a: Vec3): Vec3 {
   return v(0 - a.x, 0 - a.y, 0 - a.z)
 }
@@ -27,7 +27,7 @@ function dot(a: Vec3, b: Vec3): number {
   return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-/** Инвариант: heading всегда лежит в плоскости экрана камеры (±right или ±up из cameraFrame). */
+/** Invariant: heading always lies in the camera's screen plane (±right or ±up from cameraFrame). */
 function expectHeadingInScreenPlane(s: GameState): void {
   const f = cameraFrame(s)
   expect(Math.abs(dot(s.heading, f.right)) + Math.abs(dot(s.heading, f.up))).toBe(1)
@@ -90,7 +90,7 @@ describe('event buffer and singleton events', () => {
   })
 })
 
-describe('turnInPlane — все четыре heading × все четыре направления', () => {
+describe('turnInPlane: all four headings × all four directions', () => {
   const headings: Array<{ name: string; h: Vec3 }> = [
     { name: '+right', h: v(1, 0, 0) },
     { name: '-right', h: v(-1, 0, 0) },
@@ -113,7 +113,7 @@ describe('turnInPlane — все четыре heading × все четыре н�
           snake: [v(10, 10, 10), v(10 - h.x, 10 - h.y, 10), v(10 - 2 * h.x, 10 - 2 * h.y, 10)],
         })
         const events = turnInPlane(s, dir)
-        expect(s.heading).toEqual(h) // heading сам не меняется до шага
+        expect(s.heading).toEqual(h) // heading itself does not change until the step
         if (opposite) {
           expect(events).toEqual([])
           expect(s.pendingTurn).toBeNull()
@@ -131,7 +131,7 @@ describe('turnInPlane — все четыре heading × все четыре н�
   test('a perpendicular turn is accepted even after another perpendicular one was queued', () => {
     const s = makeState({ heading: v(0, 1, 0), snake: [v(10, 10, 10), v(10, 9, 10), v(10, 8, 10)] })
     turnInPlane(s, 'right')
-    const events = turnInPlane(s, 'left') // -right не противоположен heading (+up)
+    const events = turnInPlane(s, 'left') // -right is not opposite to heading (+up)
     expect(events).toEqual([{ type: 'turned', heading: v(-1, 0, 0) }])
     expect(s.pendingTurn).toEqual(v(-1, 0, 0))
   })
@@ -139,9 +139,9 @@ describe('turnInPlane — все четыре heading × все четыре н�
   test('a reversal is judged against the last moved heading, not against the queued turn', () => {
     const s = makeState({ heading: v(1, 0, 0) })
     turnInPlane(s, 'up')
-    const events = turnInPlane(s, 'left') // противоположен heading (+right) → отбрасывается
+    const events = turnInPlane(s, 'left') // opposite to heading (+right) → discarded
     expect(events).toEqual([])
-    expect(s.pendingTurn).toEqual(v(0, 1, 0)) // прежний буфер уцелел
+    expect(s.pendingTurn).toEqual(v(0, 1, 0)) // the previous buffer survived
   })
 
   test('uses the current (rotated) frame for directions', () => {
@@ -151,9 +151,9 @@ describe('turnInPlane — все четыре heading × все четыре н�
     })
     turnInPlane(s, 'right')
     expect(s.pendingTurn).toEqual(v(1, 0, 0))
-    turnInPlane(s, 'up') // +up' = +z, противоположно heading (-z)
+    turnInPlane(s, 'up') // +up' = +z, opposite to heading (-z)
     expect(s.pendingTurn).toEqual(v(1, 0, 0))
-    turnInPlane(s, 'down') // -up' = -z = heading — разрешено
+    turnInPlane(s, 'down') // -up' = -z = heading: allowed
     expect(s.pendingTurn).toEqual(v(0, 0, -1))
   })
 
@@ -167,8 +167,8 @@ describe('turnInPlane — все четыре heading × все четыре н�
   })
 })
 
-describe('turnAxis — смена оси для всех четырёх heading', () => {
-  // Ожидаемый frame после доворота +90° вокруг знакового heading и heading для into/out.
+describe('turnAxis: axis turn for all four headings', () => {
+  // Expected frame after a +90° roll around the signed heading, and the heading for into/out.
   const table: Array<{
     name: string
     heading: Vec3
@@ -188,11 +188,11 @@ describe('turnAxis — смена оси для всех четырёх heading'
         const expectedHeading = dir === 'into' ? row.into : row.out
         const events = turnAxis(s, dir)
         expect(events).toEqual([{ type: 'axisTurned', rollAxis: row.heading, direction: dir }])
-        // Frame довёрнут сразу — камера и ядро согласованы с момента события.
+        // The frame is rolled immediately: the camera and the core agree from the moment of the event.
         expect(s.frame).toEqual(row.frame)
-        expect(s.heading).toEqual(row.heading) // heading — на следующем шаге
+        expect(s.heading).toEqual(row.heading) // heading changes on the next step
         expect(s.pendingTurn).toEqual(expectedHeading)
-        // Такт разворота: heading новый, змейка стоит. Едет уже следующим тактом.
+        // Turn-in-place step: the heading is new, the snake stands still. It moves only on the step after that.
         const flip = stepOnce(s)
         expect(flip).toEqual([{ type: 'turnedInPlace', heading: expectedHeading }])
         expect(s.heading).toEqual(expectedHeading)
@@ -246,19 +246,19 @@ describe('turnAxis — смена оси для всех четырёх heading'
   })
 })
 
-describe('инвариант доворота: камера всегда выводится из cameraFrame', () => {
-  test('1. turnAxis(into), затем turnInPlane до шага, затем шаг', () => {
+describe('roll invariant: the camera is always derived from cameraFrame', () => {
+  test('1. turnAxis(into), then turnInPlane before the step, then the step', () => {
     const s = makeState()
     const e1 = turnAxis(s, 'into')
     expect(e1.map((e) => e.type)).toEqual(['axisTurned'])
     const rolled = JSON.parse(JSON.stringify(cameraFrame(s)))
     expect(rolled).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
 
-    const e2 = turnInPlane(s, 'up') // в довёрнутом frame up' = +z
+    const e2 = turnInPlane(s, 'up') // in the rolled frame up' = +z
     expect(e2).toEqual([{ type: 'turned', heading: v(0, 0, 1) }])
-    expect(cameraFrame(s)).toEqual(rolled) // доворот не отменён
+    expect(cameraFrame(s)).toEqual(rolled) // the roll is not cancelled
 
-    const ev = stepOnce(s) // такт разворота: змейка стоит
+    const ev = stepOnce(s) // turn-in-place step: the snake stands still
     expect(ev.filter((e) => e.type === 'axisTurned').length).toBe(0)
     expect(cameraFrame(s)).toEqual(rolled)
     expect(s.heading).toEqual(v(0, 0, 1))
@@ -266,13 +266,13 @@ describe('инвариант доворота: камера всегда выв�
     stepOnce(s)
     expect(s.snake[0]).toEqual(v(10, 10, 11))
     expectHeadingInScreenPlane(s)
-    // дальше повороты идут по довёрнутому frame
+    // further turns go by the rolled frame
     turnInPlane(s, 'right')
     stepOnce(s)
     expect(s.heading).toEqual(v(1, 0, 0))
   })
 
-  test('1b. turnInPlane, затем turnAxis — доворот случается, буфер заменён', () => {
+  test('1b. turnInPlane, then turnAxis: the roll happens, the buffer is replaced', () => {
     const s = makeState()
     turnInPlane(s, 'down')
     turnAxis(s, 'out')
@@ -282,12 +282,12 @@ describe('инвариант доворота: камера всегда выв�
     expectHeadingInScreenPlane(s)
   })
 
-  test('2. turnAxis(into), затем turnAxis(out) до шага, затем шаг', () => {
+  test('2. turnAxis(into), then turnAxis(out) before the step, then the step', () => {
     const s = makeState()
     const e1 = [...turnAxis(s, 'into')]
     const e2 = [...turnAxis(s, 'out')]
     const all = [...e1, ...e2]
-    // Камера крутится ровно один раз — и frame ровно один раз довёрнут.
+    // The camera rolls exactly once, and the frame is rolled exactly once.
     expect(all.filter((e) => e.type === 'axisTurned').length).toBe(1)
     expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
     expect(e2).toEqual([{ type: 'turned', heading: v(0, 0, 1) }]) // out = +D_old
@@ -295,13 +295,13 @@ describe('инвариант доворота: камера всегда выв�
     stepOnce(s)
     expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
     expect(s.heading).toEqual(v(0, 0, 1))
-    expect(s.snake[0]).toEqual(v(10, 10, 10)) // такт разворота
+    expect(s.snake[0]).toEqual(v(10, 10, 10)) // turn-in-place step
     stepOnce(s)
     expect(s.snake[0]).toEqual(v(10, 10, 11))
     expectHeadingInScreenPlane(s)
   })
 
-  test('2b. out, затем into — тоже один доворот, heading = -D_old', () => {
+  test('2b. out, then into: also a single roll, heading = -D_old', () => {
     const s = makeState()
     turnAxis(s, 'out')
     const e2 = [...turnAxis(s, 'into')]
@@ -312,7 +312,7 @@ describe('инвариант доворота: камера всегда выв�
     expectHeadingInScreenPlane(s)
   })
 
-  test('2c. повторный turnAxis работает и для heading ±up (другая ось доворота)', () => {
+  test('2c. a repeated turnAxis also works for heading ±up (a different roll axis)', () => {
     const s = makeState({ heading: v(0, 1, 0) })
     turnAxis(s, 'into')
     const e = [...turnAxis(s, 'out')]
@@ -322,7 +322,7 @@ describe('инвариант доворота: камера всегда выв�
     expectHeadingInScreenPlane(s)
   })
 
-  test('3. два turnInPlane подряд до шага — побеждает последний, frame не тронут', () => {
+  test('3. two turnInPlane in a row before the step: the last one wins, the frame is untouched', () => {
     const s = makeState()
     turnInPlane(s, 'up')
     turnInPlane(s, 'down')
@@ -334,30 +334,30 @@ describe('инвариант доворота: камера всегда выв�
     expectHeadingInScreenPlane(s)
   })
 
-  test('4. смерть на том же шаге, что и запланированный доворот', () => {
-    // z = 0 и into → heading -z → стенка. Доворот уже показан камере, мир согласован.
+  test('4. death on the same step as the scheduled roll', () => {
+    // z = 0 and into → heading -z → wall. The roll was already shown to the camera, the world is consistent.
     const s = makeState({ snake: [v(10, 10, 0), v(9, 10, 0), v(8, 10, 0)] })
     const e1 = [...turnAxis(s, 'into')]
     expect(e1.map((e) => e.type)).toEqual(['axisTurned'])
     const rolled = JSON.parse(JSON.stringify(cameraFrame(s)))
-    const flip = stepOnce(s) // такт разворота не убивает: идти некуда
+    const flip = stepOnce(s) // a turn-in-place step does not kill: nowhere to go
     expect(flip.map((e) => e.type)).toEqual(['turnedInPlace'])
     expect(s.phase).toBe('running')
-    const ev = stepOnce(s) // а вот первый шаг в стенку — убивает
+    const ev = stepOnce(s) // but the first step into the wall kills
     expect(ev).toContainEqual({ type: 'died', cause: 'wall' })
     expect(s.phase).toBe('dead')
     expect(cameraFrame(s)).toEqual(rolled)
     expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) })
     expectHeadingInScreenPlane(s)
-    expect(s.snake[0]).toEqual(v(10, 10, 0)) // голова не сдвинулась
-    // мёртвой игре команды ничего не меняют
+    expect(s.snake[0]).toEqual(v(10, 10, 0)) // the head did not move
+    // on a dead game, commands change nothing
     const before = snapshotTurnRelevant(s)
     expect(turnAxis(s, 'out')).toEqual([])
     expect(turnInPlane(s, 'left')).toEqual([])
     expect(snapshotTurnRelevant(s)).toBe(before)
   })
 
-  test('4b. смерть от препятствия на шаге доворота', () => {
+  test('4b. death by an obstacle on the roll step', () => {
     const s = makeState({ obstacles: new Set([cellKey(10, 10, 11, 20)]) })
     turnAxis(s, 'out')
     expect(stepOnce(s).map((e) => e.type)).toEqual(['turnedInPlace'])
@@ -367,7 +367,7 @@ describe('инвариант доворота: камера всегда выв�
     expectHeadingInScreenPlane(s)
   })
 
-  test('после шага флаг доворота сброшен — следующий turnAxis снова крутит frame', () => {
+  test('after the step the roll flag is cleared: the next turnAxis rolls the frame again', () => {
     const s = makeState()
     turnAxis(s, 'into')
     stepOnce(s)
@@ -377,7 +377,7 @@ describe('инвариант доворота: камера всегда выв�
     expectHeadingInScreenPlane(s)
   })
 
-  test('случайная серия команд: heading всегда в плоскости cameraFrame, axisTurned = ровно смена frame', () => {
+  test('random command series: heading is always in the cameraFrame plane, axisTurned = exactly a frame change', () => {
     let seed = 12345
     const rnd = () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff
@@ -417,7 +417,7 @@ describe('eating an apple', () => {
       expect(s.snake.length).toBe(3)
       s.apple.x = 0
       s.apple.y = 0
-      s.apple.z = 0 // уводим яблоко с пути
+      s.apple.z = 0 // move the apple out of the way
       for (let i = 0; i < grow + 3; i++) stepOnce(s, cfg)
       expect(s.snake.length).toBe(3 + grow)
       expect(s.snakeCells.size).toBe(3 + grow)
@@ -428,13 +428,13 @@ describe('eating an apple', () => {
   test('while growing the tail stays; afterwards the length is constant', () => {
     const cfg = cfgWith({ snake: { startLength: 3, growPerApple: 2 } })
     const s = makeState({ apple: v(11, 10, 10) })
-    stepOnce(s, cfg) // съели (шаг без роста: хвост ушёл с (8,10,10))
+    stepOnce(s, cfg) // eaten (a step without growth: the tail left (8,10,10))
     s.apple.x = 0
     s.apple.y = 0
     s.apple.z = 0
     expect(s.snake[s.snake.length - 1]).toEqual(v(9, 10, 10))
     stepOnce(s, cfg)
-    expect(s.snake[s.snake.length - 1]).toEqual(v(9, 10, 10)) // хвост остался на месте
+    expect(s.snake[s.snake.length - 1]).toEqual(v(9, 10, 10)) // the tail stayed in place
     expect(s.snake.length).toBe(4)
     stepOnce(s, cfg)
     expect(s.snake.length).toBe(5)
@@ -492,7 +492,7 @@ describe('speed increases with apples eaten', () => {
   })
 })
 
-describe('death — все шесть граней куба', () => {
+describe('death: all six cube faces', () => {
   const size = 20
   const faces: Array<{ name: string; head: Vec3; heading: Vec3; inside: Vec3 }> = [
     { name: '+x', head: v(size - 1, 10, 10), heading: v(1, 0, 0), inside: v(size - 2, 10, 10) },
@@ -546,8 +546,8 @@ describe('death — все шесть граней куба', () => {
   })
 })
 
-describe('движение в освобождающуюся клетку хвоста', () => {
-  // Змейка-квадрат 2×2: голова (10,10) идёт вправо в клетку хвоста (11,10).
+describe('moving into the vacating tail cell', () => {
+  // A 2×2 square snake: the head (10,10) goes right into the tail cell (11,10).
   const square = () => [v(10, 10, 10), v(10, 11, 10), v(11, 11, 10), v(11, 10, 10)]
 
   test('without growth the head may enter the cell the tail is leaving', () => {
@@ -570,12 +570,12 @@ describe('движение в освобождающуюся клетку хво
 
   test('the second-to-last segment is never free', () => {
     const s = makeState({ snake: [v(10, 10, 10), v(10, 11, 10), v(11, 11, 10), v(11, 10, 10), v(11, 9, 10)], growth: 0 })
-    // впереди (11,10) — не хвост (хвост (11,9))
+    // ahead (11,10) is not the tail (the tail is (11,9))
     expect(stepOnce(s)).toEqual([{ type: 'died', cause: 'body' }])
   })
 })
 
-describe('tick — время и защита', () => {
+describe('tick: time and safeguards', () => {
   test('makes as many steps as time allows and keeps the remainder', () => {
     const s = makeState({ stepMs: 30 })
     const ev = tick(s, config, 100)
@@ -646,7 +646,7 @@ describe('tick — время и защита', () => {
   })
 })
 
-describe('demo turn — на demo.afterSteps-м ходу первой игры, направление из свободных', () => {
+describe('demo turn: on step demo.afterSteps of the first game, direction chosen among the free ones', () => {
   function demoState(overrides: Partial<GameState> = {}): GameState {
     return makeState({ demoTurnPending: true, apple: v(0, 0, 0), size: 30, snake: [v(10, 10, 10), v(9, 10, 10), v(8, 10, 10)], ...overrides })
   }
@@ -662,22 +662,22 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
       expect(s.demoTurnPending).toBe(true)
       expect(s.mode).toBe('plane')
     }
-    expect(typesOf(stepOnce(s))).toEqual(['moved']) // 5-й ход — обычный шаг
+    expect(typesOf(stepOnce(s))).toEqual(['moved']) // the 5th step is an ordinary step
     expect(s.stepCount).toBe(5)
     expect(s.mode).toBe('plane')
     expect(s.demoTurnPending).toBe(true)
-    const ev = stepOnce(s) // следующий такт — отдельный такт разворота
-    expect(s.stepCount).toBe(5) // такт разворота ходом не считается
+    const ev = stepOnce(s) // the next step is a separate turn-in-place step
+    expect(s.stepCount).toBe(5) // a turn-in-place step does not count as a step
     expect(typesOf(ev)).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
     expect(ev[1]).toEqual({ type: 'modeChanged', mode: 'free' })
     expect(s.demoTurnPending).toBe(false)
     expect(s.mode).toBe('free')
-    expect(s.snake[0]).toEqual(v(15, 10, 10)) // змейка стоит
+    expect(s.snake[0]).toEqual(v(15, 10, 10)) // the snake stands still
     expect(s.snake.length).toBe(3)
   })
 
   test('demo turn: heading = ∓old depth right away, depth = -heading, no pendingTurn, no axisTurned', () => {
-    // seed-независимо: проверяем обе ветви (into: frame не меняется; out: right/depth меняют знак, up остаётся)
+    // seed-independent: check both branches (into: frame unchanged; out: right/depth flip sign, up stays)
     const seen = new Set<number>()
     for (let seed = 0; seed < 40; seed++) {
       const s = demoState({ rngState: seed * 977 })
@@ -694,7 +694,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
       if (s.heading.z === -1) expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) })
       else expect(s.frame).toEqual({ right: v(-1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, -1) })
       seen.add(s.heading.z)
-      // и следующий шаг идёт по новому heading
+      // and the next step follows the new heading
       stepOnce(s)
       expect(s.snake[0]).toEqual(v(15, 10, 10 + s.heading.z))
     }
@@ -723,7 +723,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
             const size = 40
             const c = 20
             const snake = [v(c, c, c), v(c - h.x, c - h.y, c - h.z), v(c - 2 * h.x, c - 2 * h.y, c - 2 * h.z)]
-            // голова после шага в c+h; блокируем противоположную сторону по depth
+            // after the step the head is at c+h; block the opposite side along depth
             const blocked = into ? depth : neg(depth)
             const obs = cellKey(c + h.x + blocked.x, c + h.y + blocked.y, c + h.z + blocked.z, size)
             const s = makeState({
@@ -739,7 +739,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
             expect(stepOnce(s, cfg1).map((e) => e.type)).toEqual(['moved'])
             const ev = stepOnce(s, cfg1)
             expect(ev.map((e) => e.type)).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
-            expect(s.snake[0]).toEqual(v(c + h.x, c + h.y, c + h.z)) // на такте разворота змейка стоит
+            expect(s.snake[0]).toEqual(v(c + h.x, c + h.y, c + h.z)) // on the turn-in-place step the snake stands still
             const want = into ? neg(depth) : depth
             expect(s.heading).toEqual(want)
             expect(s.frame.depth).toEqual(neg(want))
@@ -754,7 +754,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
         }
       }
     }
-    expect(cases).toBe(24 * 4 * 2) // 24 ориентации × 4 heading в плоскости × 2 ветви
+    expect(cases).toBe(24 * 4 * 2) // 24 orientations × 4 headings in the plane × 2 branches
   })
 
   test('demo turn from a vertical heading (moving up on screen) keeps up, depth = -heading', () => {
@@ -813,7 +813,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
 
   test('own body on one side: never turns into itself', () => {
     const cfg1 = cfgWith({ demo: { afterSteps: 1 } })
-    // голова (10,10,10) → (11,10,10); над будущей головой (z+1) — тело (11,10,11)
+    // head (10,10,10) → (11,10,10); above the future head (z+1) is the body (11,10,11)
     for (let seed = 0; seed < 20; seed++) {
       const s = makeState({
         size: 30,
@@ -823,14 +823,14 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
         snake: [v(10, 10, 10), v(10, 10, 11), v(11, 10, 11), v(11, 11, 11), v(12, 11, 11)],
       })
       stepOnce(s, cfg1)
-      stepOnce(s, cfg1) // такт разворота
+      stepOnce(s, cfg1) // turn-in-place step
       expect(s.heading).toEqual(v(0, 0, -1))
     }
   })
 
   test('a cell the tail is just leaving counts as free; while growing it does not', () => {
     const cfg1 = cfgWith({ demo: { afterSteps: 1 } })
-    // после шага хвост стоит в (11,10,11) — над новой головой; снизу (11,10,9) — препятствие
+    // after the step the tail stands at (11,10,11), above the new head; below, (11,10,9) is an obstacle
     const mk = (growth: number) =>
       makeState({
         size: 30,
@@ -853,7 +853,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
   })
 
   test('both sides blocked: demo does not fire and the flag is not spent; it retries on later steps', () => {
-    // На шаге 5 голова в (15,10,10): и сверху, и снизу препятствия. На шаге 6 голова (16,10,10) свободна.
+    // On step 5 the head is at (15,10,10): obstacles both above and below. On step 6 the head (16,10,10) is free.
     const s = demoState({ obstacles: new Set([cellKey(15, 10, 11, 30), cellKey(15, 10, 9, 30)]) })
     for (let i = 0; i < 5; i++) {
       const ev = stepOnce(s)
@@ -864,10 +864,10 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
     expect(s.mode).toBe('plane')
     expect(s.heading).toEqual(v(1, 0, 0))
     expect(s.frame).toEqual({ right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) })
-    // 6-й такт: обе стороны всё ещё заняты — демо не срабатывает, змейка просто едет.
+    // Step 6: both sides are still occupied, so the demo does not fire, the snake just moves.
     expect(typesOf(stepOnce(s))).toEqual(['moved'])
     expect(s.demoTurnPending).toBe(true)
-    // 7-й такт: голова в (16,10,10), свободно — отдельный такт разворота.
+    // Step 7: the head is at (16,10,10), free: a separate turn-in-place step.
     expect(typesOf(stepOnce(s))).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
     expect(s.demoTurnPending).toBe(false)
   })
@@ -877,7 +877,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
     let total = 0
     for (let i = 0; i < 40 && s.phase === 'running'; i++) {
       if (i === 8) {
-        // подставляем яблоко под голову — второе съеденное яблоко
+        // put the apple under the head: the second eaten apple
         const h = s.snake[0]!
         s.apple.x = h.x + s.heading.x
         s.apple.y = h.y + s.heading.y
@@ -886,12 +886,12 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
       const ev = stepOnce(s)
       total += ev.filter((e) => e.type === 'demoTurn').length
       if (i === 5) {
-        // после демо сами поворачиваем в свободную сторону, чтобы не упереться
+        // after the demo, turn to the free side ourselves so as not to hit anything
         turnInPlane(s, 'right')
       }
     }
     expect(total).toBe(1)
-    expect(s.applesEaten).toBeGreaterThanOrEqual(1) // второе яблоко действительно съедено
+    expect(s.applesEaten).toBeGreaterThanOrEqual(1) // the second apple was really eaten
   })
 
   test('never fires when the game is not the first', () => {
@@ -904,7 +904,7 @@ describe('demo turn — на demo.afterSteps-м ходу первой игры, 
 
   test('does not fire on the step where the snake dies', () => {
     const s = demoState({ snake: [v(14, 10, 10), v(13, 10, 10), v(12, 10, 10)], size: 15, obstacles: new Set() })
-    // ход 1..: x=15 — стенка на первом же шаге, до пятого хода не доживём
+    // step 1..: x=15 is a wall on the very first step, we will not live to step 5
     stepOnce(s)
     expect(s.phase).toBe('dead')
     expect(s.demoTurnPending).toBe(true)
@@ -1055,7 +1055,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
     return v(a.y * b.z - a.z * b.y + 0, a.z * b.x - a.x * b.z + 0, a.x * b.y - a.y * b.x + 0)
   }
 
-  /** Все 24 ориентации frame; heading = -depth. Итого 6 heading × 4 варианта up. */
+  /** All 24 frame orientations; heading = -depth. In total 6 headings × 4 variants of up. */
   function allFrames(): { heading: Vec3; right: Vec3; up: Vec3; depth: Vec3 }[] {
     const out: { heading: Vec3; right: Vec3; up: Vec3; depth: Vec3 }[] = []
     for (const up of AXES) {
@@ -1068,7 +1068,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
     return out
   }
 
-  /** Свободный режим в середине большого куба, змейка тянется назад по -heading. */
+  /** Free mode in the middle of a big cube, the snake trails back along -heading. */
   function freeState(f: { heading: Vec3; right: Vec3; up: Vec3; depth: Vec3 }, overrides: Partial<GameState> = {}): GameState {
     const size = 40
     const head = v(20, 20, 20)
@@ -1087,7 +1087,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
   function expectFreeInvariant(s: GameState): void {
     const f = s.frame
     expect(f.depth).toEqual(neg(s.heading))
-    expect(cross(f.right, f.up)).toEqual(f.depth) // правая тройка: depth = right × up
+    expect(cross(f.right, f.up)).toEqual(f.depth) // right-handed triple: depth = right × up
     expect(dot(f.right, f.up)).toBe(0)
     for (const a of [f.right, f.up, f.depth]) {
       expect(Math.abs(a.x) + Math.abs(a.y) + Math.abs(a.z)).toBe(1)
@@ -1120,7 +1120,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
         stepOnce(s)
         expect(s.heading).toEqual(want)
         expectFreeInvariant(s)
-        // и голова реально пошла по новому heading
+        // and the head really went along the new heading
         expect(s.snake[0]).toEqual(v(20 + want.x, 20 + want.y, 20 + want.z))
       }
     }
@@ -1182,9 +1182,9 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
           turnInPlane(s, second)
           stepOnce(s)
           expect(s.heading).toEqual(expected(second, f))
-          expect(dot(s.heading, f.heading)).toBe(0) // никогда не разворот и не «прямо»
+          expect(dot(s.heading, f.heading)).toBe(0) // never a reversal and never "straight"
           expectFreeInvariant(s)
-          expect(s.phase).toBe('running') // не въехали в шею
+          expect(s.phase).toBe('running') // did not run into the neck
         }
       }
     }
@@ -1277,7 +1277,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
 
   test('death on the step of a turn: frame is still consistent with heading (depth = -heading)', () => {
     const f = { heading: v(0, 0, -1), right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) }
-    // змейка у правой стенки, поворот вправо → стена
+    // the snake is at the right wall, turning right → wall
     const s = freeState(f, { size: 21, snake: [v(20, 10, 10), v(20, 10, 11), v(20, 10, 12)] })
     turnInPlane(s, 'right')
     const ev = stepOnce(s)
@@ -1319,7 +1319,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
       if (i > 5 && s.phase === 'running') turnInPlane(s, i % 2 ? 'left' : 'right')
     }
     expect(changes).toBe(1)
-    expect(plane).toBe(5) // ходы 1..5 — plane, такт разворота (6-й) — free
+    expect(plane).toBe(5) // steps 1..5 are plane, the turn-in-place step (6th) is free
     expect(s.mode).toBe('free')
   })
 
@@ -1329,7 +1329,7 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
       for (let i = 0; i < 6; i++) stepOnce(s)
       expect(s.mode).toBe('free')
       const f = { right: { ...s.frame.right }, up: { ...s.frame.up }, heading: { ...s.heading } }
-      // Шея лежит по -x; свайп в неё игнорируется (после разворота на месте heading != последний ход).
+      // The neck lies along -x; a swipe into it is ignored (after a turn in place heading != the last move).
       const rightIsNeck = f.right.x === -1
       expect(turnInPlane(s, 'right').length).toBe(rightIsNeck ? 0 : 1)
       if (rightIsNeck) {
@@ -1345,11 +1345,11 @@ describe("free mode — camera behind the head: heading = -depth, four swipes co
   })
 })
 
-describe('такт разворота: смена оси — отдельный такт, змейка стоит', () => {
+describe('turn-in-place step: an axis turn is a separate step, the snake stands still', () => {
   const types = (evs: GameEvent[]) => evs.map((e) => e.type)
 
-  test('такт разворота не двигает, не растит, не ест, не считается ходом; следующий такт едет в новую сторону', () => {
-    // яблоко прямо по новому heading (into = -z) и ещё дорост в запасе
+  test('a turn-in-place step does not move, grow or eat and does not count as a step; the next step moves in the new direction', () => {
+    // the apple is straight along the new heading (into = -z) and there is still growth in reserve
     const s = makeState({ apple: v(10, 10, 9), growth: 2 })
     const bodyBefore = JSON.stringify(s.snake)
     turnAxis(s, 'into')
@@ -1357,7 +1357,7 @@ describe('такт разворота: смена оси — отдельный 
     expect(types(flip)).toEqual(['turnedInPlace'])
     expect(JSON.stringify(s.snake)).toBe(bodyBefore)
     expect(s.snakeCells.size).toBe(3)
-    expect(s.growth).toBe(2) // дорост не тронут
+    expect(s.growth).toBe(2) // growth untouched
     expect(s.score).toBe(0)
     expect(s.applesEaten).toBe(0)
     expect(s.stepCount).toBe(0)
@@ -1365,7 +1365,7 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.pendingTurn).toBeNull()
     expect(s.rolledSinceStep).toBe(false)
     expect(s.phase).toBe('running')
-    // следующий такт: шаг уже в новую сторону, ест яблоко, растёт
+    // next step: it already goes in the new direction, eats the apple, grows
     const go = tick(s, config, s.stepMs)
     expect(types(go)).toEqual(['moved', 'ate', 'speedUp', 'appleSpawned'])
     expect(s.snake[0]).toEqual(v(10, 10, 9))
@@ -1373,13 +1373,13 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.stepCount).toBe(1)
   })
 
-  test('время идёт как обычно: elapsedMs копится, такт разворота тратит ровно один stepMs', () => {
+  test('time flows as usual: elapsedMs accumulates, a turn-in-place step spends exactly one stepMs', () => {
     const s = makeState()
     turnAxis(s, 'out')
     tick(s, config, 100)
     expect(s.elapsedMs).toBe(100)
     expect(s.sinceStepMs).toBe(0)
-    // один вызов tick на два шага: разворот и сразу шаг
+    // one tick call for two steps: the turn in place and then a step right away
     const s2 = makeState({ stepMs: 50 })
     turnAxis(s2, 'out')
     const ev = tick(s2, config, 100)
@@ -1388,17 +1388,17 @@ describe('такт разворота: смена оси — отдельный 
     expect(s2.stepCount).toBe(1)
   })
 
-  test('на подходе к стенке разворот не убивает, хотя шаг вперёд убил бы; в стенку убивает только следующий шаг', () => {
+  test('near a wall the turn in place does not kill even though a step forward would; only the following step kills into the wall', () => {
     const mk = () => makeState({ snake: [v(19, 10, 10), v(18, 10, 10), v(17, 10, 10)] })
     const control = mk()
-    expect(types(stepOnce(control))).toContain('died') // шаг вперёд — в стенку
+    expect(types(stepOnce(control))).toContain('died') // a step forward runs into the wall
     const s = mk()
     turnAxis(s, 'into')
     expect(types(stepOnce(s))).toEqual(['turnedInPlace'])
     expect(s.phase).toBe('running')
-    expect(types(stepOnce(s))).toEqual(['moved']) // уехали вглубь вдоль стенки
+    expect(types(stepOnce(s))).toEqual(['moved']) // moved deeper along the wall
     expect(s.snake[0]).toEqual(v(19, 10, 9))
-    // а если новый heading тоже в стенку, умирает именно шаг, не разворот
+    // and if the new heading also points into the wall, it is the step that dies, not the turn in place
     const w = makeState({ snake: [v(19, 10, 0), v(18, 10, 0), v(17, 10, 0)] })
     turnAxis(w, 'into')
     expect(types(stepOnce(w))).toEqual(['turnedInPlace'])
@@ -1406,19 +1406,19 @@ describe('такт разворота: смена оси — отдельный 
     expect(stepOnce(w)).toContainEqual({ type: 'died', cause: 'wall' })
   })
 
-  test('препятствие и тело на пути нового heading разворот не убивают', () => {
+  test('an obstacle and body in the path of the new heading do not kill the turn in place', () => {
     const obs = makeState({ obstacles: new Set([cellKey(10, 10, 9, 20), cellKey(11, 10, 10, 20)]) })
     turnAxis(obs, 'into')
     expect(types(stepOnce(obs))).toEqual(['turnedInPlace'])
     expect(obs.phase).toBe('running')
     expect(stepOnce(obs)).toContainEqual({ type: 'died', cause: 'obstacle' })
     const body = makeState({ snake: [v(10, 10, 10), v(10, 10, 11), v(11, 10, 11), v(11, 10, 10), v(11, 10, 9), v(10, 10, 9)] })
-    turnAxis(body, 'into') // heading +x, into = -z, клетка (10,10,9) занята хвостом-телом
+    turnAxis(body, 'into') // heading +x, into = -z, cell (10,10,9) is occupied by the tail body
     expect(types(stepOnce(body))).toEqual(['turnedInPlace'])
     expect(body.phase).toBe('running')
   })
 
-  test('два turnAxis до такта — один такт разворота; подряд две смены оси — два такта на месте', () => {
+  test('two turnAxis before the step make one turn-in-place step; two axis turns in a row make two steps in place', () => {
     const s = makeState()
     turnAxis(s, 'into')
     turnAxis(s, 'out')
@@ -1435,30 +1435,30 @@ describe('такт разворота: смена оси — отдельный 
     expectHeadingInScreenPlane(t)
   })
 
-  test('turnedInPlace несёт новый heading и не эмитится для обычных поворотов в плоскости', () => {
+  test('turnedInPlace carries the new heading and is not emitted for ordinary in-plane turns', () => {
     const s = makeState({ apple: v(0, 0, 0) })
     turnInPlane(s, 'up')
-    expect(types(stepOnce(s))).toEqual(['moved']) // поворот в плоскости совмещён с шагом
+    expect(types(stepOnce(s))).toEqual(['moved']) // an in-plane turn is combined with the step
     expect(s.snake[0]).toEqual(v(10, 11, 10))
     turnAxis(s, 'out')
     expect(stepOnce(s)).toEqual([{ type: 'turnedInPlace', heading: s.heading }])
   })
 
-  test('после разворота на месте свайп в шею игнорируется (heading уже не совпадает с последним ходом)', () => {
-    const s = makeState() // heading +x, шея слева
+  test('after a turn in place, a swipe into the neck is ignored (heading no longer matches the last move)', () => {
+    const s = makeState() // heading +x, neck on the left
     turnAxis(s, 'into')
-    stepOnce(s) // heading -z; frame: right=+x, up=+z; шея на -x = left
+    stepOnce(s) // heading -z; frame: right=+x, up=+z; the neck at -x = left
     expect(turnInPlane(s, 'left')).toEqual([])
     expect(s.pendingTurn).toBeNull()
-    expect(turnInPlane(s, 'up')).toEqual([]) // противоположно heading (-z)
+    expect(turnInPlane(s, 'up')).toEqual([]) // opposite to heading (-z)
     expect(turnInPlane(s, 'right')).toEqual([{ type: 'turned', heading: v(1, 0, 0) }])
     stepOnce(s)
     expect(s.snake[0]).toEqual(v(11, 10, 10))
   })
 
-  test('демо-переход — тоже отдельный такт: змейка стоит, не растёт, не ест; следующий такт едет в новую сторону', () => {
+  test('the demo transition is also a separate step: the snake stands still, does not grow or eat; the next step moves in the new direction', () => {
     const cfg = cfgWith({ demo: { afterSteps: 2 } })
-    // яблоко на пути старого heading в клетке следующего шага и дорост в запасе
+    // the apple is in the path of the old heading, in the cell of the next step, and there is growth in reserve
     const s = makeState({ size: 30, demoTurnPending: true, apple: v(13, 10, 10), growth: 0 })
     stepOnce(s, cfg)
     stepOnce(s, cfg)
@@ -1480,7 +1480,7 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.snake.length).toBe(4)
   })
 
-  test('демо-переход у стенки не убивает: разворот спасает, шаг вперёд убил бы', () => {
+  test('the demo transition at a wall does not kill: the turn saves it, a step forward would have killed', () => {
     const cfg = cfgWith({ demo: { afterSteps: 1 } })
     const mk = () => makeState({ size: 20, demoTurnPending: true, apple: v(0, 0, 0), snake: [v(17, 10, 10), v(16, 10, 10), v(15, 10, 10)] })
     const s = mk()
@@ -1488,15 +1488,15 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.snake[0]).toEqual(v(18, 10, 10))
     expect(types(stepOnce(s, cfg))).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
     expect(s.phase).toBe('running')
-    expect(types(stepOnce(s, cfg))).toEqual(['moved']) // уехали по z, а не в стенку x
+    expect(types(stepOnce(s, cfg))).toEqual(['moved']) // moved along z, not into the x wall
     const end = makeState({ size: 20, demoTurnPending: true, apple: v(0, 0, 0), snake: [v(18, 10, 10), v(17, 10, 10), v(16, 10, 10)] })
-    stepOnce(end, cfg) // голова у самой стенки (19)
+    stepOnce(end, cfg) // the head is right at the wall (19)
     expect(end.snake[0]).toEqual(v(19, 10, 10))
     expect(types(stepOnce(end, cfg))).toEqual(['turnedInPlace', 'modeChanged', 'demoTurn'])
     expect(end.phase).toBe('running')
   })
 
-  test('демо стреляет после afterSteps ХОДОВ: ручные развороты на месте не сдвигают и не приближают его', () => {
+  test('the demo fires after afterSteps STEPS: manual turns in place do not shift it or bring it closer', () => {
     const cfg = cfgWith({ demo: { afterSteps: 3 } })
     const s = makeState({ size: 60, snake: [v(30, 30, 30), v(29, 30, 30), v(28, 30, 30)], demoTurnPending: true, apple: v(0, 0, 0) })
     turnAxis(s, 'into')
@@ -1510,13 +1510,13 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.stepCount).toBe(3)
   })
 
-  test('ручной разворот, который пришёлся на срок демо, выполняется первым, демо — следующим тактом', () => {
+  test('a manual turn in place that falls on the demo deadline runs first, the demo on the next step', () => {
     const cfg = cfgWith({ demo: { afterSteps: 1 } })
     const s = makeState({ size: 30, demoTurnPending: true, apple: v(0, 0, 0) })
-    stepOnce(s, cfg) // 1-й ход, демо теперь «созрело»
+    stepOnce(s, cfg) // 1st step, the demo is now "ripe"
     turnAxis(s, 'into')
     const first = stepOnce(s, cfg)
-    expect(types(first)).toEqual(['turnedInPlace']) // ручной такт, режим ещё plane
+    expect(types(first)).toEqual(['turnedInPlace']) // manual step, the mode is still plane
     expect(s.mode).toBe('plane')
     expect(s.heading).toEqual(v(0, 0, -1))
     const second = stepOnce(s, cfg)
@@ -1526,7 +1526,7 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.snake[0]).toEqual(v(11, 10, 10))
   })
 
-  test('демо сбрасывает буфер плоскостного поворота (он относился к старому frame)', () => {
+  test('the demo resets the plane turn buffer (it belonged to the old frame)', () => {
     const cfg = cfgWith({ demo: { afterSteps: 1 } })
     const s = makeState({ size: 30, demoTurnPending: true, apple: v(0, 0, 0) })
     stepOnce(s, cfg)
@@ -1536,16 +1536,16 @@ describe('такт разворота: смена оси — отдельный 
     expect(s.pendingTurn).toBeNull()
     expect(s.frame.depth).toEqual(neg(s.heading))
     stepOnce(s, cfg)
-    expect(s.snake[0]!.y).toBe(10) // уехали по z, а не вверх
+    expect(s.snake[0]!.y).toBe(10) // moved along z, not up
   })
 
-  test('после демо свайп в шею игнорируется', () => {
+  test('after the demo a swipe into the neck is ignored', () => {
     const cfg = cfgWith({ demo: { afterSteps: 1 } })
     for (let seed = 0; seed < 10; seed++) {
       const s = makeState({ size: 30, demoTurnPending: true, apple: v(0, 0, 0), rngState: seed * 977 })
       stepOnce(s, cfg)
       stepOnce(s, cfg)
-      const neck = neg(v(1, 0, 0)) // тело тянется по -x
+      const neck = neg(v(1, 0, 0)) // the body trails along -x
       const dir: ScreenDir = s.frame.right.x === -1 ? 'right' : 'left'
       expect(turnInPlane(s, dir)).toEqual([])
       expect(s.pendingTurn).toBeNull()
@@ -1553,7 +1553,7 @@ describe('такт разворота: смена оси — отдельный 
     }
   })
 
-  test('разворот на месте не эмитится в free-режиме на обычных свайпах', () => {
+  test('a turn in place is not emitted in free mode on ordinary swipes', () => {
     const s = createGame(cfgWith({ obstacles: { density: 0, stickiness: 0, clearRadius: 4, wallMargin: 1 } }), 30, 3, false)
     s.apple.x = s.apple.y = s.apple.z = 0
     startGame(s)
@@ -1562,10 +1562,10 @@ describe('такт разворота: смена оси — отдельный 
   })
 })
 
-describe('setBoost — ускорение', () => {
-  const boostCfg = config // boostFactor 2, stepMs в makeState = 100 → быстрый шаг 50 мс
+describe('setBoost: boost', () => {
+  const boostCfg = config // boostFactor 2, stepMs in makeState = 100 → boosted step 50 ms
 
-  /** Ускорение уже действует (зажато с начала шага): запрошено и действует. */
+  /** Boost is already active (held from the start of the step): requested and active. */
   function holdBoost(s: GameState): void {
     setBoost(s, true)
     s.boosting = true
@@ -1621,7 +1621,7 @@ describe('setBoost — ускорение', () => {
     stepOnce(s)
     setBoost(s, false)
     s.sinceStepMs = 0
-    // идущий шаг доигрывается ещё ускоренным (50), потом обычный (100)
+    // the current step finishes still boosted (50), then the normal one (100)
     expect(tick(s, boostCfg, 49).length).toBe(0)
     expect(tick(s, boostCfg, 1).length).toBeGreaterThan(0)
     expect(s.boosting).toBe(false)
@@ -1695,7 +1695,7 @@ describe('setBoost — ускорение', () => {
     const ev = [...tick(s, boostCfg, 1)]
     expect(ev.map((e) => e.type)).toEqual(['turnedInPlace'])
     expect(s.stepCount).toBe(0)
-    expect(s.snake[0]).toEqual(v(10, 10, 10)) // не двигалась
+    expect(s.snake[0]).toEqual(v(10, 10, 10)) // did not move
   })
 
   test('demo turn happens on a boosted tick as well', () => {
@@ -1707,7 +1707,7 @@ describe('setBoost — ускорение', () => {
 
   test('frame cap: a full maxFrameMs frame gives exactly maxFrameMs / boostedStep steps', () => {
     const s = makeState({ stepMs: 10, size: 100, snake: [v(0, 50, 50)] })
-    holdBoost(s) // шаг 5 мс, кадр 100 мс → 20 шагов
+    holdBoost(s) // step 5 ms, frame 100 ms → 20 steps
     tick(s, boostCfg, 1e9)
     expect(s.elapsedMs).toBe(100)
     expect(s.stepCount).toBe(20)
@@ -1718,7 +1718,7 @@ describe('setBoost — ускорение', () => {
     holdBoost(s)
     s.sinceStepMs = 1e9
     tick(s, boostCfg, 1)
-    expect(s.stepCount).toBe(Math.ceil(100 / 5) + 1) // потолок по ускоренному шагу
+    expect(s.stepCount).toBe(Math.ceil(100 / 5) + 1) // cap based on the boosted step
     expect(s.sinceStepMs).toBe(0)
   })
 
@@ -1726,7 +1726,7 @@ describe('setBoost — ускорение', () => {
     const s = makeState({ stepMs: 10, size: 100, snake: [v(0, 50, 50)] })
     holdBoost(s)
     s.sinceStepMs = 21 * 5 + 7 - 1
-    tick(s, boostCfg, 1) // 113 мс: 21 шаг по потолку, остаток 8 >= 5
+    tick(s, boostCfg, 1) // 113 ms: 21 steps by the cap, remainder 8 >= 5
     expect(s.stepCount).toBe(21)
     expect(s.sinceStepMs).toBe(0)
   })
@@ -1740,7 +1740,7 @@ describe('setBoost — ускорение', () => {
     expect(s.elapsedMs).toBe(0)
     s.stepMs = 0
     expect(tick(s, boostCfg, 50)).toEqual([])
-    const z = makeState({ boostFactor: 0 }) // некорректный фактор не делит на ноль
+    const z = makeState({ boostFactor: 0 }) // an invalid factor does not divide by zero
     setBoost(z, true)
     expect(tick(z, boostCfg, 50).length).toBe(0)
     expect(tick(z, boostCfg, 50).length).toBeGreaterThan(0)
@@ -1782,7 +1782,7 @@ describe('setBoost — ускорение', () => {
     }
     expect(run()).toBe(run())
   })
-  describe('запрошенное и действующее ускорение — применяется со следующего хода', () => {
+  describe('requested and active boost: takes effect from the next step', () => {
     const mk = () => makeState({ size: 100, snake: [v(10, 50, 50), v(9, 50, 50), v(8, 50, 50)] })
 
     test('press mid-step does not change the running step length', () => {
@@ -1790,10 +1790,10 @@ describe('setBoost — ускорение', () => {
       tick(s, boostCfg, 30)
       setBoost(s, true)
       expect(s.boosting).toBe(false)
-      // шаг начался обычным (100 мс): на 50 мс, где ускоренный шаг уже сработал бы, шага нет
-      expect(tick(s, boostCfg, 60).length).toBe(0) // 90 мс
+      // the step began normal (100 ms): at 50 ms, where a boosted step would already have fired, there is no step
+      expect(tick(s, boostCfg, 60).length).toBe(0) // 90 ms
       expect(s.stepCount).toBe(0)
-      expect(tick(s, boostCfg, 10).length).toBeGreaterThan(0) // ровно 100
+      expect(tick(s, boostCfg, 10).length).toBeGreaterThan(0) // exactly 100
       expect(s.stepCount).toBe(1)
     })
 
@@ -1801,20 +1801,20 @@ describe('setBoost — ускорение', () => {
       const s = mk()
       tick(s, boostCfg, 30)
       setBoost(s, true)
-      tick(s, boostCfg, 70) // шаг 1 завершён, остаток 0
+      tick(s, boostCfg, 70) // step 1 is done, remainder 0
       expect(s.boosting).toBe(true)
       expect(s.sinceStepMs).toBe(0)
       expect(tick(s, boostCfg, 49).length).toBe(0)
-      expect(tick(s, boostCfg, 1).length).toBeGreaterThan(0) // шаг 2 за 50 мс
+      expect(tick(s, boostCfg, 1).length).toBeGreaterThan(0) // step 2 in 50 ms
       expect(s.stepCount).toBe(2)
     })
 
     test('press inside a long frame: first step slow, the rest of the frame boosted', () => {
       const s = mk()
       setBoost(s, true)
-      tick(s, boostCfg, 100) // один кадр: шаг 100 мс (обычный)
+      tick(s, boostCfg, 100) // one frame: a 100 ms step (normal)
       expect(s.stepCount).toBe(1)
-      tick(s, boostCfg, 100) // теперь два по 50
+      tick(s, boostCfg, 100) // now two of 50
       expect(s.stepCount).toBe(3)
     })
 
@@ -1824,7 +1824,7 @@ describe('setBoost — ускорение', () => {
       tick(s, boostCfg, 20)
       setBoost(s, false)
       expect(s.boosting).toBe(true)
-      expect(tick(s, boostCfg, 29).length).toBe(0) // 49 из 50
+      expect(tick(s, boostCfg, 29).length).toBe(0) // 49 of 50
       expect(tick(s, boostCfg, 1).length).toBeGreaterThan(0)
       expect(s.boosting).toBe(false)
       expect(tick(s, boostCfg, 99).length).toBe(0)
@@ -1848,7 +1848,7 @@ describe('setBoost — ускорение', () => {
       tick(s, boostCfg, 30)
       expect([...setBoost(s, true)]).toEqual([{ type: 'boostChanged', on: true }])
       expect(setBoost(s, true)).toEqual([])
-      const ev = [...tick(s, boostCfg, 70)] // граница шага, действующее включилось
+      const ev = [...tick(s, boostCfg, 70)] // step boundary, the active state turned on
       expect(ev.some((e) => e.type === 'boostChanged')).toBe(false)
       expect([...setBoost(s, false)]).toEqual([{ type: 'boostChanged', on: false }])
       expect(setBoost(s, false)).toEqual([])
@@ -1881,8 +1881,8 @@ describe('setBoost — ускорение', () => {
       expect(stepProgress(s)).toBe(before)
       expect(before).toBeCloseTo(0.3)
       tick(s, boostCfg, 20)
-      expect(stepProgress(s)).toBeCloseTo(0.5) // 50 / 100, как без ускорения
-      tick(s, boostCfg, 50) // граница; новый шаг 50 мс, остаток 0
+      expect(stepProgress(s)).toBeCloseTo(0.5) // 50 / 100, same as without boost
+      tick(s, boostCfg, 50) // boundary; new step 50 ms, remainder 0
       expect(stepProgress(s)).toBe(0)
       tick(s, boostCfg, 20)
       const mid = stepProgress(s)
@@ -1911,10 +1911,10 @@ describe('setBoost — ускорение', () => {
       turnAxis(s, 'into')
       tick(s, boostCfg, 30)
       setBoost(s, true)
-      expect(tick(s, boostCfg, 60).length).toBe(0) // такт разворота ещё обычный (100)
+      expect(tick(s, boostCfg, 60).length).toBe(0) // the turn-in-place step is still normal (100)
       expect([...tick(s, boostCfg, 10)].map((e) => e.type)).toEqual(['turnedInPlace'])
-      expect(s.boosting).toBe(true) // граница такта разворота
-      expect(tick(s, boostCfg, 49).length).toBe(0) // следующий такт уже 50 мс
+      expect(s.boosting).toBe(true) // turn-in-place step boundary
+      expect(tick(s, boostCfg, 49).length).toBe(0) // the next step is already 50 ms
       expect(tick(s, boostCfg, 1).length).toBeGreaterThan(0)
     })
 
@@ -1941,7 +1941,7 @@ describe('setBoost — ускорение', () => {
       const cfg = cfgWith({ speed: { startStepMs: 100, minStepMs: 20, stepMsPerApple: 20, boostFactor: 2 } })
       tick(s, cfg, 10)
       setBoost(s, true)
-      tick(s, cfg, 90) // съела, stepMs 80, действующее ускорение включилось
+      tick(s, cfg, 90) // ate, stepMs 80, active boost turned on
       expect(s.stepMs).toBe(80)
       expect(s.boosting).toBe(true)
       expect(tick(s, cfg, 39).length).toBe(0)
@@ -1963,7 +1963,7 @@ describe('setBoost — ускорение', () => {
     test('frame cap counts the boosted steps that follow the switch inside one frame', () => {
       const s = makeState({ stepMs: 10, size: 100, snake: [v(0, 50, 50)] })
       setBoost(s, true)
-      tick(s, boostCfg, 1e9) // кадр 100 мс: один обычный шаг 10 мс, затем 18 ускоренных по 5 мс
+      tick(s, boostCfg, 1e9) // frame 100 ms: one normal step of 10 ms, then 18 boosted ones of 5 ms
       expect(s.elapsedMs).toBe(100)
       expect(s.stepCount).toBe(19)
       expect(s.sinceStepMs).toBe(0)

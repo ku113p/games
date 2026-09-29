@@ -1,4 +1,4 @@
-// Лендинг: рисует карточки из games.ts. Холодный путь (один раз при загрузке).
+// Landing page: draws cards from games.ts. Cold path (once on load).
 import { GAMES } from './games'
 
 const list = document.getElementById('games')

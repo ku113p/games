@@ -9,7 +9,7 @@ function memory(initial: Record<string, string> = {}): LegalStorage & { data: Ma
 
 const accepted = { [TERMS_ACCEPTED_KEY]: '1' }
 
-/** Экраны, видимые сейчас, отсортированными (порядок в Set не важен). */
+/** The screens visible now, sorted (order in a Set does not matter). */
 function seen(s: ScreenState): ScreenId[] {
   return [...visibleScreens(s)].sort()
 }
@@ -21,21 +21,21 @@ function fresh(initial: Record<string, string> = accepted) {
   return { storage, changes, screens }
 }
 
-describe('юридические экраны в общем потоке', () => {
-  test('первый запуск: предупреждение поверх меню, потом условия, потом чистое меню', () => {
+describe('legal screens in the overall flow', () => {
+  test('first launch: the warning on top of the menu, then the terms, then a clean menu', () => {
     const { screens, storage } = fresh({})
     screens.start()
     expect(seen(screens.state)).toEqual(['menu', 'warning'])
     expect(topScreen(screens.state)).toBe('warning')
     screens.confirmLegal()
     expect(seen(screens.state)).toEqual(['menu', 'terms'])
-    expect(storage.data.get(TERMS_ACCEPTED_KEY)).toBeUndefined() // согласие пишется при нажатии, а не при показе
+    expect(storage.data.get(TERMS_ACCEPTED_KEY)).toBeUndefined() // consent is written on press, not on display
     screens.confirmLegal()
     expect(seen(screens.state)).toEqual(['menu'])
     expect(storage.data.get(TERMS_ACCEPTED_KEY)).toBe('1')
   })
 
-  test('повторный запуск: только предупреждение', () => {
+  test('repeat launch: only the warning', () => {
     const { screens } = fresh()
     screens.start()
     expect(seen(screens.state)).toEqual(['menu', 'warning'])
@@ -43,14 +43,14 @@ describe('юридические экраны в общем потоке', () =>
     expect(seen(screens.state)).toEqual(['menu'])
   })
 
-  test('перф-режимы: экраны пропущены, согласие не записано', () => {
+  test('perf modes: the screens are skipped, consent is not recorded', () => {
     const { screens, storage } = fresh({})
     screens.skipLegal()
     expect(seen(screens.state)).toEqual(['menu'])
     expect(storage.data.size).toBe(0)
   })
 
-  test('под юридическим экраном нельзя открыть настройки и рекорды', () => {
+  test('under the legal screen settings and records cannot be opened', () => {
     const { screens } = fresh()
     screens.start()
     screens.openSettings()
@@ -61,15 +61,15 @@ describe('юридические экраны в общем потоке', () =>
     expect(screens.state.base).toBe('settings')
   })
 
-  test('confirm до start не падает и ничего не показывает', () => {
+  test('confirm before start does not crash and shows nothing', () => {
     const { screens } = fresh()
-    screens.confirmLegal() // лишнее нажатие до start: без падения
+    screens.confirmLegal() // an extra press before start: no crash
     expect(screens.state.legal).toBeNull()
   })
 })
 
-describe('меню, настройки, рекорды', () => {
-  test('меню -> настройки -> назад', () => {
+describe('menu, settings, records', () => {
+  test('menu -> settings -> back', () => {
     const { screens } = fresh()
     screens.openSettings()
     expect(seen(screens.state)).toEqual(['settings'])
@@ -77,7 +77,7 @@ describe('меню, настройки, рекорды', () => {
     expect(seen(screens.state)).toEqual(['menu'])
   })
 
-  test('меню -> рекорды -> назад', () => {
+  test('menu -> records -> back', () => {
     const { screens } = fresh()
     screens.openRecords()
     expect(seen(screens.state)).toEqual(['records'])
@@ -85,7 +85,7 @@ describe('меню, настройки, рекорды', () => {
     expect(seen(screens.state)).toEqual(['menu'])
   })
 
-  test('из настроек в рекорды напрямую не попасть, из меню назад — никуда', () => {
+  test('from settings you cannot get to records directly, from the menu back leads nowhere', () => {
     const { screens } = fresh()
     screens.openSettings()
     screens.openRecords()
@@ -95,7 +95,7 @@ describe('меню, настройки, рекорды', () => {
     expect(screens.state.base).toBe('menu')
   })
 
-  test('повторное открытие не даёт лишних уведомлений', () => {
+  test('reopening gives no extra notifications', () => {
     const { screens, changes } = fresh()
     screens.openSettings()
     screens.openSettings()
@@ -105,8 +105,8 @@ describe('меню, настройки, рекорды', () => {
   })
 })
 
-describe('магазин', () => {
-  test('меню -> магазин -> назад', () => {
+describe('shop', () => {
+  test('menu -> shop -> back', () => {
     const { screens } = fresh()
     screens.openShop()
     expect(seen(screens.state)).toEqual(['shop'])
@@ -115,16 +115,16 @@ describe('магазин', () => {
     expect(seen(screens.state)).toEqual(['menu'])
   })
 
-  test('из магазина «играть» сразу начинает партию, назад из партии магазина нет', () => {
+  test('from the shop "play" starts a game right away, there is no going back to the shop from a game', () => {
     const { screens } = fresh()
     screens.openShop()
     screens.startGame()
     expect(seen(screens.state)).toEqual(['hud'])
-    screens.back() // Escape в игре не должен вернуть магазин
+    screens.back() // Escape in a game must not bring back the shop
     expect(seen(screens.state)).toEqual(['hud'])
   })
 
-  test('с экрана проигрыша в магазин и оттуда в новую партию', () => {
+  test('from the game-over screen to the shop and from there to a new game', () => {
     const { screens } = fresh()
     screens.startGame()
     screens.died()
@@ -134,7 +134,7 @@ describe('магазин', () => {
     expect(seen(screens.state)).toEqual(['hud'])
   })
 
-  test('из настроек и рекордов магазин напрямую не открывается', () => {
+  test('from settings and records the shop does not open directly', () => {
     const { screens } = fresh()
     screens.openSettings()
     screens.openShop()
@@ -145,7 +145,7 @@ describe('магазин', () => {
     expect(screens.state.base).toBe('records')
   })
 
-  test('в партии, на паузе и на демо магазин недоступен', () => {
+  test('in a game, on pause and on the demo the shop is unavailable', () => {
     const { screens } = fresh()
     screens.startGame()
     screens.openShop()
@@ -159,7 +159,7 @@ describe('магазин', () => {
     expect(screens.state.base).toBe('game')
   })
 
-  test('под юридическим экраном магазин не открывается, после него — да', () => {
+  test('under the legal screen the shop does not open, after it it does', () => {
     const { screens } = fresh()
     screens.start()
     screens.openShop()
@@ -170,7 +170,7 @@ describe('магазин', () => {
     expect(seen(screens.state)).toEqual(['shop'])
   })
 
-  test('выход в меню из любого места закрывает магазин; повторное открытие не шумит', () => {
+  test('exit to the menu from anywhere closes the shop; reopening makes no noise', () => {
     const { screens, changes } = fresh()
     screens.openShop()
     screens.openShop()
@@ -180,33 +180,33 @@ describe('магазин', () => {
   })
 })
 
-describe('партия', () => {
-  test('старт: виден только hud; смерть: только экран проигрыша; в меню: меню', () => {
+describe('game', () => {
+  test('start: only the hud is visible; death: only the game-over screen; in the menu: the menu', () => {
     const { screens } = fresh()
     screens.startGame()
     expect(seen(screens.state)).toEqual(['hud'])
     screens.died()
     expect(seen(screens.state)).toEqual(['over'])
-    screens.startGame() // «Ещё раз»
+    screens.startGame() // "Again"
     expect(seen(screens.state)).toEqual(['hud'])
     screens.died()
     screens.toMenu()
     expect(seen(screens.state)).toEqual(['menu'])
   })
 
-  test('пауза: hud остаётся, поверх экран паузы; продолжить — обратно', () => {
+  test('pause: the hud stays, the pause screen on top; resume: back', () => {
     const { screens } = fresh()
     screens.startGame()
     expect(screens.pause()).toBe(true)
     expect(seen(screens.state)).toEqual(['hud', 'pause'])
     expect(isHeld(screens.state)).toBe(true)
-    expect(screens.pause()).toBe(false) // повторная пауза не считается
+    expect(screens.pause()).toBe(false) // a repeated pause does not count
     screens.resume()
     expect(seen(screens.state)).toEqual(['hud'])
     expect(isHeld(screens.state)).toBe(false)
   })
 
-  test('выход из паузы в меню сбрасывает паузу', () => {
+  test('leaving pause to the menu resets the pause', () => {
     const { screens } = fresh()
     screens.startGame()
     screens.pause()
@@ -214,7 +214,7 @@ describe('партия', () => {
     expect(screens.state).toEqual({ legal: null, base: 'menu', paused: false, demo: false })
   })
 
-  test('пауза вне игры невозможна', () => {
+  test('pause outside a game is impossible', () => {
     const { screens } = fresh()
     expect(screens.pause()).toBe(false)
     screens.openSettings()
@@ -226,7 +226,7 @@ describe('партия', () => {
     expect(screens.state.paused).toBe(false)
   })
 
-  test('демо важнее паузы: пауза под ним не видна и проявляется после закрытия', () => {
+  test('the demo beats pause: the pause under it is not visible and reappears after it closes', () => {
     const { screens } = fresh()
     screens.startGame()
     screens.openDemo()
@@ -239,7 +239,7 @@ describe('партия', () => {
     expect(isHeld(screens.state)).toBe(true)
   })
 
-  test('демо без паузы: после закрытия игра идёт', () => {
+  test('demo without pause: after it closes the game runs', () => {
     const { screens } = fresh()
     screens.startGame()
     screens.openDemo()
@@ -249,7 +249,7 @@ describe('партия', () => {
     expect(seen(screens.state)).toEqual(['hud'])
   })
 
-  test('смерть гасит паузу и демо; демо вне игры не открывается', () => {
+  test('death clears pause and the demo; the demo does not open outside a game', () => {
     const { screens } = fresh()
     screens.openDemo()
     expect(screens.state.demo).toBe(false)
@@ -260,7 +260,7 @@ describe('партия', () => {
     expect(screens.state).toEqual({ legal: null, base: 'over', paused: false, demo: false })
   })
 
-  test('новая партия не наследует паузу', () => {
+  test('a new game does not inherit pause', () => {
     const { screens } = fresh()
     screens.startGame()
     screens.pause()
@@ -268,7 +268,7 @@ describe('партия', () => {
     expect(seen(screens.state)).toEqual(['hud'])
   })
 
-  test('died вне игры игнорируется', () => {
+  test('died outside a game is ignored', () => {
     const { screens, changes } = fresh()
     screens.died()
     expect(changes.length).toBe(0)
@@ -277,7 +277,7 @@ describe('партия', () => {
 })
 
 describe('topScreen', () => {
-  test('приоритет: юридический > демо > пауза > основной', () => {
+  test('priority: legal > demo > pause > base', () => {
     expect(topScreen({ legal: 'terms', base: 'menu', paused: false, demo: false })).toBe('terms')
     expect(topScreen({ legal: null, base: 'game', paused: true, demo: true })).toBe('demo')
     expect(topScreen({ legal: null, base: 'game', paused: true, demo: false })).toBe('pause')

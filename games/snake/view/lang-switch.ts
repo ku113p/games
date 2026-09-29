@@ -1,7 +1,7 @@
-// view/lang-switch.ts — компактный переключатель языка: строка кнопок из двух букв (EN ES PT ZH RU).
-// Один и тот же на главном экране и на юридических: человек, которому попал не тот язык, меняет его на месте, одним тапом.
-// Холодный путь (меню, смена языка). Кнопки строятся из LANGUAGES: шестой язык = запись в i18n/dictionaries.ts.
-// Подпись — код языка (флаг не равен языку, а для zh-Hans его нет); полное название на самом языке — в aria-label и title.
+// view/lang-switch.ts is a compact language switcher: a row of two-letter buttons (EN ES PT ZH RU).
+// The same one on the main screen and the legal screens: a person who got the wrong language changes it in place, with one tap.
+// Cold path (menu, language change). Buttons are built from LANGUAGES: a sixth language = an entry in i18n/dictionaries.ts.
+// The label is the language code (a flag is not a language, and zh-Hans has none); the full name in its own language is in aria-label and title.
 
 import { LANGUAGES } from '../i18n/dictionaries'
 import { languageShortLabel } from '../i18n/locale'
@@ -21,7 +21,7 @@ function mark(root: HTMLElement): void {
 
 let subscribed = false
 
-/** Наполняет root кнопками языков и следит за сменой языка. Можно звать для нескольких контейнеров. */
+/** Fills root with language buttons and follows language changes. Can be called for several containers. */
 export function mountLangSwitch(root: HTMLElement, storage: { get(k: string): string | null; set(k: string, v: string): void }): void {
   root.setAttribute('role', 'group')
   root.replaceChildren()
@@ -40,7 +40,7 @@ export function mountLangSwitch(root: HTMLElement, storage: { get(k: string): st
     if (!(target instanceof Element)) return
     const btn = target.closest('button')
     const code = btn?.dataset['lang']
-    if (code !== undefined) setLanguage(code, storage) // текст всего интерфейса меняется сразу, выбор запоминается
+    if (code !== undefined) setLanguage(code, storage) // all interface text changes at once, the choice is remembered
   })
   roots.push(root)
   mark(root)

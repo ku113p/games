@@ -1,12 +1,12 @@
-// Пульт управления в углу (схема 'taps'): DOM-кнопки поверх холста, Pointer Events, без hover.
-// Кнопки — соседи холста, а не потомки: касание, начатое на пульте, до обработчиков холста
-// (touch.ts) не доходит, поэтому не участвует в наклоне камеры двумя пальцами, а палец на холсте
-// не может нажать пульт. Команда шлётся один раз на pointerdown (задержки нет), удержание не повторяет.
+// Corner control pad ('taps' scheme): DOM buttons over the canvas, Pointer Events, no hover.
+// The buttons are siblings of the canvas, not children: a touch that starts on the pad never reaches the canvas handlers
+// (touch.ts), so it takes no part in the two-finger camera tilt, and a finger on the canvas
+// cannot press the pad. The command is sent once on pointerdown (no delay); holding does not repeat.
 import { padCommand, shouldFirePad } from './gestures'
 import type { InputHandlers } from './index'
 
 export interface Pad {
-  /** Убрать подсветку «команда принята, ждёт шага» (вызывать, когда змейка сделала шаг/разворот). */
+  /** Clear the "command accepted, waiting for a step" highlight (call when the snake has taken a step/turn). */
   clearQueued(): void
   detach(): void
 }
@@ -30,12 +30,12 @@ export function attachPad(root: HTMLElement, h: InputHandlers): Pad {
     if (e.pointerType === 'mouse' && e.button !== 0) return
     const btn = (e.target as Element | null)?.closest<HTMLElement>('[data-pad]')
     if (btn === null || btn === undefined || !root.contains(btn)) return
-    e.preventDefault() // без фокуса и синтетического click
+    e.preventDefault() // no focus and no synthetic click
     if (!shouldFirePad(new Set(active.keys()), e.pointerId)) return
     try {
       btn.setPointerCapture(e.pointerId)
     } catch {
-      // Указатель уже исчез — pointerup/lostpointercapture всё сбросят.
+      // The pointer is already gone: pointerup/lostpointercapture will reset everything.
     }
     const cmd = padCommand(btn.dataset['pad'], h.axisEnabled?.() !== false)
     if (cmd === null) return
@@ -45,7 +45,7 @@ export function attachPad(root: HTMLElement, h: InputHandlers): Pad {
     btn.classList.add('queued')
     if (cmd.kind === 'turn') h.onTurn(cmd.dir)
     else h.onAxis(cmd.dir)
-    // Тактильный отклик там, где он есть (Android); при шаге в секунду видно, что команда принята.
+    // Haptic feedback where available (Android); with a step a second long it shows the command was accepted.
     if (typeof navigator.vibrate === 'function') navigator.vibrate(8)
   }
 

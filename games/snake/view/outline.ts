@@ -1,26 +1,26 @@
-// Неоновые контуры: геометрия «каркас из тонких балок». Строится один раз
-// (холодный путь), дальше живёт в InstancedMesh / Mesh как обычная геометрия:
-// пустая середина, светятся только рёбра. Балки — тонкие параллелепипеды, а не
-// линии GL: линия в 1 px на телефоне не читается и не даёт толщины для bloom.
+// Neon outlines: "frame of thin beams" geometry. Built once
+// (cold path), then lives in an InstancedMesh / Mesh as ordinary geometry:
+// hollow inside, only the edges glow. Beams are thin cuboids, not
+// GL lines: a 1 px line is unreadable on a phone and gives no thickness for bloom.
 
 import { BoxGeometry, BufferGeometry, Matrix4, Quaternion, Vector3 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
-/** Двенадцать рёбер куба с полуразмером half, центр в нуле: [ax,ay,az,bx,by,bz]*12. */
+/** Twelve cube edges with half-size half, centered at zero: [ax,ay,az,bx,by,bz]*12. */
 export function cubeEdgeSegments(half: number): number[] {
   const out: number[] = []
   const s = [-half, half]
   for (const a of s) {
     for (const b of s) {
-      out.push(-half, a, b, half, a, b) // вдоль x
-      out.push(a, -half, b, a, half, b) // вдоль y
-      out.push(a, b, -half, a, b, half) // вдоль z
+      out.push(-half, a, b, half, a, b) // along x
+      out.push(a, -half, b, a, half, b) // along y
+      out.push(a, b, -half, a, b, half) // along z
     }
   }
   return out
 }
 
-/** Четырёхгранная пирамида: остриё в +y, основание в плоскости y = -height/2. Восемь рёбер. */
+/** Square pyramid: apex at +y, base in the plane y = -height/2. Eight edges. */
 export function pyramidEdgeSegments(radius: number, height: number): number[] {
   const t = height / 2
   const c: number[][] = [
@@ -33,13 +33,13 @@ export function pyramidEdgeSegments(radius: number, height: number): number[] {
   for (let i = 0; i < 4; i++) {
     const a = c[i]!
     const b = c[(i + 1) % 4]!
-    out.push(a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!) // основание
-    out.push(a[0]!, a[1]!, a[2]!, 0, t, 0) // к острию
+    out.push(a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!) // base
+    out.push(a[0]!, a[1]!, a[2]!, 0, t, 0) // to the apex
   }
   return out
 }
 
-/** Окружность радиуса r в плоскости, перпендикулярной оси (0 — x, 1 — y, 2 — z), n отрезков: [ax,ay,az,bx,by,bz]*n. */
+/** Circle of radius r in the plane perpendicular to the axis (0 is x, 1 is y, 2 is z), n segments: [ax,ay,az,bx,by,bz]*n. */
 export function circleSegments(radius: number, n: number, axis: 0 | 1 | 2): number[] {
   const out: number[] = []
   const pt = (k: number): [number, number, number] => {
@@ -56,7 +56,7 @@ export function circleSegments(radius: number, n: number, axis: 0 | 1 | 2): numb
   return out
 }
 
-/** Звезда: два тетраэдра, вписанных в куб с полуразмером half (восемь вершин куба, двенадцать рёбер: диагонали граней). */
+/** Star: two tetrahedra inscribed in a cube with half-size half (eight cube vertices, twelve edges: face diagonals). */
 export function stellaOctangulaSegments(half: number): number[] {
   const tetra = (sign: 1 | -1): number[][] => [
     [sign * half, sign * half, sign * half],
@@ -74,7 +74,7 @@ export function stellaOctangulaSegments(half: number): number[] {
   return out
 }
 
-/** Те же отрезки, повёрнутые так, что диагональ куба (1,1,1) ложится на ось z: вид вдоль z даёт шестиконечную звезду, а не «песочные часы». */
+/** The same segments, rotated so the cube diagonal (1,1,1) lies on the z axis: a view along z gives a six-pointed star, not an "hourglass". */
 export function cornerOnZ(segments: number[]): number[] {
   const q = new Quaternion().setFromUnitVectors(new Vector3(1, 1, 1).normalize(), new Vector3(0, 0, 1))
   const v = new Vector3()
@@ -86,7 +86,7 @@ export function cornerOnZ(segments: number[]): number[] {
   return out
 }
 
-/** Склеенная геометрия балок по отрезкам [ax,ay,az,bx,by,bz]*n; только position. */
+/** Merged beam geometry from segments [ax,ay,az,bx,by,bz]*n; position only. */
 export function beamGeometry(segments: number[], thickness: number): BufferGeometry {
   const parts: BufferGeometry[] = []
   const a = new Vector3()
@@ -106,7 +106,7 @@ export function beamGeometry(segments: number[], thickness: number): BufferGeome
     mid.addVectors(a, b).multiplyScalar(0.5)
     q.setFromUnitVectors(zAxis, dir)
     m.compose(mid, q, one)
-    // +thickness по длине: углы соседних балок закрывают друг друга.
+    // +thickness along the length: the corners of adjacent beams cover each other.
     const box = new BoxGeometry(thickness, thickness, len + thickness)
     box.applyMatrix4(m)
     box.deleteAttribute('uv')

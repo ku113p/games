@@ -1,5 +1,5 @@
-// core/state.ts — форма состояния змейки. Чистый TS, без Three.js.
-// Сигнатуры фиксированы контрактом слоёв (CONTRACT.md) — не менять.
+// core/state.ts — shape of the snake state. Pure TS, no Three.js.
+// Signatures are fixed by the layer contract (CONTRACT.md); do not change them.
 
 export interface Vec3 {
   x: number
@@ -21,43 +21,43 @@ export type DeathCause = 'body' | 'wall' | 'obstacle'
 
 export interface GameState {
   size: number
-  snake: Vec3[] // snake[0] — голова
-  snakeCells: Set<number> // ключи клеток змейки, ключ = cellKey()
+  snake: Vec3[] // snake[0] is the head
+  snakeCells: Set<number> // snake cell keys, key = cellKey()
   obstacles: Set<number>
   apple: Vec3
   heading: Vec3
   frame: Frame
-  pendingTurn: Vec3 | null // буфер ввода: новый heading, применяется на следующем шаге
-  rolledSinceStep: boolean // frame довёрнут turnAxis, следующий такт — разворот на месте (без движения); второй доворот до него запрещён
-  mode: Mode // 'plane' — плоская змейка; 'free' — камера за головой (heading = -depth). Один раз plane → free на демо-ходу
-  stepCount: number // сколько шагов (успешных ходов) сделано в партии
-  growth: number // сколько клеток ещё дорастить
+  pendingTurn: Vec3 | null // input buffer: the new heading, applied on the next step
+  rolledSinceStep: boolean // frame was rolled by turnAxis, the next step is a turn in place (no movement); a second roll before it is forbidden
+  mode: Mode // 'plane': flat snake; 'free': camera behind the head (heading = -depth). Switches plane → free once, on the demo turn
+  stepCount: number // how many steps (successful moves) were made in the game
+  growth: number // how many cells are still to be grown
   phase: Phase
   score: number
   applesEaten: number
   stepMs: number
-  boostRequested: boolean // запрошенное ускорение: кнопка зажата прямо сейчас (setBoost); на темп не влияет
-  boosting: boolean // действующее ускорение: шаг длится stepMs / boostFactor; берёт boostRequested на границе шага (tick)
-  boostFactor: number // множитель ускорения партии (выбран до старта, createGame; ≥ 1, ×1 — ускорение ничего не даёт)
-  paceScale: number // масштаб всей кривой темпа партии (выбран до старта; 1 — как в config.speed, 1.5 спокойнее, 0.5 вдвое быстрее)
-  minBoostedStepMs: number // пол на длительность УСКОРЕННОГО шага (config.speed.minEffectiveStepMs; 0 — пола нет)
+  boostRequested: boolean // requested boost: the button is held right now (setBoost); does not affect the pace
+  boosting: boolean // active boost: a step lasts stepMs / boostFactor; takes boostRequested on a step boundary (tick)
+  boostFactor: number // boost factor of the game (chosen before the start, createGame; ≥ 1, ×1 means boost does nothing)
+  paceScale: number // scale of the whole pace curve of the game (chosen before the start; 1 = as in config.speed, 1.5 is calmer, 0.5 is twice as fast)
+  minBoostedStepMs: number // floor on the duration of a BOOSTED step (config.speed.minEffectiveStepMs; 0 = no floor)
   sinceStepMs: number
   elapsedMs: number
-  demoTurnPending: boolean // демо-доворот: один раз, на demo.afterSteps-м ходу первой игры
+  demoTurnPending: boolean // demo turn: once, on step demo.afterSteps of the first game
   rngState: number
 }
 
-/** Целочисленный ключ клетки куба — используется в Set'ах snakeCells/obstacles. */
+/** Integer key of a cube cell, used in the snakeCells/obstacles Sets. */
 export function cellKey(x: number, y: number, z: number, size: number): number {
   return x + y * size + z * size * size
 }
 
-// Множитель приращения mulberry32 (константа алгоритма ГПСЧ, не число баланса игры).
+// Increment of mulberry32 (a constant of the PRNG algorithm, not a game balance value).
 const MULBERRY32_INCREMENT = 0x6d2b79f5
 
 /**
- * mulberry32: детерминированный ГПСЧ. Мутирует s.rngState, возвращает число в [0, 1).
- * Единственный источник случайности в ядре — время в tick приходит параметром снаружи.
+ * mulberry32: a deterministic PRNG. Mutates s.rngState, returns a number in [0, 1).
+ * The only source of randomness in the core; time in tick comes in as a parameter from outside.
  */
 export function nextRandom(s: GameState): number {
   s.rngState = (s.rngState + MULBERRY32_INCREMENT) | 0
@@ -68,15 +68,15 @@ export function nextRandom(s: GameState): number {
 }
 
 /**
- * Длительность шага при ускорении: stepMs / boostFactor, но не короче пола minBoostedStepMs
- * (иначе сигналы головы не успевают показаться). Пол режет только ускоренный шаг: обычный темп не трогает.
+ * Step duration while boosting: stepMs / boostFactor, but not shorter than the minBoostedStepMs floor
+ * (otherwise the head signals have no time to show). The floor cuts only the boosted step; the normal pace is untouched.
  */
 export function boostedStepMs(s: GameState): number {
   const raw = s.boostFactor > 0 ? s.stepMs / s.boostFactor : s.stepMs
   return raw < s.minBoostedStepMs ? Math.min(s.stepMs, s.minBoostedStepMs) : raw
 }
 
-/** Длительность идущего шага: boostedStepMs, пока действует ускорение (boosting, не boostRequested). */
+/** Duration of the current step: boostedStepMs while boost is active (boosting, not boostRequested). */
 export function effectiveStepMs(s: GameState): number {
   return s.boosting ? boostedStepMs(s) : s.stepMs
 }

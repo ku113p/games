@@ -1,36 +1,36 @@
-// Ближний слой подсказки: маркеры в ЦЕНТРАХ клеток, куда змейка может попасть
-// следующим шагом, и ещё одна клетка дальше по той же оси. Один маркер на клетку.
-// Только по осям, без диагоналей: вперёд и четыре соседа по граням (влево, вправо,
-// вниз, вверх относительно хода; в plane это и ось глубины), всего пять векторов.
-// Ближняя крупнее и ярче, вторая (две клетки от головы) заметно мельче и тише.
-//   можно шагнуть — белая СТРЕЛКА по направлению от головы к клетке (вперёд ярче боковых).
-//     Стрелка — плоская, рисуется во фрагментном шейдере внутри point-спрайта, который
-//     всегда повёрнут к камере, а угол берётся из экранной проекции направления шага
-//     (клетка и клетка + шаг проецируются вершинным шейдером): читается с любого ракурса.
-//     Если направление почти вдоль луча зрения (стрелка «смотрит на нас/от нас»),
-//     проекция вырождается и стрелка плавно переходит в диск — так выглядит
-//     торцом и объёмная стрелка, а угол в этот момент был бы шумом;
-//   нельзя (стенка, препятствие, тело) — красно-оранжевый КРЕСТИК; у стенки метка
-//   стоит на её грани (клетка за стенкой не существует). Если ближняя клетка закрыта
-//   препятствием/телом, вторая тоже крестик (сплошная стена из двух меток), даже если
-//   за ней свободно; если вторая уже за стенкой куба — метка на грани. Ближняя стенка:
-//   одна метка (вторая висела бы вне куба и намекала, что за стенкой есть место).
-// Крестик рисует фрагментный шейдер внутри point-спрайта. Спрайт всегда повёрнут к
-// камере, поэтому плоский крест читается с любого ракурса без пересчёта геометрии,
-// а объёмный из двух отрезков в перспективе сплющивался бы в палку или точку.
-// Считается отдельно для каждой клетки. Яблоко — свободная клетка.
-// 5 клеток x 2 заранее выделены; в кадре мутируются позиции и виды, объектов нет.
-// Яркость ниже порога bloom.
+// Near hint layer: markers at the CENTERS of the cells the snake can reach
+// with the next step, plus one more cell farther along the same axis. One marker per cell.
+// Axes only, no diagonals: forward and four face neighbors (left, right,
+// down, up relative to the heading; in plane mode this includes the depth axis), five vectors in all.
+// The near one is larger and brighter, the second (two cells from the head) is noticeably smaller and quieter.
+//   can step: a white ARROW along the direction from the head to the cell (forward brighter than the sides).
+//     The arrow is flat, drawn in the fragment shader inside a point sprite that is
+//     always turned toward the camera, and its angle comes from the screen projection of the step direction
+//     (the cell and cell + step are projected by the vertex shader): readable from any angle.
+//     If the direction is almost along the line of sight (the arrow "looks at us / away"),
+//     the projection degenerates and the arrow smoothly turns into a disc - that is how a 3D arrow
+//     looks end-on too, and the angle at that moment would be noise;
+//   cannot (wall, obstacle, body): a red-orange CROSS; at a wall the marker
+//   sits on its face (the cell behind the wall does not exist). If the near cell is blocked by an
+//   obstacle/body, the second is a cross too (a solid wall of two markers), even if
+//   it is free behind; if the second is already beyond the cube wall, the marker is on the face. Near wall:
+//   one marker (a second would hang outside the cube and hint that there is room behind the wall).
+// The cross is drawn by the fragment shader inside a point sprite. The sprite is always turned toward the
+// camera, so a flat cross reads from any angle without recomputing geometry,
+// whereas a 3D one made of two segments would flatten into a stick or a dot in perspective.
+// Computed separately for each cell. An apple is a free cell.
+// 5 cells x 2 are pre-allocated; per frame positions and kinds are mutated, no objects.
+// Brightness is below the bloom threshold.
 //
-// ГЛУБИНА. Метка стоит в центре клетки, а клетка может быть препятствием (крестик именно там и
-// стоит), поэтому «просто depthTest» съел бы её собственной гранью. И «вообще без depthTest» врало:
-// метка за стеной рисовалась на полной яркости поверх стены, как наклейка на её лице. Поэтому два
-// прохода по одной геометрии с одним и тем же тестом глубины, но в разные стороны:
-//   открытый  — depthTest LessEqual, полная яркость;
-//   за стеной — depthTest Greater, яркость NEAR_OCCLUDED_ALPHA (метка читается «она за стеной»).
-// Глубина метки для теста подтянута к камере на NEAR_DEPTH_BIAS клетки вдоль луча зрения (экранное
-// положение и размер не меняются): собственная клетка метки и её грани метку не закрывают,
-// закрывает только то, что стоит заметно ближе к камере. Проходы не пересекаются (тест общий).
+// DEPTH. The marker sits at the cell center, and the cell may be an obstacle (that is exactly where the cross
+// stands), so a plain depthTest would let the marker's own face eat it. And "no depthTest at all" lied:
+// a marker behind a wall was drawn at full brightness over the wall, like a sticker on its face. So two
+// passes over the same geometry with the same depth test but in opposite directions:
+//   open        - depthTest LessEqual, full brightness;
+//   behind wall - depthTest Greater, brightness NEAR_OCCLUDED_ALPHA (the marker reads as "it is behind a wall").
+// The marker's depth for the test is pulled toward the camera by NEAR_DEPTH_BIAS cells along the line of sight (screen
+// position and size do not change): the marker's own cell and its faces do not cover it,
+// only something noticeably closer to the camera does. The passes do not overlap (shared test).
 
 import { BufferAttribute, BufferGeometry, Color, GreaterDepth, LessEqualDepth, Points, ShaderMaterial, type DepthModes, type IUniform, type Scene } from 'three'
 import type { GameState } from '../core/state'
@@ -38,25 +38,25 @@ import { viewFrame, head } from '../core/queries'
 import { HeadTrace, HitKind, type SolidTest } from './head-trace'
 import { NEAR_DEPTH_BIAS, NEAR_FAR_ALPHA, NEAR_FAR_SIZE, NEAR_BLOCKED_BRIGHTNESS, NEAR_OCCLUDED_ALPHA, NEAR_FORWARD_BRIGHTNESS, NEAR_SIDE_BRIGHTNESS, RAY_DANGER_COLOR } from './palette'
 
-// Итог put: свободна / закрыта (препятствие, тело) / стенка куба.
+// Result of put: free / blocked (obstacle, body) / cube wall.
 const PUT_OPEN = 0
 const PUT_BLOCKED = 1
 const PUT_WALL = 2
-const MAX_CELLS = 10 // 5 направлений x 2 клетки
-const DOT_SIZE = 0.42 // размер спрайта ближнего маркера (стрелка/крест) в клетках
-const MAX_PX = 60 // потолок размера спрайта в пикселях буфера: вблизи стрелка крупная, но не на пол-экрана
-// Крестик мельче 8 px превращается в кляксу: для «нельзя» свой нижний предел размера
-// и множитель (крест визуально легче диска той же ширины).
+const MAX_CELLS = 10 // 5 directions x 2 cells
+const DOT_SIZE = 0.42 // near marker sprite size (arrow/cross) in cells
+const MAX_PX = 60 // cap on sprite size in buffer pixels: up close the arrow is big, but not half the screen
+// A cross smaller than 8 px turns into a blob: "cannot" has its own lower size limit
+// and multiplier (a cross is visually lighter than a disc of the same width).
 const BLOCKED_MIN_PX = 9
-const ARROW_MIN_PX = 10 // стрелка мельче не читается: свободные клетки не ниже этого
+const ARROW_MIN_PX = 10 // a smaller arrow is unreadable: free cells stay at or above this
 const BLOCKED_SIZE_K = 1.3
-const CROSS_HALF = 0.86 // половина стороны креста в долях спрайта
-const CROSS_WIDTH = 0.2 // полутолщина штриха в долях спрайта
+const CROSS_HALF = 0.86 // half the side of the cross as a fraction of the sprite
+const CROSS_WIDTH = 0.2 // half-thickness of the stroke as a fraction of the sprite
 
 const VERT = /* glsl */ `
-attribute float aKind;   // 0 вперёд, 1 сбоку, 2 нельзя, -1 не рисовать
-attribute float aFar;    // 1 — вторая клетка от головы
-attribute vec3 aDir;     // единичный шаг от головы к клетке (мировые оси)
+attribute float aKind;   // 0 forward, 1 sideways, 2 cannot, -1 do not draw
+attribute float aFar;    // 1 is the second cell from the head
+attribute vec3 aDir;     // unit step from the head to the cell (world axes)
 uniform float uPxScale;
 uniform float uSize;
 uniform float uMaxPx;
@@ -85,15 +85,15 @@ void main() {
   }
   vec4 mv = viewMatrix * vec4(position, 1.0);
   vec4 clip = projectionMatrix * mv;
-  // Глубина для теста: точка на луче зрения ближе к камере на uDepthBias (xy/w те же, что у clip).
+  // Depth for the test: a point on the line of sight closer to the camera by uDepthBias (xy/w same as clip).
   float mvLen = max(length(mv.xyz), 1e-4);
   gl_Position = projectionMatrix * vec4(mv.xyz * (max(mvLen - uDepthBias, 0.05) / mvLen), 1.0);
-  // Экранное направление шага: проекция клетки и клетки + пол-шага по aDir.
+  // Screen direction of the step: projection of the cell and of the cell + half a step along aDir.
   vec4 clip2 = projectionMatrix * (mv + viewMatrix * vec4(aDir * 0.5, 0.0));
   float aspect = projectionMatrix[1][1] / projectionMatrix[0][0];
   vec2 sd = (clip2.xy / max(clip2.w, 0.001) - clip.xy / max(clip.w, 0.001)) * vec2(aspect, 1.0);
   float sdLen = length(sd);
-  // Отношение к «боковому» полушагу (там проекция полная): 1 — вбок, 0 — торцом.
+  // Relation to the "sideways" half-step (there the projection is full): 1 is sideways, 0 is end-on.
   float side = sdLen / max(0.5 * projectionMatrix[1][1] / max(clip.w, 0.001), 1e-5);
   vDir = sdLen > 1e-6 ? sd / sdLen : vec2(0.0, 1.0);
   vArrow = smoothstep(0.12, 0.35, side);
@@ -120,13 +120,13 @@ void main() {
   vec2 p = (gl_PointCoord - 0.5) * 2.0;
   float shape;
   if (vBlocked > 0.5) {
-    // Крест: расстояние до диагоналей, обрезка квадратом.
+    // Cross: distance to the diagonals, clipped by a square.
     float d = min(abs(p.x - p.y), abs(p.x + p.y)) * 0.70710678;
     float box = max(abs(p.x), abs(p.y));
     shape = (1.0 - smoothstep(uCrossWidth * 0.6, uCrossWidth, d)) * (1.0 - smoothstep(uCrossHalf - 0.1, uCrossHalf, box));
   } else {
-    // Свободная клетка: стрелка вдоль vDir (в спрайте y вниз, переводим в y вверх),
-    // торцом — диск.
+    // Free cell: an arrow along vDir (in the sprite y is down, convert to y up),
+    // end-on it is a disc.
     vec2 q = vec2(p.x, -p.y);
     float u = dot(q, vDir) + 0.1;
     float v = dot(q, vec2(-vDir.y, vDir.x));
@@ -169,7 +169,7 @@ export class NearCells {
     geometry.setAttribute('aFar', this.far)
     geometry.setAttribute('aDir', this.dir)
     const c = (k: number): Color => new Color(k, k, k)
-    // Общие униформы двух проходов (по ссылке); своя у каждого только uPassAlpha.
+    // Shared uniforms of the two passes (by reference); only uPassAlpha is separate for each.
     const shared: Record<string, IUniform> = {
       uPxScale: { value: 400 },
       uSize: { value: DOT_SIZE },
@@ -208,13 +208,13 @@ export class NearCells {
   }
 
   setViewportHeight(pixels: number): void {
-    this.material.uniforms['uPxScale']!.value = pixels * 0.5 // униформа общая с проходом «за стеной»
+    this.material.uniforms['uPxScale']!.value = pixels * 0.5 // uniform is shared with the "behind wall" pass
   }
 
   /**
-   * Кадр. trace.run() к этому моменту уже вызван для того же состояния.
-   * (dx,dy,dz) — единичное направление хода. Пять векторов: ход и четыре
-   * перпендикулярных (±right, ±up, ±depth без тех, что лежат вдоль хода).
+   * Frame. trace.run() has already been called for the same state by now.
+   * (dx,dy,dz) is the unit heading. Five vectors: the heading and four
+   * perpendicular ones (±right, ±up, ±depth minus those lying along the heading).
    */
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest): void {
     const h = head(s)
@@ -226,7 +226,7 @@ export class NearCells {
       const vx = Math.round(v.x)
       const vy = Math.round(v.y)
       const vz = Math.round(v.z)
-      // Вдоль оси движения (вперёд уже есть, назад запрещён) — пропуск.
+      // Along the movement axis (forward already exists, backward is forbidden) - skip.
       if (Math.abs(vx * dx + vy * dy + vz * dz) > 0) continue
       this.putPair(s, h.x, h.y, h.z, vx, vy, vz, 1, isSolid)
       this.putPair(s, h.x, h.y, h.z, -vx, -vy, -vz, 1, isSolid)
@@ -238,12 +238,12 @@ export class NearCells {
     this.dir.needsUpdate = true
   }
 
-  /** Ближняя клетка и, если в неё можно шагнуть, вторая за ней (та же ось). */
+  /** Near cell and, if it can be stepped into, the second one behind it (same axis). */
   private putPair(s: GameState, hx: number, hy: number, hz: number, dx: number, dy: number, dz: number, role: number, isSolid: SolidTest): void {
     const near = this.put(s, hx, hy, hz, dx, dy, dz, 1, role, isSolid, false)
-    // Ближняя стенка куба: за ней клетки нет, вторая метка повисла бы вне куба.
+    // Near cube wall: there is no cell behind it, a second marker would hang outside the cube.
     if (near === PUT_WALL) return
-    // Ближняя закрыта: вторая тоже крестик, что бы за ней ни было (сплошная стена из двух меток).
+    // Near one blocked: the second is a cross too, whatever is behind it (a solid wall of two markers).
     this.put(s, hx, hy, hz, dx, dy, dz, 2, role, isSolid, near === PUT_BLOCKED)
   }
 
@@ -252,7 +252,7 @@ export class NearCells {
     const k = this.trace.kindAt(s, hx + dx * dist, hy + dy * dist, hz + dz * dist, dist, isSolid)
     const wall = k === HitKind.Wall
     const kind = forceBlocked || wall || k === HitKind.Obstacle || k === HitKind.Body ? 2 : role
-    // Центр клетки; для стенки — центр её грани (на полклетки ближе).
+    // Cell center; for a wall, the center of its face (half a cell closer).
     const off = wall ? dist - 0.5 : dist
     const i = this.n
     this.pos.setXYZ(i, hx + dx * off, hy + dy * off, hz + dz * off)

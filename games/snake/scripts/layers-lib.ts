@@ -1,10 +1,10 @@
-// Чистая логика линтера слоёв (без файлового ввода-вывода) — чтобы её можно было
-// тестировать. Запуск линтера — scripts/check-layers.ts.
+// Pure logic of the layer linter (no file I/O) - so that it can be
+// tested. The linter itself is run by scripts/check-layers.ts.
 //
-// Это НЕ полноценный парсер: небольшой сканер, который сначала вырезает комментарии
-// и содержимое строк/шаблонов/regex-литералов (поэтому import внутри комментария или
-// строки не даёт ложных срабатываний), а потом ищет импорты и запрещённые API регулярками
-// по оставшемуся коду. Хитрые обходы (алиасы глобалов через переменные и т.п.) он не ловит.
+// This is NOT a full parser: a small scanner that first strips comments
+// and the contents of strings/templates/regex literals (so an import inside a comment or
+// string gives no false positives), and then looks for imports and forbidden APIs with regexes
+// in the remaining code. Tricky bypasses (aliasing globals through variables and the like) it does not catch.
 
 export type Layer = 'core' | 'view' | 'input' | 'shop'
 
@@ -13,7 +13,7 @@ export interface Violation {
   message: string
 }
 
-// Маркеры в очищенном коде: строковый литерал №N, шаблон с ${} (динамика), regex.
+// Markers in the cleaned code: string literal #N, template with ${} (dynamic), regex.
 const STR = '\u0001'
 const DYN = '\u0002'
 const RX = '\u0003'
@@ -49,7 +49,7 @@ export function sanitize(src: string): Sanitized {
     return r
   }
 
-  // i стоит сразу после ` или после закрывающей } подстановки.
+  // i stands right after ` or after the closing } of a substitution.
   function readTemplate(t: Tpl): void {
     while (i < n) {
       const c = src[i]
@@ -121,7 +121,7 @@ export function sanitize(src: string): Sanitized {
       continue
     }
     if (c === '/') {
-      // Деление или regex-литерал: по предыдущему значимому символу.
+      // Division or regex literal: decided by the previous significant character.
       if (lastSig === '' || '(,=:[!&|?{};+-*%<>~^'.includes(lastSig)) {
         let j = i + 1
         let inClass = false
@@ -163,7 +163,7 @@ export function sanitize(src: string): Sanitized {
   return { code: out, strings }
 }
 
-// --- пути ---------------------------------------------------------------
+// --- paths ---------------------------------------------------------------
 
 function normalizeSegments(parts: string[]): string[] {
   const out: string[] = []
@@ -178,7 +178,7 @@ function normalizeSegments(parts: string[]): string[] {
   return out
 }
 
-/** Резолвит относительный специфайер против пути файла (оба относительно корня игры). */
+/** Resolves a relative specifier against the file path (both relative to the game root). */
 export function resolveSpecifier(fileRelPath: string, spec: string): string {
   const dirSegs = fileRelPath.split('/').slice(0, -1)
   return normalizeSegments([...dirSegs, ...spec.split('/')]).join('/')
@@ -189,25 +189,25 @@ function layerOfPath(relPath: string): Layer | 'other' {
   return first === 'core' || first === 'view' || first === 'input' || first === 'shop' ? first : 'other'
 }
 
-// --- запрещённое в ядре (правило 4 AGENTS.md: ядро детерминировано) -----
+// --- forbidden in the core (AGENTS.md rule 4: the core is deterministic) -----
 
 const CORE_BANNED: ReadonlyArray<{ re: RegExp; what: string }> = [
   { re: /\bMath\s*\.\s*random\b/, what: 'Math.random()' },
-  { re: /\bMath\s*\[/, what: 'Math[...] (обход запрета Math.random)' },
-  { re: /\{[^{}]*\}\s*=\s*Math\b/, what: 'деструктуризация из Math (обход запрета Math.random)' },
-  { re: /(?<![.\w$])Date\b/, what: 'Date (время приходит снаружи)' },
-  { re: /(?<![.\w$])performance\b/, what: 'performance (время приходит снаружи)' },
-  { re: /(?<![.\w$])crypto\b/, what: 'crypto (рандом только через seed)' },
+  { re: /\bMath\s*\[/, what: 'Math[...] (bypass of the Math.random ban)' },
+  { re: /\{[^{}]*\}\s*=\s*Math\b/, what: 'destructuring from Math (bypass of the Math.random ban)' },
+  { re: /(?<![.\w$])Date\b/, what: 'Date (time comes from outside)' },
+  { re: /(?<![.\w$])performance\b/, what: 'performance (time comes from outside)' },
+  { re: /(?<![.\w$])crypto\b/, what: 'crypto (random only through a seed)' },
   {
     re: /(?<![.\w$])(document|window|localStorage|sessionStorage|navigator|requestAnimationFrame|cancelAnimationFrame|setTimeout|setInterval|globalThis)\b/,
-    what: 'браузерный/глобальный API',
+    what: 'browser/global API',
   },
 ]
 
-// --- анализ файла ---------------------------------------------------------
+// --- file analysis ---------------------------------------------------------
 
 /**
- * @param fileRelPath путь файла относительно корня игры, через '/', например 'core/rules.ts'
+ * @param fileRelPath file path relative to the game root, with '/', e.g. 'core/rules.ts'
  */
 export function analyzeSource(fileRelPath: string, source: string): Violation[] {
   const layer = layerOfPath(fileRelPath)
@@ -228,16 +228,16 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
     const where = `${fileRelPath}:${lineAt(at)}`
     if (!spec.startsWith('.')) {
       if (layer === 'core' || layer === 'shop') {
-        // В тестах чистых слоёв разрешён только раннер.
+        // In tests of pure layers only the runner is allowed.
         if (isTest && spec === 'bun:test') return
-        add(`${where} ${layer}/ ${how} "${spec}" — ${layer}/ может импортировать только свои файлы (никаких three/node/npm-пакетов)`)
+        add(`${where} ${layer}/ ${how} "${spec}" — ${layer}/ may import only its own files (no three/node/npm packages)`)
       }
       return
     }
     const resolved = resolveSpecifier(fileRelPath, spec)
     const target = layerOfPath(resolved)
     if ((layer === 'core' || layer === 'shop') && target !== layer) {
-      add(`${where} ${layer}/ ${how} файл вне ${layer}/: "${spec}"`)
+      add(`${where} ${layer}/ ${how} a file outside ${layer}/: "${spec}"`)
     } else if (layer === 'view' && target === 'input') {
       add(`${where} view/ ${how} input/: "${spec}"`)
     } else if (layer === 'input' && target === 'view') {
@@ -249,21 +249,21 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
 
   // import ... from "x" / export ... from "x"
   for (const m of code.matchAll(new RegExp(`\\bfrom\\s*${STR}(\\d+)${STR}`, 'g'))) {
-    checkSpec(literal(m[1] as string), 'импортирует', m.index)
+    checkSpec(literal(m[1] as string), 'imports', m.index)
   }
-  // import "x" (побочный эффект)
+  // import "x" (side effect)
   for (const m of code.matchAll(new RegExp(`\\bimport\\s*${STR}(\\d+)${STR}`, 'g'))) {
-    checkSpec(literal(m[1] as string), 'импортирует', m.index)
+    checkSpec(literal(m[1] as string), 'imports', m.index)
   }
   // import x = require("x")
-  // import("x") / require("x"): аргумент должен быть литералом, иначе не проверить.
+  // import("x") / require("x"): the argument must be a literal, otherwise it cannot be checked.
   for (const m of code.matchAll(/(?<![.\w$])(import|require)\s*\(\s*([^)]*)\)/g)) {
     const arg = (m[2] as string).trim()
     const lit = new RegExp(`^${STR}(\\d+)${STR}$`).exec(arg)
     if (lit === null) {
-      add(`${fileRelPath}:${lineAt(m.index)} ${m[1] as string}() с непроверяемым аргументом (переменная/шаблон) — используй статический импорт`)
+      add(`${fileRelPath}:${lineAt(m.index)} ${m[1] as string}() with an unverifiable argument (variable/template) - use a static import`)
     } else {
-      checkSpec(literal(lit[1] as string), m[1] === 'import' ? 'динамически импортирует' : 'require-ит', m.index)
+      checkSpec(literal(lit[1] as string), m[1] === 'import' ? 'dynamically imports' : 'requires', m.index)
     }
   }
   // new URL('../view/x', import.meta.url)
@@ -273,20 +273,20 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
     const first = (args.split(',')[0] ?? '').trim()
     const lit = new RegExp(`^${STR}(\\d+)${STR}$`).exec(first)
     if (lit === null) {
-      add(`${fileRelPath}:${lineAt(m.index)} new URL(..., import.meta.url) с непроверяемым путём`)
+      add(`${fileRelPath}:${lineAt(m.index)} new URL(..., import.meta.url) with an unverifiable path`)
     } else {
       const spec = literal(lit[1] as string)
-      checkSpec(spec.startsWith('.') ? spec : `./${spec}`, 'ссылается через new URL на', m.index)
+      checkSpec(spec.startsWith('.') ? spec : `./${spec}`, 'references via new URL', m.index)
     }
   }
   for (const m of code.matchAll(/\bimport\s*\.\s*meta\s*\.\s*(glob|resolve|require)\b/g)) {
-    add(`${fileRelPath}:${lineAt(m.index)} import.meta.${m[1] as string} — обход проверки импортов`)
+    add(`${fileRelPath}:${lineAt(m.index)} import.meta.${m[1] as string} — bypasses the import check`)
   }
 
   if ((layer === 'core' || layer === 'shop') && !isTest) {
     for (const { re, what } of CORE_BANNED) {
       const m = re.exec(code)
-      if (m !== null) add(`${fileRelPath}:${lineAt(m.index)} ${layer}/ использует ${what} — ядро обязано быть детерминированным (AGENTS.md, правило 4)`)
+      if (m !== null) add(`${fileRelPath}:${lineAt(m.index)} ${layer}/ uses ${what} — the core must be deterministic (AGENTS.md, rule 4)`)
     }
   }
   return violations

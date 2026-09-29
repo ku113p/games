@@ -1,54 +1,54 @@
-// Отладочная панель производительности. По умолчанию выключена и не создаётся вообще
-// (ни DOM, ни слушателей, ни счёта в кадре): main.ts держит null, пока её не включили.
-// Включение: клавиша ` (Backquote) на ПК или параметр адреса ?perf на телефоне.
+// Debug performance panel. Off by default and not created at all
+// (no DOM, no listeners, no per-frame counting): main.ts holds null until it is turned on.
+// Enable with the ` (Backquote) key on desktop or the ?perf URL parameter on a phone.
 //
-// Показывает: FPS (сглаженный и худший за 1-2 с), время кадра, JS-время кадра, вызовы отрисовки/треугольники,
-// размер буфера (пиксели и МПикс), devicePixelRatio и применённый множитель, размер арены, длину змейки,
-// состояние тяжёлых эффектов. Переключатели: сглаживание 4/2/0, bloom, потолок МПикс, туман, мини-карта.
+// Shows: FPS (smoothed and worst over 1-2 s), frame time, JS frame time, draw calls/triangles,
+// buffer size (pixels and MPix), devicePixelRatio and the applied multiplier, arena size, snake length,
+// state of the heavy effects. Toggles: antialiasing 4/2/0, bloom, MPix cap, fog, minimap.
 //
-// Сама панель не должна искажать измерение: в кадре только арифметика над заранее выделенными
-// числами (beginFrame/endFrame), текст пишется ~4 раза в секунду одной записью textContent,
-// подписи кнопок — только при смене значения.
+// The panel itself must not distort the measurement: per frame it does only arithmetic on preallocated
+// numbers (beginFrame/endFrame); text is written ~4 times a second with a single textContent write,
+// button labels only when the value changes.
 
 import type { BenchRun } from './perf-bench'
 import { AA_PRESETS, MEGAPIXEL_STEPS, createPerfSnapshot, currentAaPreset, perf, setAaPreset, type PerfSnapshot } from './perf-settings'
 
-/** Период обновления текста, мс (4-5 раз в секунду). */
+/** Text refresh period, ms (4-5 times a second). */
 const REFRESH_MS = 220
-/** Окно «худшего кадра»: макс за текущее окно и прошлое окно = последние 1-2 с. */
+/** "Worst frame" window: max over the current and previous window = the last 1-2 s. */
 const WORST_WINDOW_MS = 1000
-/** Вес нового значения в сглаженном FPS. */
+/** Weight of the new value in the smoothed FPS. */
 const FPS_SMOOTHING = 0.4
-/** Кадры длиннее этого считаем подвисанием и подсвечиваем худший FPS. */
+/** Frames longer than this count as a hitch and highlight the worst FPS. */
 const HITCH_MS = 33.4
 
 export interface PerfPanel {
-  /** Начало rAF-кадра. now — метка requestAnimationFrame. */
+  /** Start of an rAF frame. now is the requestAnimationFrame timestamp. */
   beginFrame(now: number): void
-  /** Конец работы кадра (после tick+render); jsMs — длительность этой работы. Сэмплирует раз в REFRESH_MS. */
+  /** End of the frame's work (after tick+render); jsMs is the duration of that work. Samples once per REFRESH_MS. */
   endFrame(jsMs: number): void
   toggle(): void
-  /** Панель видна только в живой партии (на меню/экране смерти она перекрыла бы кнопки): main сообщает, идёт ли партия. */
+  /** The panel is visible only in a live game (on the menu/game-over screen it would cover the buttons): main reports whether a game is running. */
   setShown(inGame: boolean): void
-  /** Открыть панель (если закрыта). */
+  /** Open the panel (if closed). */
   open(): void
   isOpen(): boolean
-  /** Прогон бенчмарка идёт (run != null) или закончился (null): блокирует переключатели, показывает прогресс. */
+  /** A benchmark run is in progress (run != null) or has finished (null): locks the toggles, shows progress. */
   setBench(run: BenchRun | null): void
-  /** Настройки perf поменялись снаружи (ступень качества из меню): перерисовать подписи кнопок. */
+  /** Perf settings changed from outside (quality level from the menu): redraw the button labels. */
   refresh(): void
-  /** Показать готовый лог с кнопками «Скопировать»/«Скачать». */
+  /** Show the finished log with "Copy"/"Download" buttons. */
   showResult(text: string): void
 }
 
 export interface PerfPanelHooks {
-  /** Заполнить снимок (рендер-инфо, арена, длина). Вызывается ~4 раза в секунду. */
+  /** Fill the snapshot (render info, arena, length). Called ~4 times a second. */
   sample(out: PerfSnapshot): void
-  /** Настройки (perf) изменились: применить сразу (пересоздать композер/буферы). */
+  /** Perf settings changed: apply immediately (recreate the composer/buffers). */
   apply(): void
-  /** Запустить бенчмарк (кнопка «Bench», клавиша 6). */
+  /** Start the benchmark ("Bench" button, key 6). */
   startBench(): void
-  /** Закрыть окно с логом. */
+  /** Close the log window. */
   resultClosed(): void
 }
 
@@ -75,7 +75,7 @@ background:rgba(5,6,10,.85);border:1px solid #ff0;border-radius:8px;color:#ff0;f
 `
 
 export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
-  // --- DOM (холодный путь, один раз) ---
+  // --- DOM (cold path, once) ---
   const style = document.createElement('style')
   style.textContent = CSS
   document.head.appendChild(style)
@@ -99,7 +99,7 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
   root.append(text, row, hint)
   document.body.appendChild(root)
 
-  // Баннер прогресса бенчмарка (по центру сверху) и окно с готовым логом.
+  // Benchmark progress banner (top center) and the window with the finished log.
   const banner = document.createElement('div')
   banner.id = 'perf-bench'
   banner.className = 'hidden'
@@ -124,7 +124,7 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
   for (const type of ['pointerdown', 'pointerup', 'touchstart', 'touchend']) {
     result.addEventListener(type, (e) => e.stopPropagation())
   }
-  // Касания панели не должны доходить до игры (тапы по холсту = команды).
+  // Touches on the panel must not reach the game (taps on the canvas = commands).
   for (const type of ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'contextmenu']) {
     root.addEventListener(type, (e) => e.stopPropagation())
   }
@@ -137,7 +137,7 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
     return b
   }
 
-  // --- переключатели ---
+  // --- toggles ---
   function stepAfter(steps: readonly number[], v: number): number {
     const i = steps.indexOf(v)
     return steps[(i + 1) % steps.length]!
@@ -167,7 +167,7 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
     if (benchRun !== null && benchRun.running) return
     refreshButtons()
     hooks.apply()
-    // Показатели после смены: пусть худший кадр не тащит старую картину.
+    // Metrics after a change: keep the worst frame from dragging the old picture along.
     resetStats()
     nextRefresh = 0
   }
@@ -209,11 +209,11 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
   for (const [b, fn] of wire) {
     b.addEventListener('click', () => {
       fn()
-      b.blur() // иначе Space (ускорение) нажимал бы сфокусированную кнопку
+      b.blur() // otherwise Space (boost) would press the focused button
     })
   }
   function copyText(text: string): boolean {
-    // Асинхронный API — только в безопасном контексте; запасной путь — выделение и execCommand.
+    // The async API is only available in a secure context; fallback: selection and execCommand.
     if (navigator.clipboard !== undefined && window.isSecureContext) {
       navigator.clipboard.writeText(text).then(
         () => (copyState.textContent = 'copied'),
@@ -261,19 +261,19 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
     fn()
   })
 
-  // --- счётчики (всё в замыкании, заранее выделено) ---
+  // --- counters (all in the closure, preallocated) ---
   const snap = createPerfSnapshot()
   let open = false
   let benchRun: BenchRun | null = null
   let lastNow = 0
-  // Интервал обновления
+  // Refresh interval
   let nextRefresh = 0
   let accFrames = 0
   let accMs = 0
   let accJsMs = 0
   let accMaxMs = 0
   let smoothFps = 0
-  // Худший кадр: макс за текущее и прошлое окно.
+  // Worst frame: max over the current and previous window.
   let winStart = 0
   let winMax = 0
   let prevWinMax = 0
@@ -326,7 +326,7 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
       resetStats()
       nextRefresh = 0
     }
-    hooks.apply() // включает/выключает ручной сброс renderer.info
+    hooks.apply() // enables/disables the manual renderer.info reset
   }
 
   return {

@@ -1,16 +1,16 @@
-// Подсказка направления: независимые слои. Каждый гасится одной константой
-// (true — включён, false — выключен и не создаётся/не считается вовсе).
+// Direction hint: independent layers. Each is switched off by one constant
+// (true: on, false: off and not created/computed at all).
 //
-//   HINT_LATTICE   решётка узлов (ahead-dots.ts): фоновая разметка пространства,
-//                  шаг и привязка — config.hints. Про «где я в объёме».
-//   HINT_RAY       луч вперёд (ahead-ray.ts): пунктир штрихов от центра головы, обрыв о стенку /
-//                  препятствие / тело, подсветка преграды, цвет яблока под прицелом.
-//   HINT_RAY_SIDES боковые тонкие лучи у HINT_RAY (по умолчанию выкл: их
-//                  заменил ближний слой).
-//   HINT_NEAR      ближний слой (near-cells.ts): точки в центрах клеток по пяти
-//                  осевым векторам, две клетки от головы; ближняя заметнее.
+//   HINT_LATTICE   lattice of nodes (ahead-dots.ts): background markup of space,
+//                  step and anchoring are in config.hints. About "where am I in 3D".
+//   HINT_RAY       ray ahead (ahead-ray.ts): dashed line from the head center, cut off at a wall /
+//                  obstacle / body, highlight of the obstacle, apple color under the sights.
+//   HINT_RAY_SIDES thin side rays of HINT_RAY (off by default: the near layer
+//                  replaced them).
+//   HINT_NEAR      near layer (near-cells.ts): dots at cell centers along the five
+//                  axis vectors, two cells from the head; the nearer one is more visible.
 //
-// «Рельсы» из точек вдоль хода удалены: луч делает ту же работу лучше.
+// The "rails" of dots along the heading were removed: the ray does the same job better.
 
 import type { Scene } from 'three'
 import type { GameState } from '../core/state'
@@ -27,10 +27,10 @@ export const HINT_RAY_SIDES = false
 export const HINT_NEAR = true
 
 export interface DirectionHint {
-  /** true, если луч вперёд упирается в яблоко (яблоко цвет не меняет; поле оставлено для совместимости). */
+  /** true if the ray ahead hits the apple (the apple does not change color; the field is kept for compatibility). */
   appleTargeted: boolean
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest, freeAmount: number): void
-  /** Высота буфера кадра в пикселях; нужна только точкам. */
+  /** Frame buffer height in pixels; only the dots need it. */
   setViewportHeight?(pixels: number): void
   dispose(): void
 }
@@ -53,7 +53,7 @@ class LayeredHint implements DirectionHint {
     this.near?.setViewportHeight(pixels)
   }
 
-  /** Кадр: без новых объектов. */
+  /** Frame: no new objects. */
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest, freeAmount: number): void {
     const frame = viewFrame(s)
     if (gameMode(s) === 'free') {
@@ -77,7 +77,7 @@ class LayeredHint implements DirectionHint {
     }
     this.lattice?.update(cubeSize(s), h.x, h.y, h.z, dx, dy, dz, px, py, pz, freeAmount)
     if (this.near) {
-      this.trace.run(s, dx, dy, dz, 1, isSolid) // карта тела для kindAt
+      this.trace.run(s, dx, dy, dz, 1, isSolid) // body map for kindAt
       this.near.update(s, dx, dy, dz, isSolid)
     }
   }

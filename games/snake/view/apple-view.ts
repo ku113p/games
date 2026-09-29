@@ -1,6 +1,6 @@
-// Яблоко — одиночный неоновый каркас-кубик (только рёбра, середина пустая), пульсирует размером и яркостью (не вращается). Время берётся из
-// детерминированного elapsedMs(s) (ядро — источник истины по времени), а не
-// из отдельного счётчика внутри view.
+// The apple is a single neon wireframe cube (edges only, hollow inside), pulsing in size and brightness (it does not rotate). Time comes from
+// the deterministic elapsedMs(s) (the core is the source of truth for time), not
+// from a separate counter inside the view.
 
 import { MeshBasicMaterial, Mesh, MathUtils, type Scene } from 'three'
 import type { GameState } from '../core/state'
@@ -12,15 +12,15 @@ import { APPLE_COLOR, APPLE_GLOW_BOOST, APPLE_EMISSIVE_PULSE_MIN, APPLE_EMISSIVE
 const APPLE_SCALE = 0.72
 const APPLE_BEAM = 0.11
 const APPLE_SCALE_PULSE = 0.1
-// Виды яблока (магазин). Габарит у всех не меньше ромба-куба: яблоко обязано читаться на любой дистанции.
-// Шар: три большие окружности, радиус на 15% больше полуразмера куба (диаметр 0.83 клетки, в клетку помещается).
+// Apple skins (shop). All have a footprint at least that of the diamond cube: the apple must read at any distance.
+// Orb: three great circles, radius 15% larger than the cube half-size (diameter 0.83 cell, fits in a cell).
 const ORB_RADIUS = (APPLE_SCALE / 2) * 1.15
 const ORB_SEGMENTS = 20
-// Звезда: два тетраэдра в том же кубе (полуразмер APPLE_SCALE / 2), повёрнутые углом к камере: описанная сфера та же, что у куба.
-// Период пульса — оформительская константа (game feel), не число баланса.
+// Star: two tetrahedra in the same cube (half-size APPLE_SCALE / 2), turned corner-first toward the camera: the circumscribed sphere is the same as the cube's.
+// The pulse period is a styling constant (game feel), not a balance value.
 const PULSE_PERIOD_MS = 700
 
-/** Отрезки каркаса по виду яблока (diamond — прежний каркас-кубик). */
+/** Wireframe segments per apple skin (diamond is the earlier cube frame). */
 export function appleSegments(skin: AppleSkin): number[] {
   switch (skin) {
     case 'orb':
@@ -40,13 +40,13 @@ export class AppleView {
   constructor(scene: Scene, skin: AppleSkin = 'diamond') {
     this.scene = scene
     const geometry = beamGeometry(appleSegments(skin), APPLE_BEAM)
-    this.material = new MeshBasicMaterial({ color: APPLE_COLOR.clone(), fog: false }) // вне тумана: яблоко видно на любой дистанции
+    this.material = new MeshBasicMaterial({ color: APPLE_COLOR.clone(), fog: false }) // outside fog: the apple is visible at any distance
     this.mesh = new Mesh(geometry, this.material)
     this.scene.add(this.mesh)
   }
 
-  /** Кадр: без новых объектов — мутирует позицию/масштаб/цвет существующего меша. */
-  /** Цвет яблока не зависит от прицеливания: сигнал «яблоко на курсе» даёт голова (SnakeView). Второй параметр — старый, игнорируется. */
+  /** Frame: no new objects, mutates the position/scale/color of the existing mesh. */
+  /** The apple color does not depend on aiming: the "apple on course" signal comes from the head (SnakeView). The second parameter is old and ignored. */
   update(s: GameState, _targeted?: boolean): void {
     const apple = applePos(s)
     this.mesh.position.set(apple.x, apple.y, apple.z)

@@ -1,5 +1,5 @@
-// core/rules.ts — правила игры: создание партии, генерация препятствий, спавн яблока,
-// доворот frame, кривая скорости. Чистый TS, без Three.js.
+// core/rules.ts — game rules: creating a game, obstacle generation, apple spawn,
+// frame roll, speed curve. Pure TS, no Three.js.
 
 import { cellKey, nextRandom, type Frame, type GameState, type Vec3 } from './state'
 
@@ -28,7 +28,7 @@ export interface Config {
   input: { doubleTapMs: number; swipeMinPx: number; tiltRadPerPx: number }
 }
 
-// 6 соседей по граням куба — геометрическая константа (не число баланса).
+// The 6 neighbors across cube faces are a geometric constant (not a balance value).
 const NEIGHBOR_OFFSETS: readonly Vec3[] = [
   { x: 1, y: 0, z: 0 },
   { x: -1, y: 0, z: 0 },
@@ -62,9 +62,9 @@ function buildClearCells(headPos: Vec3, snake: Vec3[], size: number, clearRadius
 }
 
 /**
- * Заливка (flood fill) от clearCells по 6 соседям. Любая свободная клетка, не достигнутая
- * заливкой, засыпается препятствием — жёсткое требование «никаких мёртвых зон».
- * Аллокации здесь допустимы: это холодный путь (один раз при генерации уровня, не в кадре).
+  * Flood fill from clearCells over the 6 neighbors. Any free cell the fill does not reach
+  * is filled with an obstacle: a hard requirement of "no dead zones".
+  * Allocations are fine here: this is a cold path (once per level generation, not in the frame loop).
  */
 export function fillDeadZones(size: number, obstacles: Set<number>, clearCells: Set<number>): void {
   const total = size * size * size
@@ -104,25 +104,25 @@ export function fillDeadZones(size: number, obstacles: Set<number>, clearCells: 
 }
 
 /**
- * Может ли в кубе такого размера появиться хоть одно препятствие. Голова стоит в середине куба, вокруг неё зона очистки
- * (clearRadius по каждой оси), а внешний слой толщиной wallMargin занят стенками: если вся допустимая область лежит
- * внутри зоны очистки, препятствий не будет при любой плотности (сейчас это кубы до 11 клеток, в том числе 5³).
+  * Whether an obstacle can appear at all in a cube of this size. The head stands in the middle of the cube with a clear zone around it
+  * (clearRadius on every axis), and the outer layer of thickness wallMargin is taken by walls: if the whole allowed area lies
+  * inside the clear zone, there will be no obstacles at any density (currently that is cubes up to 11 cells, including 5³).
  */
 export function arenaHasObstacles(size: number, clearRadius: number, wallMargin: number): boolean {
   const mid = Math.floor(size / 2)
   return wallMargin < mid - clearRadius || size - 1 - wallMargin > mid + clearRadius
 }
 
-/** Клетка ближе wallMargin к какой-либо стенке куба (при margin 1 — внешний слой). */
+/** Cell closer than wallMargin to any cube wall (with margin 1, the outer layer). */
 export function isInWallMargin(x: number, y: number, z: number, size: number, margin: number): boolean {
   const hi = size - 1 - margin
   return x < margin || y < margin || z < margin || x > hi || y > hi || z > hi
 }
 
 /**
- * Кубы и созвездия кубов: случайные затравки, с вероятностью stickiness слипающиеся с
- * соседями в маленькие скопления. clearCells и клетки ближе wallMargin к стенке никогда не занимаются препятствием.
- * После генерации — заливка, недостижимые свободные клетки засыпаются (без мёртвых зон).
+  * Cubes and obstacle clusters: random seeds that stick to
+  * neighbors with probability stickiness, forming small clusters. clearCells and cells closer than wallMargin to a wall are never taken by an obstacle.
+  * After generation comes the fill: unreachable free cells are filled in (no dead zones).
  */
 export function generateObstacles(
   size: number,
@@ -145,8 +145,8 @@ export function generateObstacles(
     return true
   }
 
-  // Ограничение попыток числом клеток куба — не магическое число баланса, а гарантия
-  // завершения цикла (не больше клеток, чем их есть на кубе).
+  // Attempts are capped by the number of cube cells: not a balance magic number but a guarantee
+  // that the loop terminates (no more attempts than there are cells in the cube).
   const maxAttempts = total
   let attempts = 0
   while (obstacles.size < targetCount && attempts < maxAttempts) {
@@ -169,8 +169,8 @@ export function generateObstacles(
 }
 
 /**
- * Ставит яблоко на случайную свободную клетку. Мутирует s.apple на месте (без аллокаций) —
- * детерминированный поиск: случайный старт + линейный обход клеток куба по кольцу.
+  * Places the apple on a random free cell. Mutates s.apple in place (no allocations):
+  * a deterministic search, a random start plus a linear ring walk over the cube cells.
  */
 export function spawnApple(s: GameState): Vec3 {
   const size = s.size
@@ -191,7 +191,7 @@ export function spawnApple(s: GameState): Vec3 {
     }
   }
 
-  // Куб заполнен целиком (теоретический край) — яблоко остаётся на прежнем месте.
+  // The cube is completely full (a theoretical edge case): the apple stays where it was.
   return s.apple
 }
 
@@ -199,26 +199,26 @@ function rotateVecInPlace(v: Vec3, axis: Vec3): void {
   const isSameAsAxis = v.x === axis.x && v.y === axis.y && v.z === axis.z
   const isOppositeAxis = v.x === -axis.x && v.y === -axis.y && v.z === -axis.z
   if (isSameAsAxis || isOppositeAxis) return
-  // v' = axis × v (правило правой руки), v перпендикулярен axis.
+  // v' = axis × v (right-hand rule), v is perpendicular to axis.
   const x = axis.y * v.z - axis.z * v.y
   const y = axis.z * v.x - axis.x * v.z
   const z = axis.x * v.y - axis.y * v.x
-  // + 0 нормализует -0 в 0 (векторное произведение даёт знаковые нули).
+  // + 0 normalizes -0 to 0 (the cross product yields signed zeros).
   v.x = x + 0
   v.y = y + 0
   v.z = z + 0
 }
 
 /**
- * Доворачивает frame на +90° вокруг axis (правило правой руки). Вектор frame, совпадающий
- * с ±axis, остаётся на месте; остальные два поворачиваются по v' = axis × v. Мутирует frame
- * на месте — без новых объектов.
+  * Rolls the frame by +90° around axis (right-hand rule). A frame vector that coincides
+  * with ±axis stays in place; the other two rotate by v' = axis × v. Mutates frame
+  * in place, without new objects.
  */
 export function rotateFrame(s: GameState, axis: Vec3): void {
   rotateFrameOf(s.frame, axis)
 }
 
-/** То же, что rotateFrame, но над произвольным Frame (для запросов, которые считают вид на копии). */
+/** Same as rotateFrame, but over an arbitrary Frame (for queries that compute the view on a copy). */
 export function rotateFrameOf(frame: Frame, axis: Vec3): void {
   rotateVecInPlace(frame.right, axis)
   rotateVecInPlace(frame.up, axis)
@@ -226,14 +226,14 @@ export function rotateFrameOf(frame: Frame, axis: Vec3): void {
 }
 
 /**
- * Фаза 'free': голова поворачивает на newHeading (±right/±up текущего frame, ⟂ heading).
- * Frame целиком (твёрдо, без отражений) доворачивается на +90° вокруг a = heading × newHeading:
- * это переводит старое направление взгляда heading в newHeading, значит depth снова = -heading.
- * right/up при этом меняются минимально: при повороте вбок (yaw) up остаётся на месте,
- * при повороте вверх/вниз (pitch) на месте остаётся right. Крена нет — змейка не переворачивается
- * сама. Вызывать ДО присвоения нового heading. Мутирует на месте, без аллокаций.
+  * Mode 'free': the head turns to newHeading (±right/±up of the current frame, ⟂ heading).
+  * The whole frame (rigidly, no reflections) is rolled by +90° around a = heading × newHeading:
+  * this maps the old view direction heading to newHeading, so depth = -heading again.
+  * right/up change minimally: on a sideways turn (yaw) up stays in place,
+  * on an up/down turn (pitch) right stays in place. No roll: the snake does not flip
+  * over by itself. Call BEFORE assigning the new heading. Mutates in place, no allocations.
  */
-// Переиспользуемый вектор оси доворота (горячий путь: шаг в 'free' без аллокаций).
+// Reused roll-axis vector (hot path: a step in 'free' without allocations).
 const AXIS_SCRATCH: Vec3 = { x: 0, y: 0, z: 0 }
 
 export function reorientFrameFree(s: GameState, newHeading: Vec3): void {
@@ -246,10 +246,10 @@ export function reorientFrameFree(s: GameState, newHeading: Vec3): void {
 }
 
 /**
- * Демо-переход plane → free: голова сворачивает по третьей оси, sign = -1 ('into': heading = -depth)
- * или +1 ('out': heading = +depth). Frame подгоняется так, чтобы depth = -heading:
- * 'into' — frame не меняется (камера уже смотрит вглубь); 'out' — разворот на 180° вокруг up
- * (right и depth меняют знак, up остаётся). Мутирует heading и frame на месте.
+  * Demo transition plane → free: the head turns along the third axis, sign = -1 ('into': heading = -depth)
+  * or +1 ('out': heading = +depth). The frame is adjusted so that depth = -heading:
+  * 'into': frame unchanged (the camera already looks into the screen); 'out': a 180° turn around up
+  * (right and depth flip sign, up stays). Mutates heading and frame in place.
  */
 export function enterFreeFrame(s: GameState, sign: -1 | 1): void {
   const d = s.frame.depth
@@ -271,9 +271,9 @@ export function enterFreeFrame(s: GameState, sign: -1 | 1): void {
 }
 
 /**
- * Прямой старт в фазе 'free' (не первая игра): инвариант фазы depth = -heading, правая тройка
- * (right × up = depth), без -0. up остаётся мировым +y (heading = ±x, значит up ⟂ heading),
- * right = up × depth. Для heading = +x: right = +z, up = +y, depth = -x. Мутирует frame на месте.
+  * Direct start in mode 'free' (not the first game): the mode invariant depth = -heading, right-handed triple
+  * (right × up = depth), no -0. up stays world +y (heading = ±x, so up ⟂ heading),
+  * right = up × depth. For heading = +x: right = +z, up = +y, depth = -x. Mutates frame in place.
  */
 export function initFreeStartFrame(s: GameState): void {
   const h = s.heading
@@ -286,52 +286,52 @@ export function initFreeStartFrame(s: GameState): void {
   f.up.z = 0
   const u = f.up
   const d = f.depth
-  // + 0 нормализует -0 (знаковые нули векторного произведения).
+  // + 0 normalizes -0 (signed zeros of the cross product).
   f.right.x = u.y * d.z - u.z * d.y + 0
   f.right.y = u.z * d.x - u.x * d.z + 0
   f.right.z = u.x * d.y - u.y * d.x + 0
 }
 
-/** Множитель ускорения годен, если это конечное число ≥ 1 (×1 — «ускорения нет», допустимо). */
+/** A boost factor is valid if it is a finite number ≥ 1 (×1 means "no boost", which is allowed). */
 export function isValidBoostFactor(f: number): boolean {
   return Number.isFinite(f) && f >= 1
 }
 
 /**
- * Множители, из которых игрок выбирает перед партией (config.speed.boostFactors: ×2, ×3, ×4).
- * Негодные значения отбрасываются; нет списка или он пуст — единственный boostFactor из конфига.
- * Как их выбирают и покупают — не забота ядра: оно получает готовое число в createGame.
+  * The factors the player picks from before a game (config.speed.boostFactors: ×2, ×3, ×4).
+  * Invalid values are dropped; with no list or an empty one, the single boostFactor from config is used.
+  * How they are picked and bought is not the core's concern: it receives a ready number in createGame.
  */
 export function availableBoostFactors(config: Config): number[] {
   const list = (config.speed.boostFactors ?? []).filter(isValidBoostFactor)
   return list.length > 0 ? list : [isValidBoostFactor(config.speed.boostFactor) ? config.speed.boostFactor : 1]
 }
 
-/** Масштаб темпа годен, если это конечное число > 0; иначе 1 (как в конфиге). */
+/** A pace scale is valid if it is a finite number > 0; otherwise 1 (as in config). */
 export function sanitizePaceScale(scale: number): number {
   return Number.isFinite(scale) && scale > 0 ? scale : 1
 }
 
-/** Множитель количества препятствий годен, если это конечное число ≥ 0 (0 — арена без препятствий); иначе 1. */
+/** An obstacle count multiplier is valid if it is a finite number ≥ 0 (0 means an arena without obstacles); otherwise 1. */
 export function sanitizeObstacleMult(mult: number): number {
   return Number.isFinite(mult) && mult >= 0 ? mult : 1
 }
 
 /**
- * Длительность шага после apples яблок. paceScale растягивает (>1) или сжимает (<1) всю кривую целиком:
- * начальный шаг, минимальный и наклон (stepMsPerApple) — поэтому форма кривой и яблоко, на котором
- * достигается минимум, не меняются.
+  * Step duration after `apples` apples eaten. paceScale stretches (>1) or compresses (<1) the whole curve as a unit:
+  * the initial step, the minimum and the slope (stepMsPerApple), so the shape of the curve and the apple at which
+  * the minimum is reached do not change.
  */
 export function speedAfterApples(config: Config, apples: number, paceScale = 1): number {
   const raw = config.speed.startStepMs - apples * config.speed.stepMsPerApple
   return Math.max(config.speed.minStepMs, raw) * paceScale
 }
 
-/** Параметры партии, выбранные до старта (магазин). Всё необязательное: без них партия как раньше. */
+/** Game parameters chosen before the start (the shop). All optional: without them a game plays as before. */
 export interface GameOptions {
-  /** Множитель к config.obstacles.density: 0 — без препятствий, 0.5 — вдвое меньше, 2 — вдвое больше. */
+  /** Multiplier on config.obstacles.density: 0 = no obstacles, 0.5 = half as many, 2 = twice as many. */
   obstacleMult?: number
-  /** Масштаб кривой темпа, см. speedAfterApples. */
+  /** Pace curve scale, see speedAfterApples. */
   paceScale?: number
 }
 
@@ -343,10 +343,10 @@ function defaultFrame(): Frame {
   }
 }
 
-/** Создаёт новую партию: змейка, яблоко, препятствия без мёртвых зон. */
+/** Creates a new game: snake, apple, obstacles without dead zones. */
 /**
- * boostFactor — множитель ускорения ЭТОЙ партии (выбранный до старта; по умолчанию config.speed.boostFactor).
- * Негодное значение (NaN, < 1) становится ×1: ускорение просто ничего не даёт.
+  * boostFactor: the boost factor of THIS game (chosen before the start; defaults to config.speed.boostFactor).
+  * An invalid value (NaN, < 1) becomes ×1: boost simply does nothing.
  */
 export function createGame(
   config: Config,
@@ -366,7 +366,7 @@ export function createGame(
   const snake: Vec3[] = []
   const snakeCells = new Set<number>()
   for (let i = 0; i < startLength; i++) {
-    // Хвост тянется в сторону, противоположную heading, голова — во главе массива.
+    // The tail extends opposite to heading, the head leads the array.
     const seg: Vec3 = { x: mid - i, y: mid, z: mid }
     snake.push(seg)
     snakeCells.add(cellKey(seg.x, seg.y, seg.z, size))
@@ -396,7 +396,7 @@ export function createGame(
     minBoostedStepMs: config.speed.minEffectiveStepMs !== undefined && config.speed.minEffectiveStepMs > 0 ? config.speed.minEffectiveStepMs : 0,
     sinceStepMs: 0,
     elapsedMs: 0,
-    demoTurnPending: isFirstGameEver, // плоский старт и переезд камеры — один раз в жизни игрока; дальше сразу 'free'
+    demoTurnPending: isFirstGameEver, // plane start and camera transition happen once in the player's life; after that, straight to 'free'
     rngState: seed | 0,
   }
 

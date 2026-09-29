@@ -1,5 +1,5 @@
-// main.ts — точка сборки игры: связывает core/ (правила), view/ (three.js) и input/
-// (тач + клавиатура). Держит requestAnimationFrame-цикл. Никаких аллокаций и await в кадре.
+// main.ts - the game assembly point: wires core/ (rules), view/ (three.js) and input/
+// (touch + keyboard). Holds the requestAnimationFrame loop. No allocations or await in the frame.
 
 import { createGame, type Config } from './core/rules'
 import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
@@ -51,7 +51,7 @@ import { loadCounter, sendEvent } from './analytics/goatcounter'
 
 const config = configJson as Config
 
-const HIGH_SCORE_KEY = 'snake:highScore' // старый одиночный рекорд: читается только для переноса в таблицу
+const HIGH_SCORE_KEY = 'snake:highScore' // the old single high score: read only to migrate it into the leaderboard
 const LEADERBOARD_KEY = 'snake:leaderboard'
 const INITIALS_KEY = 'snake:initials'
 const HAS_PLAYED_BEFORE_KEY = 'snake:hasPlayedBefore'
@@ -62,14 +62,14 @@ const FOG_ON_KEY = 'snake:fogOn'
 const QUALITY_KEY = 'snake:quality'
 const SIZE_KEY = 'snake:size'
 const SCHEME_KEY = 'snake:scheme'
-const SHOP_KEY = SHOP_STORAGE_KEY // кошелёк, купленное и надетое (shop/serialize)
-const SHOP_UNLOCKED_KEY = 'snake:shopUnlocked' // была ли закончена хоть одна партия: до неё вход в магазин спрятан
+const SHOP_KEY = SHOP_STORAGE_KEY // wallet, owned and equipped items (shop/serialize)
+const SHOP_UNLOCKED_KEY = 'snake:shopUnlocked' // whether at least one game has been finished: until then the shop entry is hidden
 
 // --- DOM ---------------------------------------------------------------
 
 function required<T extends Element>(id: string): T {
   const el = document.getElementById(id)
-  if (el === null) throw new Error(`main.ts: элемент #${id} не найден в index.html`)
+  if (el === null) throw new Error(`main.ts: element #${id} not found in index.html`)
   return el as unknown as T
 }
 
@@ -122,9 +122,9 @@ const coinsLineEl = required<HTMLElement>('coins-line')
 const coinsEarnedEl = required<HTMLElement>('coins-earned')
 const toShopBtn = required<HTMLButtonElement>('to-shop')
 
-// --- localStorage: рекорд и флаг «первая игра вообще» ------------------
+// --- localStorage: high score and the "very first game" flag ------------------
 
-// localStorage может бросать (приватный режим, заблокированные данные) — игра должна жить и без него.
+// localStorage may throw (private mode, blocked data) - the game must work without it.
 function storageGet(key: string): string | null {
   try {
     return localStorage.getItem(key)
@@ -137,16 +137,16 @@ function storageSet(key: string, value: string): void {
   try {
     localStorage.setItem(key, value)
   } catch {
-    /* не сохранилось — не страшно */
+    /* not saved - no big deal */
   }
 }
 
-// --- язык: сохранённый выбор, иначе язык браузера, иначе английский (i18n/, все тексты — там) ---
+// --- language: saved choice, else browser language, else English (i18n/, all texts live there) ---
 
 const storage = { get: storageGet, set: storageSet }
 
-// Аналитика (analytics/): пять событий-счётчиков, см. analytics/events.ts. Выключена на локальных адресах и при любом ?perf:
-// тогда скрипт счётчика не подключается совсем (не считается даже посещение), а хранилище не трогается.
+// Analytics (analytics/): five counter events, see analytics/events.ts. Off on local addresses and with any ?perf:
+// then the counter script is not loaded at all (not even the visit is counted), and storage is not touched.
 const analyticsOn = analyticsEnabled(location.hostname, isPerfDebugRequested(location.search))
 const tracker = createTracker({
   enabled: analyticsOn,
@@ -158,7 +158,7 @@ const tracker = createTracker({
 if (analyticsOn) loadCounter()
 initLanguage(storage, navigator)
 
-// --- таблица лучших (топ-N): чистая логика в scores/leaderboard.ts, здесь только хранение и показ ---
+// --- leaderboard (top N): pure logic in scores/leaderboard.ts, here only storage and display ---
 
 const lbCfg = configJson.leaderboard as LeaderboardConfig
 
@@ -166,10 +166,10 @@ function saveTable(t: readonly ScoreEntry[]): void {
   storageSet(LEADERBOARD_KEY, JSON.stringify(t))
 }
 
-// Запись сохраняется сразу при смерти, а вращение барабана только помечает её «грязной»: на каждое
-// нажатие (и на автоповтор удержания) писать в localStorage синхронно незачем. Сброс на диск: по таймеру
-// после последнего изменения, при «Готово», уходе со страницы и скрытии вкладки, так что перезагрузка
-// посреди ввода результат (и выбранные буквы) не теряет. 0 — писать сразу, как раньше.
+// The entry is saved immediately on death, and spinning the drum only marks it "dirty": writing to localStorage
+// synchronously on every press (and on hold auto-repeat) is pointless. Flush to disk: on a timer
+// after the last change, on "Done", on leaving the page and on hiding the tab, so a reload
+// in the middle of entry does not lose the result (or the chosen symbols). 0 - write immediately, as before.
 const SAVE_DEBOUNCE_MS = 400
 let saveTimer = 0
 let saveDirty = false
@@ -194,7 +194,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) flushSave()
 })
 
-// Первый запуск новой версии: таблицы ещё нет, а старый одиночный рекорд есть — он становится одной записью.
+// First launch of a new version: there is no table yet but there is an old single high score - it becomes one entry.
 function loadTable(): ScoreEntry[] {
   const parsed = parseTable(storageGet(LEADERBOARD_KEY), lbCfg)
   if (parsed !== null) return parsed
@@ -204,10 +204,10 @@ function loadTable(): ScoreEntry[] {
 }
 
 let table: ScoreEntry[] = loadTable()
-// Последние выбранные символы подставляются в барабан по умолчанию.
+// The last chosen symbols are pre-filled in the drum by default.
 let initials = sanitizeName(storageGet(INITIALS_KEY), lbCfg)
 
-// Главный экран показывает только рекорд №1 (вход в таблицу); полная таблица — на экране рекордов.
+// The menu screen shows only the #1 high score (entry to the table); the full table is on the records screen.
 function renderTopRecord(): void {
   recordLineBtn.disabled = !renderTopLine(recordLineBtn, table)
 }
@@ -221,10 +221,10 @@ function renderBoards(highlight: number): void {
 renderBoards(-1)
 
 const drum = createDrum(drumEl, lbCfg)
-// Индекс записи текущей партии, пока барабан открыт; иначе -1.
+// Index of the current game's entry while the drum is open; otherwise -1.
 let pendingIndex = -1
 
-/** Партия закончилась: если счёт попал в таблицу, запись ставится сразу с запомненными символами. Индекс или -1. */
+/** The game ended: if the score made the table, the entry is set immediately with the remembered symbols. Index or -1. */
 function commitRun(finalScore: number, durationMs: number): number {
   const entry: ScoreEntry = { score: finalScore, name: initials, durationMs, date: Date.now() }
   const r = insertEntry(table, entry, lbCfg)
@@ -246,21 +246,21 @@ function closeDrum(): void {
 
 drumOkBtn.addEventListener('click', closeDrum)
 
-// Читает флаг «это вообще первая партия игрока», НЕ гася его.
-// Гасится он только когда переезд камеры реально случился (см. consumeFirstGameEver):
-// иначе смерть на первых ходах сожгла бы знакомство с твистом, и игрок не увидел бы его никогда.
+// Reads the "this is the player's very first game" flag WITHOUT clearing it.
+// It is cleared only when the camera transition actually happened (see consumeFirstGameEver):
+// otherwise dying in the first steps would burn the twist intro, and the player would never see it.
 function readIsFirstGameEver(): boolean {
   return storageGet(HAS_PLAYED_BEFORE_KEY) === null
 }
 
-// Знакомство состоялось — больше плоской фазы не будет.
+// The intro happened - no more plane mode.
 function consumeFirstGameEver(): void {
   storageSet(HAS_PLAYED_BEFORE_KEY, '1')
 }
 
-// --- звук: разблокируется только по первому касанию (AGENTS.md, раздел 5) ---
+// --- sound: unlocks only on the first touch (AGENTS.md, section 5) ---
 
-// Секции sound в config.json может ещё не быть — тогда звук молча выключен (см. view/audio.ts).
+// The sound section may not exist in config.json yet - then sound is silently off (see view/audio.ts).
 const soundConfig = (configJson as unknown as { sound?: SoundConfig }).sound
 
 function readFlag(key: string, fallback: boolean): boolean {
@@ -273,10 +273,10 @@ const audio = createAudio(soundConfig, musicUrl, {
   sfxOn: readFlag(SFX_ON_KEY, soundConfig?.defaults.sfxOn ?? true),
 })
 
-// Туман по дальности (palette.ts: createFog; плотность — config.fog.density): один тумблер на всё.
+// Distance fog (palette.ts: createFog; density - config.fog.density): one toggle for everything.
 let fogOn = readFlag(FOG_ON_KEY, configJson.fog.defaultOn)
 
-// Идемпотентно: зовётся из «Tap to play» и из любой кнопки меню (они нажимаются ДО этого экрана).
+// Idempotent: called from "Tap to play" and from any menu button (they are pressed BEFORE this screen).
 function unlockAudio(): void {
   audio.unlock()
 }
@@ -293,9 +293,9 @@ function syncSoundToggles(): void {
   }
 }
 
-// Один делегат на все кнопки экранов (меню, пауза, конец игры, объяснение): разблокировка + щелчок.
-// Кнопки игровых органов (пульт, ускорение, пауза) сюда не входят — это не меню.
-// Срабатывает после обработчика самой кнопки, поэтому выключение звуков не щёлкает напоследок.
+// One delegate for all screen buttons (menu, pause, game over, explainer): unlock + click.
+// In-game controls (pad, boost, pause) are not included - they are not the menu.
+// Fires after the button's own handler, so turning sounds off does not click at the end.
 document.addEventListener('click', (e) => {
   const target = e.target
   if (!(target instanceof Element)) return
@@ -337,9 +337,9 @@ function syncFogToggles(): void {
 
 syncFogToggles()
 
-// Качество графики (меню и пауза): связка потолка МПикс, сглаживания и свечения из config.json (quality.levels).
-// Пока игрок не выбирал, ступень берётся по размеру буфера окна (не по типу устройства): телефон и 1080p остаются
-// на «высоком» (картинка как всегда), большой монитор и ретина получают ступень ниже. Выбор запоминается.
+// Graphics quality (menu and pause): binds the MPix cap, antialiasing and bloom from config.json (quality.levels).
+// Until the player has chosen, the tier is picked by window buffer size (not device type): phones and 1080p stay
+// on "high" (the picture as always), a big monitor and retina get a tier lower. The choice is remembered.
 const qualityCfg = configJson.quality as QualityConfig
 const storedQuality = storageGet(QUALITY_KEY)
 let qualityChosen = isQualityId(storedQuality)
@@ -358,7 +358,7 @@ function syncQualityButtons(): void {
   }
 }
 
-// Применяется сразу, без перезапуска партии: композер и буферы перенастраиваются (View.applyPerf).
+// Applied immediately, without restarting the game: the composer and buffers are reconfigured (View.applyPerf).
 function setQuality(id: QualityId): void {
   quality = id
   qualityChosen = true
@@ -371,10 +371,10 @@ function setQuality(id: QualityId): void {
 
 syncQualityButtons()
 
-// --- меню: схема управления и сторона пульта ------------------------
-// (Размер арены больше не здесь: он товар магазина, см. блок «магазин» ниже.)
+// --- menu: control scheme and pad side ------------------------
+// (Arena size is no longer here: it is a shop item, see the "shop" block below.)
 
-// Схема лежит на экране настроек, а не на виду: выбор запоминается между запусками.
+// The scheme lives on the settings screen, not in plain view: the choice is remembered between launches.
 const storedScheme = storageGet(SCHEME_KEY)
 let selectedScheme: InputScheme = storedScheme === 'taps' || storedScheme === 'swipes' ? storedScheme : 'swipes'
 
@@ -397,7 +397,7 @@ schemeOptions.addEventListener('click', (e) => {
   markSelected(schemeOptions, 'scheme', raw)
 })
 
-// Сторона пульта (для левшей): запоминается между запусками, применяется на старте партии.
+// Pad side (for left-handed players): remembered between launches, applied at game start.
 let padSide: PadSide = parsePadSide(storageGet(PAD_SIDE_KEY))
 
 padSideOptions.addEventListener('click', (e) => {
@@ -411,10 +411,10 @@ padSideOptions.addEventListener('click', (e) => {
 markSelected(schemeOptions, 'scheme', selectedScheme)
 markSelected(padSideOptions, 'side', padSide)
 
-// Переключатель языка (две буквы) — на главном экране и на обоих юридических: см. view/lang-switch.ts.
+// Language switcher (two letters) - on the main screen and on both legal ones: see view/lang-switch.ts.
 for (const id of ['menu-lang', 'warning-lang', 'terms-lang']) mountLangSwitch(required<HTMLElement>(id), storage)
 
-// Динамические строки (не размеченные data-i18n) перерисовываются на смену языка.
+// Dynamic strings (not marked data-i18n) are redrawn on language change.
 onLanguageChange(() => {
   syncSoundToggles()
   syncFogToggles()
@@ -422,18 +422,18 @@ onLanguageChange(() => {
   renderTopRecord()
 })
 
-// --- магазин: предметная часть (shop/) + витрина (screens/shop-view.ts); здесь только хранение и поток ---
-// Монеты идут в кошелёк по итогам партии (очки в таблице рекордов остаются честными яблоками); покупка и надевание
-// происходят на витрине ДО партии, а выбранное применяется на старте (startSession).
+// --- shop: item logic (shop/) + shop view (screens/shop-view.ts); here only storage and flow ---
+// Coins go into the wallet at the end of a game (points in the leaderboard stay honest apples); buying and equipping
+// happen in the shop view BEFORE a game, and what is chosen is applied at the start (startSession).
 
 const shopRoot = configJson as unknown as ShopRoot
 const shopItems = catalog(shopRoot)
-// Кошелёк держит порядок «начало партии -> конец партии»: начислить можно только за открытую партию (screens/shop-flow.ts).
+// The wallet keeps the order "game start -> game end": you can earn only for an open game (screens/shop-flow.ts).
 const wallet = createWallet(migrateShop(), shopRoot)
 
 /**
- * Загрузка кошелька. Размер арены раньше выбирался в настройках (`snake:size`) и был бесплатным: у того, у кого магазина
- * ещё нет (ключа `snake:shop` нет), сохранённый размер остаётся его выбором, даже если в магазине он стоит денег.
+ * Wallet loading. Arena size used to be chosen in settings (`snake:size`) and was free: for someone who has no
+ * shop yet (no `snake:shop` key), the saved size remains their choice, even if in the shop it costs money.
  */
 function migrateShop(): ShopState {
   const raw = storageGet(SHOP_KEY)
@@ -443,7 +443,7 @@ function migrateShop(): ShopState {
   return Number.isFinite(oldSize) ? grandfatherArena(state, oldSize, shopRoot) : state
 }
 
-/** Размер арены следующей партии: то, что надето в магазине. */
+/** Arena size of the next game: what is equipped in the shop. */
 function currentArena(): number {
   return gameSetup(wallet.state, shopRoot).size
 }
@@ -453,7 +453,7 @@ function saveShop(): void {
   storageSet(SHOP_KEY, serialize(wallet.state))
 }
 
-/** Иконка магазина на главном экране: спрятана до первой законченной партии. */
+/** Shop icon on the main screen: hidden until the first finished game. */
 function syncShopEntry(): void {
   openShopBtn.classList.toggle('hidden', !shopUnlocked)
 }
@@ -483,13 +483,13 @@ shopView.render()
 syncShopEntry()
 onLanguageChange(() => shopView.render())
 
-/** Число для подписи кнопки ускорения: 1.5 -> «×1.5», 4.000001 -> «×4». Берётся действующий множитель, а не купленный (пол на шаг). */
+/** Number for the boost button label: 1.5 -> "×1.5", 4.000001 -> "×4". The active factor is used, not the purchased one (boosted-step floor). */
 function boostLabel(factor: number): string {
   return `×${Math.round(factor * 10) / 10}`
 }
 
 let shownBoostLabel = ''
-/** Подпись кнопки ускорения: действующий множитель (с учётом пола на шаг), обновляется на каждом яблоке — шаг меняется только тогда. */
+/** Boost button label: the active factor (with the boosted-step floor applied), updated on every apple - the step changes only then. */
 function setBoostLabel(state: GameState): void {
   const label = boostLabel(effectiveBoostFactor(state))
   if (label === shownBoostLabel) return
@@ -497,7 +497,7 @@ function setBoostLabel(state: GameState): void {
   boostEl.textContent = label
 }
 
-/** Партия кончилась (смертью или выходом): яблоки -> монеты. Нет открытой партии — ничего не начисляется. */
+/** The game ended (by death or by exit): apples -> coins. No open game - nothing is credited. */
 function settleRun(apples: number): { gained: number; mult: number } {
   const r = wallet.settle(apples)
   saveShop()
@@ -509,14 +509,14 @@ function openShop(): void {
   const fromOver = screens.state.base === 'over'
   screens.openShop()
   if (screens.state.base !== 'shop') return
-  if (fromOver) endSession() // мёртвая сессия больше не нужна: дальше только новая партия или меню
+  if (fromOver) endSession() // a dead session is no longer needed: from here only a new game or the menu
   shopView.reset()
 }
 
-// --- экраны: что показано сейчас, решает screens/screens.ts (чистая логика с тестами), здесь только показ ---
-// Юридические экраны: предупреждение о мигающих огнях — при каждом открытии, условия — пока не сохранено согласие
-// (legal/flow.ts, внутри screens). Язык к этому моменту уже выбран (initLanguage выше) и меняется на самих экранах.
-// Кнопки лежат внутри .screen, поэтому общий делегат выше разблокирует звук на этом же касании: оно не «съедено».
+// --- screens: what is shown now is decided by screens/screens.ts (pure logic with tests), here only display ---
+// Legal screens: the flashing-lights warning - on every open, the terms - until consent is saved
+// (legal/flow.ts, inside screens). The language is already chosen by now (initLanguage above) and changes on the screens themselves.
+// The buttons are inside .screen, so the common delegate above unlocks sound on this same touch: it is not "swallowed".
 const screenEls: Record<ScreenId, HTMLElement> = {
   warning: legalWarningScreen,
   terms: legalTermsScreen,
@@ -530,7 +530,7 @@ const screenEls: Record<ScreenId, HTMLElement> = {
   demo: demoScreen,
 }
 
-// Подсказка «текст продолжается»: класс more, пока под видимой частью осталось непрочитанное (стили — в index.html).
+// The "text continues" hint: class more while unread content remains below the visible part (styles are in index.html).
 const legalBodies = [legalWarningScreen, legalTermsScreen].map((s) => s.querySelector<HTMLElement>('.legal-body')!)
 function updateLegalMore(): void {
   for (const b of legalBodies) b.classList.toggle('more', b.scrollHeight - b.scrollTop - b.clientHeight > 4)
@@ -543,7 +543,7 @@ let shownLegal: ScreenState['legal'] = null
 function renderScreens(s: ScreenState): void {
   const visible = visibleScreens(s)
   for (const id of ALL_SCREENS) screenEls[id].classList.toggle('hidden', !visible.has(id))
-  // Клавиатура и скринридер не должны уходить в экран под юридическим.
+  // Keyboard and screen reader must not go to the screen underneath the legal one.
   const covered = s.legal !== null
   menuScreen.inert = covered
   settingsScreen.inert = covered
@@ -558,7 +558,7 @@ function renderScreens(s: ScreenState): void {
 }
 
 const screens = createScreens(storage, renderScreens)
-renderScreens(screens.state) // разметка стартует с видимым предупреждением: приводим её к состоянию до первого показа
+renderScreens(screens.state) // the markup starts with the warning visible: bring it to the pre-first-show state
 
 legalWarningOkBtn.addEventListener('click', () => screens.confirmLegal())
 legalTermsOkBtn.addEventListener('click', () => screens.confirmLegal())
@@ -568,53 +568,53 @@ openShopBtn.addEventListener('click', openShop)
 toShopBtn.addEventListener('click', openShop)
 shopBackBtn.addEventListener('click', () => screens.back())
 for (const btn of backButtons) btn.addEventListener('click', () => screens.back())
-// Escape на настройках и рекордах — назад (в игре его читает ввод партии, там back ничего не делает).
+// Escape on settings and records - back (in game it is read by the game's input, where back does nothing).
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') screens.back()
 })
-// Самозапускающийся замер (?perf=bench, ?perf=freeze) стартует сам через полсекунды: непрозрачный экран поверх
-// канваса испортил бы числа, поэтому экраны пропускаются (согласие не пишется). Простой ?perf экраны не трогает.
+// A self-starting measurement (?perf=bench, ?perf=freeze) starts on its own after half a second: an opaque screen over
+// the canvas would spoil the numbers, so screens are skipped (consent is not written). A plain ?perf does not touch screens.
 if (isSelfStartingPerfMode(location.search)) screens.skipLegal()
 else screens.start()
 
-// --- игровая сессия ------------------------------------------------------
+// --- game session ------------------------------------------------------
 
 interface Session {
   state: GameState
   view: View
   detachInput: () => void
-  /** Пульт схемы 'taps'; null в 'swipes'. */
+  /** Pad of the 'taps' scheme; null in 'swipes'. */
   pad: Pad | null
-  /** Кнопка ускорения (обе схемы). */
+  /** Boost button (both schemes). */
   boostBtn: BoostButton
-  /** Стик поворота камеры (обе схемы). */
+  /** Camera turn stick (both schemes). */
   stick: Stick
-  /** Источники ускорения (палец на кнопке, Shift/Space): включено, пока держит хотя бы один. */
+  /** Boost sources (finger on the button, Shift/Space): on while at least one holds. */
   boost: BoostHold
-  /** Текущая фаза камеры; зеркалит GameState.mode по событию modeChanged. */
+  /** Current camera mode; mirrors GameState.mode via the modeChanged event. */
   mode: 'plane' | 'free'
-  /** Показать экран-объяснение на переходе (только самая первая игра игрока). */
+  /** Show the explainer screen at the transition (only the player's very first game). */
   explainTransition: boolean
-  /** Настоящая партия (не замер ?perf): только такие идут в аналитику. */
+  /** A real game (not a ?perf measurement): only these go to analytics. */
   counted: boolean
 }
 
 let session: Session | null = null
 
-// --- отладка производительности (view/perf-panel.ts, view/perf-bench.ts) ---------------------------
-// Выключена по умолчанию: panel и bench остаются null, ничего не создаётся и не считается.
+// --- performance debugging (view/perf-panel.ts, view/perf-bench.ts) ---------------------------
+// Off by default: panel and bench stay null, nothing is created or counted.
 let perfPanel: PerfPanel | null = null
 let bench: BenchRun | null = null
-/** Идёт бенчмарк: логика игры заморожена, ввод игнорируется, партия не может умереть. */
+/** A benchmark is running: game logic frozen, input ignored, the game cannot die. */
 let benchActive = false
 
-// Пауза живёт в screens (ядро о ней не знает): пока пауза, tick() просто не вызывается.
-// Две независимые причины: вкладка скрыта / кнопка (нужен тап «Продолжить») и экран демо-поворота.
+// Pause lives in screens (the core does not know about it): while paused, tick() is simply not called.
+// Two independent causes: the tab is hidden / the button (needs a "Resume" tap) and the demo-turn screen.
 function isPaused(): boolean {
   return isHeld(screens.state) || benchActive
 }
 
-// Параметры последней партии — «Ещё раз» перезапускает с ними.
+// Parameters of the last game - "Again" restarts with them.
 let lastScheme: InputScheme = 'swipes'
 
 function syncViewSize(view: View): void {
@@ -632,32 +632,32 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       setBoostLabel(s.state)
       break
     case 'moved':
-      // Тик шага: тише и реже с ростом темпа (см. blips.tick). Яблоко и смерть в этом же такте свой звук
-      // приносят сами (события идут следом за moved), тик под ними не нужен.
+      // Step tick: quieter and less frequent as pace grows (see blips.tick). Apple and death in this same step
+      // bring their own sound (events follow moved), the tick under them is not needed.
       if (next === undefined || (next.type !== 'ate' && next.type !== 'died')) audio.play('tick', effectiveStepMs(s.state))
       s.pad?.clearQueued()
       break
     case 'turnedInPlace':
-      // Змейка выполнила команду — подсветку «принято, ждёт шага» на пульте гасим.
+      // The snake executed the command - clear the "accepted, waiting for a step" highlight on the pad.
       s.pad?.clearQueued()
       break
     case 'modeChanged':
-      // Плоская змейка стала объёмной: третьей оси больше нет, её кнопки на пульте прячем.
+      // The flat snake became volumetric: no third axis any more, hide its pad buttons.
       s.mode = ev.mode
       showPad(lastScheme, s.mode)
-      // Гасим флаг только здесь: знакомство с твистом реально состоялось.
+      // Clear the flag only here: the twist intro actually happened.
       if (ev.mode === 'free') consumeFirstGameEver()
       if (ev.mode === 'free' && s.explainTransition && s.counted) tracker.twistSeen()
-      // Экран с паузой — только в самой первой игре игрока; дальше переход бесшумный.
-      // Камера при этом доигрывает полёт (render продолжает идти).
+      // The pause screen - only in the player's very first game; later the transition is silent.
+      // The camera finishes its flight meanwhile (render keeps running).
       if (s.explainTransition && ev.mode === 'free') {
         screens.openDemo()
         s.stick.release()
-        s.boost.releaseAll() // экран объяснения закрывает кнопки: не оставляем ускорение залипшим
+        s.boost.releaseAll() // the explainer screen covers the buttons: do not leave boost stuck
       }
       break
     case 'died': {
-      queueMicrotask(syncPerfVisibility) // session.state уже мёртв, но проверяем после обработки события
+      queueMicrotask(syncPerfVisibility) // session.state is already dead, but check after handling the event
       s.boost.releaseAll()
       s.stick.release()
       s.pad?.clearQueued()
@@ -672,11 +672,11 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       coinsLineEl.classList.toggle('hidden', gained <= 0)
       coinsEarnedEl.textContent = t('over.coins', { n: gained }) + (mult > 1 ? ` ×${Math.round(mult * 100) / 100}` : '')
       toShopBtn.classList.toggle('hidden', !hasAffordableNew(wallet.state, shopRoot, configJson.obstacles))
-      // Экран проигрыша и звук смерти запускаются в одном обработчике: анимация надписи и удар звука стартуют вместе.
+      // The game-over screen and the death sound start in one handler: the caption animation and the sound hit start together.
       pendingIndex = commitRun(finalScore, durationMs)
       renderBoards(pendingIndex)
       if (pendingIndex >= 0) {
-        // Попал в таблицу: барабан вместо кнопок, пока игрок не нажмёт «Готово». Запись уже сохранена; повороты барабана сбрасываются на диск отложенно (scheduleSave).
+        // Made it into the table: the drum instead of buttons until the player presses "Done". The entry is already saved; drum turns are flushed to disk lazily (scheduleSave).
         gameOverActionsEl.classList.add('hidden')
         drumBlockEl.classList.remove('hidden')
         drum.show(
@@ -686,7 +686,7 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
             initials = name
             table = renameEntry(table, pendingIndex, name)
             scheduleSave()
-            // Меню под экраном проигрыша скрыто: перерисовываем только видимую таблицу (меню обновит closeDrum).
+            // The menu under the game-over screen is hidden: redraw only the visible table (the menu is updated by closeDrum).
             renderBoard(gameOverBoardEl, table, lbCfg.size, pendingIndex)
           },
           closeDrum,
@@ -721,33 +721,33 @@ function hideBoostAndPause(): void {
 }
 
 function showBoostAndPause(): void {
-  // Ускорение и сброс камеры — на стороне пульта (по умолчанию справа). В 'taps' «×2» лежит в центре
-  // крестовины, сброс над пультом; в 'swipes' пульта нет, «×2» стоит в углу этой стороны, сброс над ней.
+  // Boost and camera reset - on the pad side (right by default). In 'taps' "×2" sits in the center
+  // of the cross, reset above the pad; in 'swipes' there is no pad, "×2" stands in the corner of this side, reset above it.
   const right = padSide === 'right'
   boostEl.classList.toggle('side-right', right)
   camResetBtn.classList.toggle('right', right)
   boostEl.classList.remove('hidden')
   pauseBtn.classList.remove('hidden')
   camResetBtn.classList.remove('hidden')
-  // Стик — на стороне, противоположной пульту/«×2», чтобы не делить угол с ними.
+  // The stick - on the side opposite the pad/"×2", so as not to share a corner with them.
   stickEl.classList.toggle('side-right', !right)
   stickEl.classList.remove('hidden')
 }
 
-// --- камера игрока: наклон и зум держатся до явного сброса ---------------
+// --- player camera: tilt and zoom persist until an explicit reset ---------------
 
 const ZOOM_MIN = configJson.camera.zoomMin
 const ZOOM_MAX = configJson.camera.zoomMax
 
-// Кнопка сброса тускнеет, пока камера в исходном виде: видно, что жать нечего.
+// The reset button dims while the camera is at its default view: it shows there is nothing to press.
 function syncCamResetButton(): void {
   const idle = userCamera.yaw === 0 && userCamera.pitch === 0 && userCamera.zoom === 1
   camResetBtn.classList.toggle('idle', idle)
 }
 
-// Единая точка сброса наклона и зума: кнопка на экране, клавиша R и старт партии. Работает и на паузе:
-// цель обнуляется сразу (кнопка стоит выше оверлея паузы), картинка догонит её после «Продолжить»
-// (на ручной паузе кадры не рисуются, на экране демо-поворота — рисуются).
+// A single reset point for tilt and zoom: the on-screen button, the R key and game start. Works during pause too:
+// the target is zeroed immediately (the button sits above the pause overlay), the picture catches up after "Resume"
+// (on manual pause frames are not drawn, on the demo-turn screen they are).
 function resetCamera(): void {
   resetUserCamera()
   syncCamResetButton()
@@ -755,7 +755,7 @@ function resetCamera(): void {
 
 camResetBtn.addEventListener('click', resetCamera)
 
-// Стик поворота камеры: отклонение задаёт скорость. Числа — в config.json (input.stick); размер уходит в CSS.
+// Camera turn stick: deflection sets speed. The numbers are in config.json (input.stick); the size goes to CSS.
 const stickCfg = configJson.input.stick
 const stickTuning = { deadZone: stickCfg.deadZone, curve: stickCfg.curve, tapMaxMs: stickCfg.tapMaxMs }
 stickEl.style.setProperty(
@@ -763,7 +763,7 @@ stickEl.style.setProperty(
   `clamp(${stickCfg.sizeMinPx}px, ${stickCfg.sizeVmin}vmin, ${stickCfg.sizeMaxPx}px)`,
 )
 
-// Горячий путь (каждый кадр): только арифметика на месте, без объектов. Пределы те же, что у наклона двумя пальцами.
+// Hot path (every frame): in-place arithmetic only, no objects. The limits are the same as for the two-finger tilt.
 function applyStick(x: number, y: number, dtMs: number): void {
   userCamera.yaw = accumulateTilt(userCamera.yaw, stickStep(x, stickCfg.maxRadPerSec, dtMs), 1, TILT_LIMIT_RAD)
   userCamera.pitch = accumulateTilt(userCamera.pitch, stickStep(y, stickCfg.maxRadPerSec, dtMs), 1, TILT_LIMIT_RAD)
@@ -788,14 +788,14 @@ function endSession(): void {
 const padCrossEl = required<HTMLElement>('pad-cross')
 const boostHomeEl = boostEl.parentElement ?? document.body
 
-// «×2» переезжает в центр крестовины (taps) или обратно в угол (swipes). Переносим только при смене места:
-// повторная вставка на том же месте сорвала бы удерживаемое касание.
+// "×2" moves to the center of the cross (taps) or back to the corner (swipes). Move only on a change of place:
+// re-inserting in the same place would break a held touch.
 function dockBoost(inCross: boolean): void {
   const target = inCross ? padCrossEl : boostHomeEl
   if (boostEl.parentElement !== target) target.appendChild(boostEl)
   boostEl.classList.toggle('in-cross', inCross)
   camResetBtn.classList.toggle('above-pad', inCross)
-  stickEl.classList.toggle('beside-pad', inCross) // стик встаёт на одну горизонталь с крестовиной
+  stickEl.classList.toggle('beside-pad', inCross) // the stick lines up horizontally with the cross
 }
 
 function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
@@ -804,7 +804,7 @@ function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
     padEl.classList.add('hidden')
     return
   }
-  // В 'free' кнопки третьей оси не показываются, четыре стрелки остаются.
+  // In 'free' mode the third-axis buttons are not shown, the four arrows remain.
   padEl.classList.toggle('no-axis', mode === 'free')
   padEl.classList.toggle('left', padSide === 'left')
   padEl.classList.remove('hidden')
@@ -814,27 +814,27 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   endSession()
   if (!forBench) lastScheme = scheme
 
-  // Наклон и зум прошлой партии не переезжают в новую: иначе можно начать игру в неиграбельном ракурсе
-  // и не понять почему. Сбрасываем на старте (а не по выходу) — так кнопка «Ещё раз» тоже чистая.
+  // Tilt and zoom from the previous game do not carry over to the new one: otherwise one could start a game at an unplayable angle
+  // and not understand why. Reset at start (not on exit) - so the "Again" button is clean too.
   resetCamera()
 
   const isFirstGameEver = forBench ? false : readIsFirstGameEver()
-  // В первой игре ядро стартует в 'plane' и переезжает на demo.afterSteps ходу,
-  // во всех следующих — сразу в 'free'. s.mode ниже зеркалит это и обновляется по modeChanged.
+  // In the first game the core starts in 'plane' and switches at step demo.afterSteps,
+  // in all following ones - straight to 'free'. s.mode below mirrors this and is updated by modeChanged.
   const seed = forBench ? BENCH_SEED : Math.floor(Math.random() * 0x7fffffff)
-  // Замер и заморозка идут с ускорением из конфига и не трогают кошелёк; обычная партия: списывает партию у временных
-  // предметов и берёт надетое ускорение.
+  // Measurement and freeze run with the boost from the config and do not touch the wallet; a normal game spends a game on temporary
+  // items and takes the equipped boost.
   if (!forBench) {
     wallet.begin()
     saveShop()
   }
-  // Надетое в магазине применяется здесь: ускорение, препятствия, темп (размер арены пришёл параметром size).
+  // What is equipped in the shop is applied here: boost, obstacles, pace (arena size came as the size parameter).
   const setup = forBench ? null : gameSetup(wallet.state, shopRoot)
   const boostFactor = setup === null ? config.speed.boostFactor : setup.boostFactor
   const state = createGame(config, size, seed, isFirstGameEver, boostFactor, setup === null ? {} : { obstacleMult: setup.obstacleMult, paceScale: setup.paceScale })
   setBoostLabel(state)
-  // Косметика из магазина: палитра и скины приходят строками из payload, view о магазине не знает.
-  // В замере надетое не применяется — иначе цифры зависели бы от того, что куплено.
+  // Shop cosmetics: the palette and skins arrive as strings from the payload, the view knows nothing about the shop.
+  // In measurement the equipped items are not applied - otherwise the numbers would depend on what has been bought.
   const worn = (slot: Slot, key: 'palette' | 'skin'): string | undefined =>
     forBench
       ? undefined
@@ -847,10 +847,10 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   })
   view.setFogOn(fogOn)
 
-  // Ускорение включено, пока держит хоть один источник: палец на кнопке или Shift/Space.
-  // Любое отпускание (палец ушёл, cancel, blur, пауза, смерть, detach) приходит сюда же как on=false.
+  // Boost is on while at least one source holds: a finger on the button or Shift/Space.
+  // Any release (finger left, cancel, blur, pause, death, detach) arrives here as on=false.
   const boost: BoostHold = createBoostHold((on) => {
-    if (benchActive) return // замер: логика заморожена, ускорение не нужно
+    if (benchActive) return // measurement: logic is frozen, boost is not needed
     s.boostBtn.setActive(on)
     dispatchEvents(s, setBoost(s.state, on))
   })
@@ -865,7 +865,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
     state,
     view,
     detachInput: () => {
-      /* переопределяется ниже — attachInput нужен уже собранный `s` для замыканий */
+      /* overridden below - attachInput needs an already assembled `s` for closures */
     },
     pad: null,
     boostBtn,
@@ -893,7 +893,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
         else exitFreeze()
         return
       }
-      // Escape: из игры — на паузу, с паузы — обратно в игру.
+      // Escape: from the game - to pause, from pause - back to the game.
       if (isPaused()) resumeFromPause()
       else pauseNow()
     },
@@ -944,7 +944,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
 }
 
 function returnToMenu(): void {
-  // Выход с паузы посреди партии: набранный счёт идёт в таблицу с запомненными символами, как при смерти (без барабана).
+  // Exiting from pause mid-game: the accumulated score goes to the table with the remembered symbols, as on death (without the drum).
   if (session !== null && isAlive(session.state) && !benchActive) {
     commitRun(score(session.state), elapsedMs(session.state))
     if (settleRun(score(session.state)).gained > 0) unlockShop()
@@ -959,40 +959,40 @@ tapToPlayBtn.addEventListener('click', () => {
   startSession(currentArena(), selectedScheme)
 })
 
-// «Играть» в магазине: партия с текущими настройками и надетым (кнопка внутри .screen: звук разблокируется общим делегатом).
+// "Play" in the shop: a game with the current settings and what is equipped (the button is inside .screen: sound is unlocked by the common delegate).
 shopPlayBtn.addEventListener('click', () => startSession(currentArena(), selectedScheme))
 
-// «Ещё раз» — новая партия с теми же размером и схемой, без возврата в меню.
+// "Again" - a new game with the same size and scheme, without returning to the menu.
 playAgainBtn.addEventListener('click', () => startSession(currentArena(), lastScheme))
 toMenuBtn.addEventListener('click', returnToMenu)
 pauseToMenuBtn.addEventListener('click', returnToMenu)
 
-// --- пауза: сворачивание вкладки и экран демо-поворота -------------------
+// --- pause: tab hidden and the demo-turn screen -------------------
 
 function resumeFromPause(): void {
   screens.resume()
-  lastFrameTime = null // пропущенное время не проживаем
+  lastFrameTime = null // we do not live through the skipped time
 }
 
-// Единственная точка входа в паузу: и сворачивание вкладки, и кнопка «пауза» идут сюда.
+// The single entry point to pause: both tab hiding and the "pause" button come here.
 function pauseNow(): void {
   const s = session
   if (benchActive) return
   if (s === null || !isAlive(s.state) || !screens.pause()) return
-  // Ускорение на паузе выключается всегда: после «Продолжить» игрок сам зажмёт заново.
+  // Boost is always turned off on pause: after "Resume" the player holds it again themselves.
   s.boost.releaseAll()
   s.stick.release()
-  // Поверх экрана демо экран паузы не показывается (screens): после закрытия демо он проявится сам.
+  // The pause screen is not shown over the demo screen (screens): after the demo closes it appears by itself.
 }
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     lastFrameTime = null
-    // iOS усыпляет контекст при сворачивании и после звонка; игра при этом стоит на паузе до «Продолжить».
+    // iOS suspends the context on minimize and after a call; the game stands paused until "Resume" meanwhile.
     audio.resume()
     return
   }
-  audio.suspend() // фоновая вкладка не должна играть музыку
+  audio.suspend() // a background tab must not play music
   if (benchActive) bench?.abort('tab was hidden during the run')
   pauseNow()
 })
@@ -1002,12 +1002,12 @@ pauseBtn.addEventListener('click', pauseNow)
 resumeBtn.addEventListener('click', resumeFromPause)
 
 demoContinueBtn.addEventListener('click', () => {
-  screens.closeDemo() // если вкладку сворачивали, пока висел экран демо, экран паузы проявится сам
+  screens.closeDemo() // if the tab was minimized while the demo screen was up, the pause screen will appear by itself
   lastFrameTime = null
 })
 
-// --- отладочная панель и бенчмарк ----------------------------------------
-// Включение: клавиша ` (Backquote) или параметр адреса ?perf (?perf=bench — ещё и сразу запустить замер).
+// --- debug panel and benchmark ----------------------------------------
+// Enable: the ` (Backquote) key or the ?perf address parameter (?perf=bench - also starts the measurement immediately).
 
 const perfSnap = createPerfSnapshot()
 
@@ -1039,7 +1039,7 @@ function startBench(): void {
   const panel = ensurePerfPanel()
   panel.open()
   const saved = { ...perf }
-  // Сцена одна на все этапы: арена 100, фиксированный seed, свободная фаза, логика заморожена (benchActive).
+  // One scene for all stages: arena 100, fixed seed, free mode, logic frozen (benchActive).
   benchActive = true
   startSession(BENCH_ARENA, 'swipes', true)
   perf.fog = true
@@ -1072,7 +1072,7 @@ function startBench(): void {
         }
         Object.assign(perf, saved)
         applyPerfNow()
-        returnToMenu() // benchActive ещё true: счёт пустой партии в таблицу не попадает
+        returnToMenu() // benchActive is still true: the score of the empty game does not go into the table
         benchActive = false
         bench = null
         panel.setBench(null)
@@ -1083,11 +1083,11 @@ function startBench(): void {
   )
   bench = run
   run.start(performance.now())
-  panel.setBench(run) // после start: баннер показывается только пока прогон идёт
+  panel.setBench(run) // after start: the banner is shown only while the run is going
 }
 
-// ?perf=freeze: та же замороженная сцена, что у бенчмарка, но без прогона этапов: можно спокойно листать переключатели
-// панели и сравнивать кадры (скриншоты ступеней качества). Escape — выход в меню.
+// ?perf=freeze: the same frozen scene as the benchmark, but without running the stages: you can calmly flip the
+// panel toggles and compare frames (quality tier screenshots). Escape - exit to the menu.
 function startFreeze(): void {
   if (benchActive) return
   ensurePerfPanel().open()
@@ -1118,7 +1118,7 @@ window.addEventListener('keydown', (e) => {
   }
 }
 
-// --- ресайз/поворот экрана: UI и канвас должны это пережить -------------
+// --- resize/screen rotation: the UI and canvas must survive it -------------
 
 function onWindowResize(): void {
   if (session !== null) syncViewSize(session.view)
@@ -1127,16 +1127,16 @@ function onWindowResize(): void {
 window.addEventListener('resize', onWindowResize)
 window.addEventListener('orientationchange', onWindowResize)
 
-// --- игровой цикл: requestAnimationFrame, dt наружу, без аллокаций/await ---
+// --- game loop: requestAnimationFrame, dt passed to the core, no allocations/await ---
 
-// Рисовать ли сцену под экраном проигрыша (он непрозрачный, так что зря). true — прежнее поведение.
+// Whether to draw the scene under the game-over screen (it is opaque, so it is wasted). true - the old behavior.
 const RENDER_WHEN_DEAD = false
 
 let lastFrameTime: number | null = null
 
 function frame(now: number): void {
   requestAnimationFrame(frame)
-  // Отладка выключена (по умолчанию) — обе переменные null, в кадре стоит одна проверка.
+  // Debugging off (default) - both variables are null, the frame has a single check.
   if (perfPanel === null) {
     step(now)
     return
@@ -1153,7 +1153,7 @@ function step(now: number): void {
   const s = session
   if (s === null) return
 
-  // Потолок dt: даже без паузы (лаг, отладчик) ядро не делает пачку шагов и смерть за один кадр.
+  // dt ceiling: even without pause (lag, debugger) the core does not do a batch of steps and a death in one frame.
   const rawDt = lastFrameTime === null ? 0 : now - lastFrameTime
   const dtMs = rawDt > config.loop.maxFrameMs ? config.loop.maxFrameMs : rawDt
   lastFrameTime = now
@@ -1164,10 +1164,10 @@ function step(now: number): void {
     const st = s.stick.state
     if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)
   }
-  // Экран проигрыша непрозрачный и целиком закрывает холст: рисовать за ним сцену с постобработкой
-  // незачем (полный кадр GPU конкурирует с нажатиями барабана). RENDER_WHEN_DEAD = true возвращает как было.
+  // The game-over screen is opaque and fully covers the canvas: drawing the scene with postprocessing behind it
+  // is pointless (a full GPU frame competes with drum presses). RENDER_WHEN_DEAD = true brings it back as it was.
   if (!RENDER_WHEN_DEAD && !isAlive(s.state)) return
-  // На паузе демо render идёт дальше: камера доигрывает доворот за экраном объяснения.
+  // On demo pause render keeps going: the camera finishes the roll behind the explainer screen.
   s.view.render(s.state, dtMs)
 }
 

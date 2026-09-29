@@ -1,21 +1,21 @@
-// Кнопка ускорения: DOM-кнопка-сосед холста (касание, начатое на ней, до touch.ts не доходит:
-// не мешает свайпам, тапам по третьей оси и наклону двумя пальцами). Работает в обеих схемах.
-// Пока палец зажат — ускорение включено. Отпускание срабатывает всегда: pointerup, pointercancel,
-// lostpointercapture (на кнопке И на document: если захват не удался, а палец ушёл за кнопку, событие
-// придёт уже не ей), blur окна, скрытая вкладка, detach.
+// Boost button: a DOM button next to the canvas (a touch that starts on it never reaches touch.ts:
+// it does not interfere with swipes, third-axis taps, or the two-finger tilt). Works in both schemes.
+// While the finger is held, boost is on. Release always fires: pointerup, pointercancel,
+// lostpointercapture (on the button AND on document: if capture failed and the finger moved off the button, the event
+// no longer goes to the button), window blur, hidden tab, detach.
 //
-// Долгое нажатие (баг «×2 держится пару секунд»): на телефоне через ~0.5 с браузер шлёт contextmenu
-// (Android) или включает выделение/callout (iOS). Раньше contextmenu ещё и ОТПУСКАЛ ускорение, так что
-// держать кнопку дольше долгого нажатия было нельзя. Теперь долгое нажатие гасится в корне
-// (touchstart preventDefault: нет long-press жеста, меню, лупы) и сам contextmenu только подавляется —
-// отпускает палец, а не событие меню. Если система всё же перехватила касание, придёт pointercancel.
+// Long press (the "×2 stays on for a couple of seconds" bug): on a phone after ~0.5 s the browser fires contextmenu
+// (Android) or starts text selection/callout (iOS). Previously contextmenu also RELEASED boost, so
+// holding the button longer than a long press was impossible. Now the long press is killed at the root
+// (touchstart preventDefault: no long-press gesture, menu, or magnifier) and contextmenu itself is only suppressed:
+// release comes from the finger lifting, not from the menu event. If the system still steals the touch, pointercancel arrives.
 import { createBoostHold } from './gestures'
 import type { InputHandlers } from './index'
 
 export interface BoostButton {
-  /** Подсветка «ускорение включено» (по факту итогового состояния, в т.ч. от клавиатуры). */
+  /** Highlight "boost is on" (from the final resulting state, including the keyboard). */
   setActive(on: boolean): void
-  /** Принудительно отпустить (пауза, смерть, конец партии). */
+  /** Force release (pause, death, end of game). */
   release(): void
   detach(): void
 }
@@ -29,28 +29,28 @@ export function attachBoostButton(btn: HTMLElement, h: InputHandlers): BoostButt
 
   function onDown(e: PointerEvent): void {
     if (e.pointerType === 'mouse' && e.button !== 0) return
-    e.preventDefault() // без фокуса и синтетического click
+    e.preventDefault() // no focus and no synthetic click
     try {
       btn.setPointerCapture(e.pointerId)
     } catch {
-      // Указатель уже исчез — pointerup/lostpointercapture всё сбросят.
+      // The pointer is already gone: pointerup/lostpointercapture will reset everything.
     }
     hold.press(src(e.pointerId))
   }
   function onEnd(e: PointerEvent): void {
     hold.release(src(e.pointerId))
   }
-  // Только подавляем меню. НЕ отпускаем: contextmenu приходит посреди удержания, палец ещё на кнопке.
+  // Only suppress the menu. Do NOT release: contextmenu arrives mid-hold, the finger is still on the button.
   function onContextMenu(e: Event): void {
     e.preventDefault()
   }
-  // Не пассивный: preventDefault на touchstart убивает long-press жест (меню, выделение, лупа iOS),
-  // pointer-события при этом не отменяются.
+  // Non-passive: preventDefault on touchstart kills the long-press gesture (menu, selection, iOS magnifier),
+  // pointer events are not cancelled by it.
   function onTouchStart(e: TouchEvent): void {
     e.preventDefault()
   }
-  // Страховка на случай, если setPointerCapture не удался: тогда pointerup/cancel придут не на кнопку.
-  // Реагируем только на указатели, которыми кнопка реально держится (hold игнорирует чужие).
+  // Safety net in case setPointerCapture failed: then pointerup/cancel do not arrive on the button.
+  // React only to pointers the button is actually held by (hold ignores foreign ones).
   function onDocEnd(e: PointerEvent): void {
     hold.release(src(e.pointerId))
   }

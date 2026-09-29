@@ -1,4 +1,4 @@
-// Числа баланса из НАСТОЯЩЕГО config.json (а не из test-helpers): лестница ускорений и арена 5³.
+// Balance numbers from the REAL config.json (not from test-helpers): the boost ladder and the 5³ arena.
 import { describe, expect, test } from 'bun:test'
 import configJson from '../config.json'
 import { createGame, spawnApple, speedAfterApples, type Config } from '../core/rules'
@@ -11,7 +11,7 @@ const cfg = { ...helperConfig, ...configJson, hints: helperConfig.hints, camera:
 
 const PACES = [1.5, 1, 0.75, 0.5] as const
 
-/** Ускоренный шаг на дне кривой темпа: то, что игрок реально получит на разогнавшейся змейке. */
+/** Boosted step at the bottom of the pace curve: what the player actually gets on a sped-up snake. */
 function floorStep(pace: number, factor: number): number {
   const s = createGame(cfg, 20, 1, false, factor, { paceScale: pace })
   startGame(s)
@@ -21,32 +21,32 @@ function floorStep(pace: number, factor: number): number {
   return effectiveStepMs(s)
 }
 
-describe('лестница ускорений на дне кривой (config.speed.minEffectiveStepMs)', () => {
+describe('boost ladder at the bottom of the curve (config.speed.minEffectiveStepMs)', () => {
   const floor = configJson.speed.minEffectiveStepMs
 
-  test('пол ускоренного шага — 60 мс, сигнал головы успевает: нарастание не длиннее пола', () => {
+  test('boosted-step floor is 60 ms, the head signal keeps up: the rise is no longer than the floor', () => {
     expect(floor).toBe(60)
     expect(configJson.headSignal.riseMs).toBeLessThanOrEqual(floor)
   })
 
-  test('на «Спокойном», «Обычном» и «Быстром» все ступени ×2…×4 различаются', () => {
+  test('on Calm, Normal and Fast all ×2…×4 tiers differ', () => {
     for (const pace of [1.5, 1, 0.75]) {
       const steps = [2, 3, 4].map((f) => floorStep(pace, f))
       expect(new Set(steps).size).toBe(steps.length)
     }
   })
 
-  test('на «Обычном» дно: ×2 180, ×3 120, ×4 90 мс', () => {
+  test('on Normal the bottom is: ×2 180, ×3 120, ×4 90 ms', () => {
     expect([2, 3, 4].map((f) => floorStep(1, f))).toEqual([180, 120, 90])
   })
 
-  test('на «Быстром» ×4 — 67.5 мс, ещё выше пола; на «Очень быстром» ×3 и ×4 упираются в пол 60 мс', () => {
+  test('on Fast ×4 is 67.5 ms, still above the floor; on Very fast ×3 and ×4 hit the 60 ms floor', () => {
     expect(floorStep(0.75, 4)).toBe(67.5)
     expect(floorStep(0.5, 3)).toBe(60)
     expect(floorStep(0.5, 4)).toBe(60)
   })
 
-  test('ускоренный шаг никогда не короче пола и не длиннее обычного', () => {
+  test('a boosted step is never shorter than the floor nor longer than the normal one', () => {
     for (const pace of PACES)
       for (const f of configJson.speed.boostFactors) {
         const normal = speedAfterApples(cfg, 10_000, pace)
@@ -56,7 +56,7 @@ describe('лестница ускорений на дне кривой (config.s
       }
   })
 
-  test('эффективный множитель на «Очень быстром» ×4 — ×3, не ×4', () => {
+  test('the effective factor on Very fast ×4 is ×3, not ×4', () => {
     const s = createGame(cfg, 20, 1, false, 4, { paceScale: 0.5 })
     s.stepMs = speedAfterApples(cfg, 10_000, 0.5)
     expect(effectiveBoostFactor(s)).toBe(3)
@@ -64,21 +64,21 @@ describe('лестница ускорений на дне кривой (config.s
   })
 })
 
-describe('арена 5³', () => {
+describe('arena 5³', () => {
   const MULTS = [0, 0.25, 0.5, 1, 2]
 
-  test('5 есть в config.cube.sizes, по умолчанию по-прежнему 20', () => {
+  test('5 is in config.cube.sizes, the default is still 20', () => {
     expect(configJson.cube.sizes).toContain(5)
     expect(configJson.cube.default).toBe(20)
   })
 
-  test('препятствий в 5³ нет ни при какой плотности: зона очистки вокруг головы (радиус 4) накрывает весь куб', () => {
+  test('there are no obstacles in 5³ at any density: the clear zone around the head (radius 4) covers the whole cube', () => {
     expect(configJson.obstacles.clearRadius).toBeGreaterThanOrEqual(Math.floor(5 / 2))
     for (const m of MULTS)
       for (let seed = 1; seed <= 100; seed++) expect(createGame(cfg, 5, seed, false, 2, { obstacleMult: m }).obstacles.size).toBe(0)
   })
 
-  test('на старте змейка не заперта, яблоко свободно и не в змейке', () => {
+  test('at the start the snake is not boxed in, the apple is free and not in the snake', () => {
     for (const m of MULTS)
       for (let seed = 1; seed <= 100; seed++) {
         const s = createGame(cfg, 5, seed, false, 2, { obstacleMult: m })
@@ -86,12 +86,12 @@ describe('арена 5³', () => {
         expect(h.x).toBe(2)
         expect(s.snakeCells.has(cellKey(s.apple.x, s.apple.y, s.apple.z, 5))).toBe(false)
         expect(s.obstacles.has(cellKey(s.apple.x, s.apple.y, s.apple.z, 5))).toBe(false)
-        // до стены по курсу — две свободные клетки: есть время на первый поворот
+        // to the wall along the heading - two free cells: there is time for the first turn
         expect(5 - 1 - h.x).toBe(2)
       }
   })
 
-  test('яблоко находит последнюю свободную клетку почти полного куба', () => {
+  test('the apple finds the last free cell of an almost full cube', () => {
     const s = createGame(cfg, 5, 7, false, 2)
     s.snake = []
     s.snakeCells.clear()

@@ -1,25 +1,25 @@
-// Разбиение оболочки препятствий на пространственные куски (чистая функция, без three; холодный путь, на 'started').
-// Зачем: одна огромная инстанс-выборка (на 100^3 ~130 тыс. граней и ~220 тыс. рёбер) рисовалась целиком каждый кадр,
-// хотя в кадр попадает часть арены. Куски со своей ограничивающей сферой отсекаются штатным frustum culling'ом three.js:
-// картинка не меняется (отсекается только то, что вне пирамиды видимости), а вершинная работа падает
-// пропорционально невидимой доле арены. Кусок = кубик chunkCells^3 клеток; клетка принадлежит куску по своим координатам,
-// ребро — по клетке-владельцу (округление центра ребра, как в obstacles-view).
+// Splitting the obstacle shell into spatial chunks (pure function, no three; cold path, on 'started').
+// Why: one huge instanced batch (at 100^3 ~130k faces and ~220k edges) was drawn in full every frame,
+// although only part of the arena is on screen. Chunks with their own bounding sphere are culled by three.js's built-in frustum culling:
+// the image does not change (only what is outside the view frustum is culled), and vertex work drops
+// in proportion to the invisible share of the arena. Chunk = a chunkCells^3 block of cells; a cell belongs to a chunk by its coordinates,
+// an edge - by its owner cell (rounding the edge center, as in obstacles-view).
 
 export interface ShellChunk {
-  /** [cx,cy,cz,code] * faceCount (вид на общий буфер, порядок граней внутри клетки сохранён). */
+  /** [cx,cy,cz,code] * faceCount (a view onto the shared buffer, face order within a cell preserved). */
   faces: Float32Array
   faceCount: number
   /** [ex,ey,ez,axis] * edgeCount. */
   edges: Float32Array
   edgeCount: number
-  /** Ограничивающая сфера всех клеток куска с запасом на кромки/ленты рёбер. */
+  /** Bounding sphere of all the chunk's cells, with margin for face edges/edge ribbons. */
   cx: number
   cy: number
   cz: number
   radius: number
 }
 
-/** Запас сферы сверх габарита клеток: вылет кромок граней (<1 клетки) и ширина экранной ленты ребра. */
+/** Sphere margin beyond the cell bounds: the overhang of face edges (<1 cell) and the width of the edge's screen ribbon. */
 export const CHUNK_SPHERE_PAD = 2
 
 function chunkIndex(x: number, y: number, z: number, cs: number, cn: number): number {
@@ -88,8 +88,8 @@ export function chunkShell(
     sortedEdges[o + 1] = edges[i * 4 + 1]!
     sortedEdges[o + 2] = edges[i * 4 + 2]!
     sortedEdges[o + 3] = edges[i * 4 + 3]!
-    // Владелец ребра — клетка со своими гранями, так что она уже учтена в габарите куска; на случай
-    // ребра без граней расширяем габарит и по нему.
+    // The edge's owner is a cell with its own faces, so it is already counted in the chunk bounds; in case of
+    // an edge without faces we extend the bounds by it as well.
     const x = Math.round(edges[i * 4]!)
     const y = Math.round(edges[i * 4 + 1]!)
     const z = Math.round(edges[i * 4 + 2]!)

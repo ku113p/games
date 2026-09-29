@@ -1,9 +1,9 @@
-// shop/shop.ts — каталог, покупки, надетое, начисление. Все функции чистые: состояние не мутируется,
-// возвращается новое. Все числа — из config.json (раздел shop), в коде их нет.
+// shop/shop.ts — catalog, purchases, equipping, earning. All functions are pure: state is not mutated,
+// a new one is returned. All numbers come from config.json (shop section), none are in the code.
 
 import type { Item, ItemKind, ItemPayload, ShopRoot, ShopState, Slot, TemporaryEntry } from './types'
 
-/** Слот предмета по виду. У множителей очков и заглушек слота нет. Это устройство каталога, не баланс. */
+/** The item's slot by kind. Coin multipliers and coming-soon slots have no slot. This is catalog structure, not balance. */
 const SLOT_OF_KIND: Readonly<Partial<Record<ItemKind, Slot>>> = {
   boost: 'boost',
   palette: 'palette',
@@ -39,13 +39,13 @@ function isCount(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n >= 0
 }
 
-/** Целое ≥ 0 в пределах безопасных целых: всё, что не число, — 0. */
+/** An integer ≥ 0 within the safe integers: anything that is not a number is 0. */
 export function toCoins(n: unknown): number {
   if (!isCount(n)) return 0
   return Math.min(Number.MAX_SAFE_INTEGER, Math.floor(n))
 }
 
-/** Из сырого payload берутся только поля с ожидаемым типом: остальное отбрасывается. */
+/** From a raw payload only fields of the expected type are taken: the rest is dropped. */
 function normalizePayload(raw: object | undefined): ItemPayload {
   const src = (raw ?? {}) as Record<string, unknown>
   const out: ItemPayload = {}
@@ -68,9 +68,9 @@ function multOf(item: Item | undefined): number {
 const catalogCache = new WeakMap<object, readonly Item[]>()
 
 /**
- * Каталог из config.shop.items. Негодные строки (нет id, неизвестный вид, дубль id, цена не число
- * или отрицательная, множитель не число ≥ 1, временный без срока) отбрасываются, а не чинятся:
- * испорченный конфиг не должен выдавать предметы даром.
+  * Catalog from config.shop.items. Invalid rows (no id, unknown kind, duplicate id, price not a number
+  * or negative, multiplier not a number ≥ 1, temporary without a term) are dropped rather than repaired:
+  * a corrupted config must not hand out items for free.
  */
 export function catalog(config: ShopRoot): readonly Item[] {
   const cached = catalogCache.get(config)
@@ -106,7 +106,7 @@ export function findItem(config: ShopRoot, id: string): Item | undefined {
   return catalog(config).find((it) => it.id === id)
 }
 
-/** Новая игра без сохранения: то, что выдано по умолчанию (config.shop.defaults). */
+/** A new game without a save: what is granted by default (config.shop.defaults). */
 export function initialState(config: ShopRoot): ShopState {
   const d = config.shop.defaults
   const owned: string[] = []
@@ -128,15 +128,15 @@ export function isOwned(state: ShopState, item: Item): boolean {
   return state.owned.includes(item.id)
 }
 
-/** Сколько партий осталось у временного предмета (0, если не действует). */
+/** How many games a temporary item has left (0 if not in effect). */
 export function gamesLeft(state: ShopState, item: Item): number {
   return state.temporary.find((t) => t.id === item.id)?.gamesLeft ?? 0
 }
 
 /**
- * Можно ли купить. Предмет берётся из каталога по id (подсунутая копия с другой ценой не проходит).
- * Заглушку — никогда. Уже купленное постоянное — нет. Временный множитель можно купить снова
- * (продлевает срок), пока срок не упёрся в config.shop.maxTemporaryGames. Денег не хватает — нет.
+  * Whether it can be bought. The item is taken from the catalog by id (a forged copy with a different price does not pass).
+  * A coming-soon slot: never. An already owned permanent item: no. A temporary multiplier can be bought again
+  * (extends the term) until the term reaches config.shop.maxTemporaryGames. Not enough coins: no.
  */
 export function canBuy(state: ShopState, item: Item, config: ShopRoot): boolean {
   const it = findItem(config, item.id)
@@ -147,9 +147,9 @@ export function canBuy(state: ShopState, item: Item, config: ShopRoot): boolean 
 }
 
 /**
- * Покупка. Чистая: возвращает НОВОЕ состояние; если купить нельзя — ту же ссылку без изменений,
- * баланс не трогается. Надевание — отдельно (equip). Для временного множителя срок прибавляется
- * к остатку, но не выше config.shop.maxTemporaryGames.
+  * Purchase. Pure: returns a NEW state; if it cannot be bought, the same reference unchanged,
+  * the balance is untouched. Equipping is separate (equip). For a temporary multiplier the term is added
+  * to the remainder, but not above config.shop.maxTemporaryGames.
  */
 export function buy(state: ShopState, item: Item, config: ShopRoot): ShopState {
   if (!canBuy(state, item, config)) return state
@@ -180,7 +180,7 @@ export function buy(state: ShopState, item: Item, config: ShopRoot): ShopState {
   }
 }
 
-/** Надеть купленное. Некупленное, заглушку и предмет без слота не надевает: возвращает то же состояние. */
+/** Equip an owned item. Does not equip an unowned item, a coming-soon slot or an item without a slot: returns the same state. */
 export function equip(state: ShopState, item: Item, config: ShopRoot): ShopState {
   const it = findItem(config, item.id)
   const slot = it === undefined ? null : slotOf(it)
@@ -193,7 +193,7 @@ export function equip(state: ShopState, item: Item, config: ShopRoot): ShopState
   }
 }
 
-/** Множитель очков, каким будет СЛЕДУЮЩАЯ партия: лучший постоянный × лучший временный (одного вида не суммируются). */
+/** Coin multiplier (scoreMult*) the NEXT game will have: best permanent × best temporary (of the same kind they do not add up). */
 export function scoreMultiplier(state: ShopState, config: ShopRoot): number {
   let perm = 1
   let temp = 1
@@ -208,7 +208,7 @@ export function scoreMultiplier(state: ShopState, config: ShopRoot): number {
   return perm * temp
 }
 
-/** Монеты за партию при заданном множителе (округление к ближайшему целому). */
+/** Coins for a game at a given multiplier (rounded to the nearest integer). */
 export function payout(config: ShopRoot, applesEaten: number, mult: number): number {
   if (!isCount(applesEaten)) return 0
   const m = Number.isFinite(mult) && mult >= 1 ? mult : 1
@@ -216,9 +216,9 @@ export function payout(config: ShopRoot, applesEaten: number, mult: number): num
 }
 
 /**
- * Начисление после партии: яблоки × coinPerApple × множитель, замороженный в beginSession.
- * Множитель сбрасывается: второй earn без нового beginSession множитель не повторит.
- * Результат партии в таблице рекордов от кошелька не зависит и здесь не участвует.
+  * Earning after a game: apples × coinPerApple × the multiplier frozen in beginSession.
+  * The multiplier is reset: a second earn without a new beginSession does not repeat it.
+  * The game result in the leaderboard does not depend on the wallet and does not take part here.
  */
 export function earn(state: ShopState, applesEaten: number, config: ShopRoot): ShopState {
   const coins = payout(config, applesEaten, state.sessionMult)
@@ -234,9 +234,9 @@ export function earn(state: ShopState, applesEaten: number, config: ShopRoot): S
 }
 
 /**
- * Старт партии: замораживает множитель этой партии, списывает одну партию у временных и снимает
- * истёкшие. Множитель, у которого осталась одна партия, платит за неё и пропадает сразу после старта:
- * ровно после последней партии.
+  * Game start: freezes this game's multiplier, spends one game of the temporary items and removes
+  * the expired ones. A multiplier with one game left pays for it and disappears right after the start:
+  * exactly after the last game.
  */
 export function beginSession(state: ShopState, config: ShopRoot): ShopState {
   const sessionMult = scoreMultiplier(state, config)
@@ -247,14 +247,14 @@ export function beginSession(state: ShopState, config: ShopRoot): ShopState {
   return { ...state, owned: [...state.owned], equipped: { ...state.equipped }, temporary, sessionMult }
 }
 
-/** Множитель партии, которая идёт сейчас (после beginSession и до earn); вне партии — 1. */
+/** Multiplier of the game in progress (after beginSession and before earn); outside a game, 1. */
 export function currentSessionMultiplier(state: ShopState): number {
   return state.sessionMult
 }
 
 /**
- * Выбранное ускорение для createGame. Надетое, если оно куплено и годно; иначе config.shop.defaultBoost;
- * если и он негоден — config.speed.boostFactor.
+  * The selected boost for createGame. The equipped one if it is owned and valid; otherwise config.shop.defaultBoost;
+  * if that is invalid too, config.speed.boostFactor.
  */
 export function selectedBoostFactor(state: ShopState, config: ShopRoot): number {
   const id = state.equipped.boost
@@ -264,7 +264,7 @@ export function selectedBoostFactor(state: ShopState, config: ShopRoot): number 
   return Number.isFinite(d) && d >= 1 ? d : config.speed.boostFactor
 }
 
-/** Предмет, надетый в слоте (или undefined). Для косметики: витрина читает payload. */
+/** The item equipped in a slot (or undefined). For cosmetics: the storefront reads the payload. */
 export function equippedItem(state: ShopState, config: ShopRoot, slot: Slot): Item | undefined {
   const id = state.equipped[slot]
   if (id === undefined || !state.owned.includes(id)) return undefined
@@ -277,22 +277,22 @@ function equippedPayload(state: ShopState, config: ShopRoot, slot: Slot, kind: I
   return it?.kind === kind ? it.payload : undefined
 }
 
-/** Выбранный размер арены (ребро куба). Нет надетого или негодно — config.shop.defaultArenaSize. */
+/** Selected arena size (cube edge). Nothing equipped or invalid: config.shop.defaultArenaSize. */
 export function selectedArenaSize(state: ShopState, config: ShopRoot): number {
   return equippedPayload(state, config, 'arenaSize', 'arenaSize')?.size ?? config.shop.defaultArenaSize
 }
 
-/** Выбранный множитель препятствий для createGame (options.obstacleMult). По умолчанию 1. */
+/** Selected obstacle multiplier for createGame (options.obstacleMult). Defaults to 1. */
 export function selectedObstacleMult(state: ShopState, config: ShopRoot): number {
   return equippedPayload(state, config, 'obstacles', 'obstacleDensity')?.density ?? 1
 }
 
-/** Выбранный масштаб темпа для createGame (options.paceScale). По умолчанию 1. */
+/** Selected pace scale for createGame (options.paceScale). Defaults to 1. */
 export function selectedPaceScale(state: ShopState, config: ShopRoot): number {
   return equippedPayload(state, config, 'pace', 'pace')?.scale ?? 1
 }
 
-/** Всё, что нужно для новой партии: createGame(config, size, seed, first, boostFactor, { obstacleMult, paceScale }). */
+/** Everything needed for a new game: createGame(config, size, seed, first, boostFactor, { obstacleMult, paceScale }). */
 export function gameSetup(
   state: ShopState,
   config: ShopRoot,

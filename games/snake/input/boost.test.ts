@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { attachBoostButton } from './boost'
 
-// Кнопка «×2» на подменённом DOM: проверяем, что удержание не рвётся посреди нажатия (баг «×2 держится пару секунд»)
-// и что отпускание срабатывает всегда.
+// The "×2" button on a fake DOM: check that a hold is not cut off mid-press (the "×2 stays on for a couple of seconds" bug)
+// and that release always fires.
 type L = (e: unknown) => void
 
 function setup() {
@@ -37,20 +37,20 @@ function setup() {
   }
 }
 
-describe('attachBoostButton: удержание', () => {
-  test('долгое нажатие: contextmenu подавляется, но ускорение НЕ отпускается', () => {
+describe('attachBoostButton: hold', () => {
+  test('long press: contextmenu is suppressed but boost is NOT released', () => {
     const t = setup()
     t.down()
     let prevented = false
     t.btn.get('contextmenu')?.({ preventDefault: () => (prevented = true) })
     expect(prevented).toBe(true)
-    expect(t.log).toEqual([true]) // всё ещё держим
+    expect(t.log).toEqual([true]) // still holding
     t.btn.get('pointerup')?.({ pointerId: 1 })
     expect(t.log).toEqual([true, false])
     t.restore()
   })
 
-  test('touchstart на кнопке гасится (нет long-press жеста: меню, выделение, лупа)', () => {
+  test('touchstart on the button is cancelled (no long-press gesture: menu, selection, magnifier)', () => {
     const t = setup()
     let prevented = false
     t.btn.get('touchstart')?.({ preventDefault: () => (prevented = true) })
@@ -58,16 +58,16 @@ describe('attachBoostButton: удержание', () => {
     t.restore()
   })
 
-  test('отпускание срабатывает всегда: pointerup, pointercancel, lostpointercapture, document-уровень, blur, скрытая вкладка, detach', () => {
+  test('release always fires: pointerup, pointercancel, lostpointercapture, document level, blur, hidden tab, detach', () => {
     const cases: { name: string; run: (t: ReturnType<typeof setup>) => void }[] = [
       { name: 'pointerup', run: (t) => t.btn.get('pointerup')?.({ pointerId: 1 }) },
       { name: 'pointercancel', run: (t) => t.btn.get('pointercancel')?.({ pointerId: 1 }) },
       { name: 'lostpointercapture', run: (t) => t.btn.get('lostpointercapture')?.({ pointerId: 1 }) },
-      { name: 'pointerup на document (палец ушёл с кнопки без захвата)', run: (t) => t.doc.get('pointerup')?.({ pointerId: 1 }) },
-      { name: 'pointercancel на document', run: (t) => t.doc.get('pointercancel')?.({ pointerId: 1 }) },
-      { name: 'blur окна', run: (t) => t.win.get('blur')?.({}) },
+      { name: 'pointerup on document (finger left the button without capture)', run: (t) => t.doc.get('pointerup')?.({ pointerId: 1 }) },
+      { name: 'pointercancel on document', run: (t) => t.doc.get('pointercancel')?.({ pointerId: 1 }) },
+      { name: 'window blur', run: (t) => t.win.get('blur')?.({}) },
       {
-        name: 'скрытая вкладка',
+        name: 'hidden tab',
         run: (t) => {
           t.docObj.hidden = true
           t.doc.get('visibilitychange')?.({})
@@ -85,7 +85,7 @@ describe('attachBoostButton: удержание', () => {
     }
   })
 
-  test('чужой указатель не отпускает удержание', () => {
+  test('a foreign pointer does not release the hold', () => {
     const t = setup()
     t.down(1)
     t.doc.get('pointerup')?.({ pointerId: 2 })

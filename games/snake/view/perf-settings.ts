@@ -1,13 +1,13 @@
-// Отладочные настройки производительности (панель перформанса, view/perf-panel.ts).
-// Живут на уровне модуля: переживают перезапуск партии, но не перезагрузку страницы (запоминать не надо).
-// Значения по умолчанию = прежнее поведение игры, поэтому с закрытой панелью ничего не меняется.
+// Debug performance settings (performance panel, view/perf-panel.ts).
+// They live at module level: they survive a game restart but not a page reload (no need to persist them).
+// Defaults = the game's earlier behavior, so with the panel closed nothing changes.
 
 import type { AaSettings } from './postprocessing'
 
 /**
- * Способы сглаживания для панели и бенчмарка (первый = штатное значение игры). Это разные цены на разном железе:
- * на встроенной графике Intel (ANGLE/D3D11) MSAA в HalfFloat-цели даёт затык через кадр (замер дизайнера), поэтому
- * рядом стоят кандидаты обхода: 8-битная цель, MSAA без resolve глубины, постобработочный SMAA.
+ * Antialiasing methods for the panel and benchmark (the first = the game's default). They cost differently on different hardware:
+ * on Intel integrated graphics (ANGLE/D3D11) MSAA in a HalfFloat target stalls every other frame (designer's measurement), so
+ * workaround candidates sit alongside: an 8-bit target, MSAA without depth resolve, post-processing SMAA.
  */
 export interface AaPreset extends AaSettings {
   id: string
@@ -22,28 +22,28 @@ export const AA_PRESETS: readonly AaPreset[] = [
   { id: 'smaa', label: 'SMAA', samples: 0, byteTarget: false, resolveDepth: true, smaa: true },
   { id: 'off', label: 'off', samples: 0, byteTarget: false, resolveDepth: true, smaa: false },
 ]
-/** Ступени потолка мегапикселей буфера отрисовки (0 — без потолка, как в игре по умолчанию). */
+/** Steps of the render buffer megapixel cap (0 means no cap, as in the default game). */
 export const MEGAPIXEL_STEPS: readonly number[] = [0, 4, 2.5, 1.5]
 
-/** Верхняя граница множителя плотности пикселей (защита слабых телефонов от перерасхода fillrate). */
+/** Upper bound of the pixel density multiplier (protects weak phones from fillrate overuse). */
 export const MAX_PIXEL_RATIO = 2
 
 export interface PerfSettings {
-  /** Число сэмплов MSAA (0 — нет). Остальные поля способа — ниже; целиком их выставляет setAaPreset/applyQualityLevel. */
+  /** Number of MSAA samples (0 for none). The other fields of the method are below; setAaPreset/applyQualityLevel set them all together. */
   msaa: number
-  /** MSAA-цель 8 бит (sRGB) вместо HalfFloat. */
+  /** 8-bit (sRGB) MSAA target instead of HalfFloat. */
   aaByte: boolean
-  /** Разрешать multisampled глубину (по умолчанию three разрешает). */
+  /** Allow multisampled depth resolve (three allows it by default). */
   aaDepthResolve: boolean
-  /** Постобработочный SMAA вместо MSAA. */
+  /** Post-processing SMAA instead of MSAA. */
   smaa: boolean
   bloom: boolean
-  /** Разрешение свечения относительно буфера кадра: 1 — полное, 0.5 — половинное (дешевле, гало шире и мягче). */
+  /** Bloom resolution relative to the frame buffer: 1 is full, 0.5 is half (cheaper, halo wider and softer). */
   bloomScale: number
   megapixelCap: number
   fog: boolean
   miniMap: boolean
-  /** Панель открыта: включает ручной сброс renderer.info (иначе он считал бы только последний пасс). */
+  /** Panel is open: enables the manual renderer.info reset (otherwise it would count only the last pass). */
   statsOn: boolean
 }
 
@@ -60,7 +60,7 @@ export const perf: PerfSettings = {
   statsOn: false,
 }
 
-/** Заранее выделенный снимок показателей; заполняется View.readPerf и main.ts, читается панелью. */
+/** Preallocated metrics snapshot; filled by View.readPerf and main.ts, read by the panel. */
 export interface PerfSnapshot {
   drawCalls: number
   triangles: number
@@ -70,9 +70,9 @@ export interface PerfSnapshot {
   devicePixelRatio: number
   arena: number
   snakeLength: number
-  /** Что реально включено в композере (подпись для лога бенчмарка). */
+  /** What is actually enabled in the composer (label for the benchmark log). */
   aaLabel: string
-  /** Нижний край мини-карты в CSS px от верха окна (чтобы панель не перекрывала карту). */
+  /** Bottom edge of the minimap in CSS px from the top of the window (so the panel does not cover the map). */
   miniMapBottomPx: number
 }
 
@@ -80,7 +80,7 @@ export function createPerfSnapshot(): PerfSnapshot {
   return { drawCalls: 0, triangles: 0, bufferW: 0, bufferH: 0, pixelRatio: 1, devicePixelRatio: 1, arena: 0, snakeLength: 0, aaLabel: '', miniMapBottomPx: 0 }
 }
 
-// --- Качество для игрока (меню и пауза): связка потолка МПикс, сглаживания и свечения. Числа — config.json (quality). ---
+// --- Quality for the player (menu and pause): a bundle of MPix cap, antialiasing and bloom. The numbers are in config.json (quality). ---
 
 export type QualityId = 'high' | 'medium' | 'low'
 export const QUALITY_IDS: readonly QualityId[] = ['high', 'medium', 'low']
@@ -88,7 +88,7 @@ export const QUALITY_IDS: readonly QualityId[] = ['high', 'medium', 'low']
 export interface QualityLevel {
   megapixelCap: number
   msaa: number
-  /** Необязательные уточнения способа сглаживания; не заданы — как «высокое»: HalfFloat-цель, глубина разрешается, без SMAA. */
+  /** Optional refinements of the antialiasing method; if unset, same as "high": HalfFloat target, depth is resolved, no SMAA. */
   aaByte?: boolean
   aaDepthResolve?: boolean
   smaa?: boolean
@@ -98,9 +98,9 @@ export interface QualityLevel {
 export interface QualityConfig {
   autoMediumFromMegapixels: number
   autoLowFromMegapixels: number
-  /** Ступень по умолчанию на слабой/неопознанной десктопной графике: MSAA там опция, а не умолчание (см. autoQuality). */
+  /** Default level on weak/unrecognized desktop graphics: MSAA there is an option, not the default (see autoQuality). */
   autoWeakGpu: QualityId
-  /** Регулярка (без учёта регистра) по строке видеокарты: что считать сильным GPU, на котором MSAA остаётся умолчанием. */
+  /** Regex (case-insensitive) over the GPU string: what counts as a strong GPU on which MSAA stays the default. */
   strongGpuPattern: string
   levels: Record<QualityId, QualityLevel>
 }
@@ -109,7 +109,7 @@ export function isQualityId(v: unknown): v is QualityId {
   return v === 'high' || v === 'medium' || v === 'low'
 }
 
-/** Выставляет perf по ступени качества (холодный путь; применение к рендеру — View.applyPerf). */
+/** Sets perf from a quality level (cold path; applying it to the renderer is View.applyPerf). */
 export function applyQualityLevel(level: QualityLevel): void {
   perf.megapixelCap = level.megapixelCap
   perf.msaa = level.msaa
@@ -120,13 +120,13 @@ export function applyQualityLevel(level: QualityLevel): void {
   perf.bloomScale = level.bloom === 'half' ? 0.5 : 1
 }
 
-/** Размер буфера кадра на «высоком», МПикс: окно в CSS px, умноженное на множитель плотности (не выше MAX_PIXEL_RATIO). */
+/** Frame buffer size at "high", MPix: the window in CSS px times the density multiplier (capped at MAX_PIXEL_RATIO). */
 export function bufferMegapixels(cssW: number, cssH: number, devicePixelRatio: number): number {
   const pr = Math.min(devicePixelRatio > 0 ? devicePixelRatio : 1, MAX_PIXEL_RATIO)
   return (cssW * pr * cssH * pr) / 1e6
 }
 
-/** Выставляет способ сглаживания целиком (панель, бенчмарк). Холодный путь. */
+/** Sets the antialiasing method as a whole (panel, benchmark). Cold path. */
 export function setAaPreset(p: AaSettings): void {
   perf.msaa = p.samples
   perf.aaByte = p.byteTarget
@@ -134,12 +134,12 @@ export function setAaPreset(p: AaSettings): void {
   perf.smaa = p.smaa
 }
 
-/** Текущее сглаживание как настройки композера (холодный путь; аллоцирует объект). */
+/** Current antialiasing as composer settings (cold path; allocates an object). */
 export function currentAa(): AaSettings {
   return { samples: perf.smaa ? 0 : perf.msaa, byteTarget: perf.aaByte, resolveDepth: perf.aaDepthResolve, smaa: perf.smaa }
 }
 
-/** Пресет панели, соответствующий текущим настройкам; null — сочетание не из списка. */
+/** The panel preset matching the current settings; null means a combination not in the list. */
 export function currentAaPreset(): AaPreset | null {
   for (const p of AA_PRESETS) {
     if (p.smaa === perf.smaa && p.samples === (perf.smaa ? 0 : perf.msaa) && p.byteTarget === perf.aaByte && p.resolveDepth === perf.aaDepthResolve) return p
@@ -147,16 +147,16 @@ export function currentAaPreset(): AaPreset | null {
   return null
 }
 
-/** Класс видеокарты для выбора ступени по умолчанию. */
+/** GPU class for choosing the default level. */
 export type GpuClass = 'strong' | 'weak' | 'software' | 'unknown'
 
 const SOFTWARE_GPU_RE = /swiftshader|llvmpipe|software|softpipe|microsoft basic render|basic render driver/i
 
 /**
- * Класс по строке видеокарты (WEBGL_debug_renderer_info). Чистая функция (тестируется).
- * strong — дискретные и мобильные GPU, где MSAA известно дёшев: шаблон `cfg.strongGpuPattern`.
- * weak — всё, что распознано как встроенная графика Intel/AMD/прочее и не подошло под strong (замер: Intel Xe/Arc iGPU на D3D11 даёт затык через кадр с MSAA).
- * unknown — строки нет (браузер скрыл): решает тип указателя.
+ * Class from the GPU string (WEBGL_debug_renderer_info). A pure function (tested).
+ * strong: discrete and mobile GPUs where MSAA is known to be cheap: the `cfg.strongGpuPattern` pattern.
+ * weak: anything recognized as Intel/AMD/other integrated graphics that did not match strong (measured: Intel Xe/Arc iGPU on D3D11 stalls every other frame with MSAA).
+ * unknown: no string (the browser hid it): the pointer type decides.
  */
 export function classifyGpu(renderer: string, cfg: QualityConfig): GpuClass {
   if (renderer === '') return 'unknown'
@@ -167,7 +167,7 @@ export function classifyGpu(renderer: string, cfg: QualityConfig): GpuClass {
 
 let gpuRendererCache: string | null = null
 
-/** Строка видеокарты через временный WebGL-контекст (холодный путь, один раз; '' — не удалось/скрыто). */
+/** GPU string via a temporary WebGL context (cold path, once; '' means it failed/hidden). */
 export function readGpuRendererString(): string {
   if (gpuRendererCache !== null) return gpuRendererCache
   gpuRendererCache = ''
@@ -185,13 +185,13 @@ export function readGpuRendererString(): string {
   return gpuRendererCache
 }
 
-/** Есть ли у устройства основной указатель «мышь/тачпад» (десктоп, ноутбук). Телефон и планшет — грубый указатель (касание). */
+/** Whether the device's primary pointer is a mouse/touchpad (desktop, laptop). A phone and tablet have a coarse pointer (touch). */
 export function hasFinePointer(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
   return window.matchMedia('(pointer: fine)').matches
 }
 
-/** Класс по умолчанию для текущего устройства: строка карты, а если она скрыта — тип указателя (касание = тайловый мобильный GPU). */
+/** Default class for the current device: the GPU string, and if hidden, the pointer type (touch = tile-based mobile GPU). */
 export function detectGpuClass(cfg: QualityConfig): GpuClass {
   const g = classifyGpu(readGpuRendererString(), cfg)
   if (g === 'unknown') return hasFinePointer() ? 'weak' : 'strong'
@@ -199,15 +199,15 @@ export function detectGpuClass(cfg: QualityConfig): GpuClass {
 }
 
 /**
- * Ступень по умолчанию, пока игрок ничего не выбрал. Принцип: не отдавать слабому железу мультисэмплинг молча, но и сильному
- * не отбирать его молча. Игрок может выбрать любую ступень в меню (выбор запоминается), поэтому умолчание должно быть безопасным.
- * Замер на встроенной графике Intel (Windows, D3D11): MSAA даёт затык на каждом втором кадре при любом числе сэмплов и любом
- * размере буфера, без MSAA тот же буфер держит 60 кадров/с. Размер буфера этого не предсказывает, поэтому сначала класс карты:
- * - буфер от `autoLowFromMegapixels` или программный рендер — «низкое» (fillrate);
- * - strong (дискретные NVIDIA/AMD RX, Apple, мобильные Adreno/Mali/PowerVR): прежнее правило по размеру буфера
- *   («высокое» с MSAA, на большом буфере «среднее»);
- * - weak (встроенная графика, карта не опознана как сильная, скрытая строка на десктопе): `cfg.autoWeakGpu` («среднее» = полное разрешение
- *   и свечение, без MSAA).
+ * Default level until the player picks anything. Principle: do not silently hand multisampling to weak hardware, but do not
+ * silently take it from strong hardware either. The player can pick any level in the menu (the choice is remembered), so the default must be safe.
+ * Measured on Intel integrated graphics (Windows, D3D11): MSAA stalls every other frame at any sample count and any
+ * buffer size, while without MSAA the same buffer holds 60 fps. Buffer size does not predict this, so the GPU class comes first:
+ * - buffer from `autoLowFromMegapixels` up or a software renderer: "low" (fillrate);
+ * - strong (discrete NVIDIA/AMD RX, Apple, mobile Adreno/Mali/PowerVR): the earlier rule by buffer size
+ *   ("high" with MSAA, on a large buffer "medium");
+ * - weak (integrated graphics, the card not recognized as strong, a hidden string on desktop): `cfg.autoWeakGpu` ("medium" = full resolution
+ *   and bloom, no MSAA).
  */
 export function autoQuality(megapixels: number, cfg: QualityConfig, gpu: GpuClass = detectGpuClass(cfg)): QualityId {
   if (megapixels >= cfg.autoLowFromMegapixels || gpu === 'software') return 'low'
@@ -216,5 +216,5 @@ export function autoQuality(megapixels: number, cfg: QualityConfig, gpu: GpuClas
   return 'high'
 }
 
-// Отладка из консоли (только при ?perf в адресе): window.__perf.msaa = 0 и т.п. до applyPerf панели; для скриншотов ступеней.
+// Debug from the console (only with ?perf in the URL): window.__perf.msaa = 0 etc. before the panel's applyPerf; for screenshots of the levels.
 if (typeof location !== 'undefined' && /[?&]perf\b/.test(location.search)) (globalThis as Record<string, unknown>)['__perf'] = perf

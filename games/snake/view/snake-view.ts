@@ -1,17 +1,17 @@
-// Змейка: тело — InstancedMesh неоновых каркасов-кубиков (только рёбра, середина
-// пустая; цвет на инстанс), голова — отдельный каркас-пирамида, повёрнутая по направлению движения (направление = голова - шея,
-// берётся из обхода сегментов через queries). Обновление каждый кадр БЕЗ
-// аллокаций: Matrix4/Color/Vector3/колбэк создаются один раз, рост пула —
-// только в handle().
+// Snake: the body is an InstancedMesh of neon wireframe cubes (edges only, hollow
+// inside; color per instance); the head is a separate wireframe pyramid pointing along the heading (heading = head - neck,
+// taken from a walk over the segments via queries). Per-frame update with NO
+// allocations: Matrix4/Color/Vector3/callback are created once, pool growth is
+// only in handle().
 //
-// Читаемость: тело ярко-зелёное -> ярко-голубое (хвост не темнеет), нечётные
-// сегменты чуть тусклее. В фазе free сегменты рядом с камерой уменьшаются
-// (fade), чтобы не закрывать обзор; вес эффекта задаёт камера (freeAmount).
+// Readability: the body goes bright green -> bright cyan (the tail does not darken), odd
+// segments are slightly dimmer. In free mode, segments near the camera shrink
+// (fade) so they do not block the view; the camera sets the effect weight (freeAmount).
 //
-// Змейка рисуется по клеткам ядра, такт за тактом. Плавность — только лёгкая:
-// сегмент подъезжает из клетки позади и встаёт на место за первые SLIDE_FRACTION
-// шага, дальше стоит. Это смягчённый перескок, а не скольжение (полное скольжение
-// дизайнер отверг). Камера привязана к вектору движения сама, см. camera-rig.ts.
+// The snake is drawn cell by cell from the core, step by step. Smoothing is minimal:
+// a segment slides in from the cell behind it and settles within the first SLIDE_FRACTION
+// of the step, then stays put. This is a softened jump, not gliding (full gliding was
+// rejected by the designer). The camera is tied to the movement vector itself, see camera-rig.ts.
 
 import {
   MeshBasicMaterial,
@@ -42,32 +42,32 @@ import {
   HEAD_DANGER_COLOR_NEAR,
 } from './palette'
 
-// Оформительские константы, не числа баланса.
+// Styling constants, not balance values.
 const SEGMENT_SCALE = 0.86
-// Лёгкая плавность хода: сегмент подъезжает из клетки соседа за спиной, но успевает
-// за первые SLIDE_FRACTION шага и дальше стоит. Движение остаётся тактовым —
-// это не скольжение, а смягчённый перескок.
+// Light smoothing of movement: a segment slides in from the neighbor's cell behind it but finishes
+// within the first SLIDE_FRACTION of the step and then stays put. Movement remains step-based;
+// this is a softened jump, not gliding.
 const SLIDE_FRACTION = 0.4
-// Толщина балок каркаса (клеток). Голова той же формы, что и тело: отличается цветом/яркостью.
+// Thickness of the frame beams (cells). The head has the same shape as the body: it differs by color/brightness.
 const SEGMENT_BEAM = 0.1
-// Мягкое «дыхание» головы (размер и яркость), только если нет prefers-reduced-motion.
-// Безопасность: одно дыхание = один цикл синуса, максимальная частота 1000/1100 ≈ 0.9 Гц (< 3 вспышек/с),
-// без скачков: только гладкая синусоида малой амплитуды. Цвет опасности меняется плавным переходом, не миганием.
+// Soft head "breathing" (size and brightness), only if there is no prefers-reduced-motion.
+// Safety: one breath = one sine cycle, max frequency 1000/1100 ≈ 0.9 Hz (< 3 flashes/s),
+// no jumps: only a smooth low-amplitude sine. The danger color changes by smooth transition, not by blinking.
 const HEAD_PULSE = 0.05
 const HEAD_PULSE_PERIOD_MS = 1600
 const DANGER_PERIOD_MS = 1100
 const DANGER_PULSE = 0.06
 const DANGER_BREATH = 0.08
 
-/** Числа сигналов головы (config.headSignal): горизонт опасности в ходах и время перехода цвета. */
+/** Head signal values (config.headSignal): danger horizon in steps and the color transition time. */
 export interface HeadSignalConfig {
   dangerHorizon: number
   riseMs: number
   fallMs: number
 }
-// Fade ближних к камере сегментов: расстояния в клетках (не от followDistance,
-// камера вплотную: шея ~1.7 клетки от камеры должна остаться видимой, а всё,
-// что ближе ~1 клетки, схлопывается).
+// Fade of segments near the camera: distances in cells (not from followDistance,
+// the camera is up close: the neck at ~1.7 cells from the camera must stay visible, while anything
+// closer than ~1 cell collapses).
 const FADE_NEAR_CELLS = 0.9
 const FADE_FAR_CELLS = 1.5
 const FADE_MIN_SCALE = 0.1
@@ -80,7 +80,7 @@ export class SnakeView {
   private px = new Float32Array(0)
   private py = new Float32Array(0)
   private pz = new Float32Array(0)
-  // Сглаженные позиции и масштаб сегментов кадра: нужны направляющим хвоста (звено между соседями).
+  // Smoothed positions and scale of the frame's segments: needed by the tail guides (the link between neighbors).
   private gx = new Float32Array(0)
   private gy = new Float32Array(0)
   private gz = new Float32Array(0)
@@ -91,8 +91,8 @@ export class SnakeView {
   private headMaterial: MeshBasicMaterial
   private headDir = new Vector3(1, 0, 0)
 
-  // Сигналы головы. Ядро считает их раз в такт (между тактами состояние не меняется), поэтому результат
-  // кэшируется по ключу (состояние, шаг, курс, яблоко); в кадре остаётся только плавный переход цвета.
+  // Head signals. The core computes them once per step (state does not change between steps), so the result
+  // is cached by key (state, step, heading, apple); per frame only the smooth color transition remains.
   private readonly signalCfg: HeadSignalConfig
   private sigState: GameState | null = null
   private sigStep = -1
@@ -115,9 +115,9 @@ export class SnakeView {
   private readonly tint = new Color()
 
   /**
-   * Единичное направление головы, обновляется в update(): то, куда змейка повёрнута сейчас, включая уже
-   * введённый, но ещё не исполненный поворот (core/queries intendedHeading). Из геометрии тела
-   * (голова минус шея) направление не выводится: тело до такта стоит, и ввод был бы виден только на шаге.
+   * Unit heading of the head, updated in update(): where the snake is pointing right now, including an already
+   * accepted but not yet executed turn (core/queries intendedHeading). The heading is not derived from the body
+   * geometry (head minus neck): the body stands still until the step, so the input would only show on the step.
    */
   get direction(): Vector3 {
     return this.headDir
@@ -127,14 +127,14 @@ export class SnakeView {
   private headY = 0
   private headZ = 0
 
-  // Параметры текущего кадра для колбэка.
+  // Current frame parameters for the callback.
   private camX = 0
   private camY = 0
   private camZ = 0
   private fadeAmount = 0
 
-  // Один раз созданный колбэк: в кадре замыкания не создаются.
-  /** Сбор позиций такта: интерполировать сегмент можно, только зная соседа за ним. */
+  // Callback created once: no closures are created per frame.
+  /** Collecting step positions: a segment can be interpolated only when its neighbor behind is known. */
   private readonly collect = (x: number, y: number, z: number, i: number): void => {
     this.px[i] = x
     this.py[i] = y
@@ -154,7 +154,7 @@ export class SnakeView {
   }
 
   private place(i: number, length: number, glide: number): void {
-    // Откуда едет сегмент: из клетки соседа за спиной. У хвоста соседа нет — он стоит.
+    // Where the segment travels from: the neighbor's cell behind it. The tail has no neighbor, so it stands still.
     const back = i + 1 < length ? i + 1 : i
     const x = this.px[back]! + (this.px[i]! - this.px[back]!) * glide
     const y = this.py[back]! + (this.py[i]! - this.py[back]!) * glide
@@ -180,7 +180,7 @@ export class SnakeView {
       k = MathUtils.lerp(1, MathUtils.lerp(FADE_MIN_SCALE, 1, f), this.fadeAmount)
     }
     this.gk[i] = k
-    // Тело — инстансы 0..length-2 (голова рисуется отдельно).
+    // The body is instances 0..length-2 (the head is drawn separately).
     const idx = i - 1
     this.matrix.makeScale(k, k, k).setPosition(x, y, z)
     this.pool.mesh.setMatrixAt(idx, this.matrix)
@@ -209,16 +209,16 @@ export class SnakeView {
 
   private scene: Scene
 
-  /** Холодный путь: вызывать из handle() при 'started'/'moved'/'ate'. */
+  /** Cold path: call from handle() on 'started'/'moved'/'ate'. */
   ensureCapacity(s: GameState): void {
     this.pool.ensureCapacity(Math.max(1, snakeLength(s) - 1))
     this.guides?.ensureCapacity(snakeLength(s))
   }
 
   /**
-   * Кадр: без новых объектов.
-   * cam* — позиция камеры; freeAmount 0..1 — насколько включён fade ближних
-   * сегментов.
+   * Frame: no new objects.
+   * cam* is the camera position; freeAmount 0..1 is how strongly the fade of nearby
+   * segments is enabled.
    */
   update(
     s: GameState,
@@ -241,7 +241,7 @@ export class SnakeView {
     this.pool.markDirty()
     this.guides?.update(length, this.gx, this.gy, this.gz, this.gk, SNAKE_BODY_COLOR, SNAKE_TAIL_COLOR, SNAKE_BODY_GLOW_BOOST, this.denom)
 
-    // Направление головы берётся из ядра и меняется мгновенно по вводу, без сглаживания: змейка тактовая.
+    // The head heading comes from the core and changes instantly on input, without smoothing: the snake is step-based.
     const dir = intendedHeading(s)
     this.headDir.set(dir.x, dir.y, dir.z)
     this.updateSignals(s, dir.x, dir.y, dir.z)
@@ -249,9 +249,9 @@ export class SnakeView {
   }
 
   /**
-   * Цвет и пульс головы. Опасность (удар через 1..dangerHorizon ходов) ПЕРЕБИВАЕТ цель (яблоко на курсе).
-   * Запросы ядра пересчитываются только когда изменился такт, курс (ввод) или яблоко; переход цвета
-   * сглажен (быстро загорается, медленнее гаснет), поэтому на высокой скорости голова не мигает на каждом такте.
+   * Head color and pulse. Danger (a crash within 1..dangerHorizon steps) OVERRIDES the goal (apple straight ahead).
+   * Core queries are recomputed only when the step, heading (input) or apple changed; the color transition
+   * is smoothed (lights up fast, fades slower), so at high speed the head does not blink on every step.
    */
   private updateSignals(s: GameState, dx: number, dy: number, dz: number): void {
     const a = s.apple
@@ -282,10 +282,10 @@ export class SnakeView {
     this.dangerAmount = danger ? Math.min(1, this.dangerAmount + rise) : Math.max(0, this.dangerAmount - fall)
     const goalTarget = this.goal && !danger
     this.goalAmount = goalTarget ? Math.min(1, this.goalAmount + rise) : Math.max(0, this.goalAmount - fall)
-    // Оттенок опасности: за 2 хода оранжевый, за 1 ход красный (плавный переход между ними).
+    // Danger hue: orange at 2 steps, red at 1 step (smooth transition between them).
     this.nearAmount = this.crashIn === 1 ? Math.min(1, this.nearAmount + rise) : Math.max(0, this.nearAmount - fall)
 
-    // Дыхание: гладкая синусоида, при prefers-reduced-motion нет вовсе.
+    // Breathing: a smooth sine, absent altogether under prefers-reduced-motion.
     const calm = this.reducedMotion !== null && this.reducedMotion.matches
     const idleWave = calm ? 0 : Math.sin(((now % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2)
     const dangerWave = calm ? 0 : Math.sin(((now % DANGER_PERIOD_MS) / DANGER_PERIOD_MS) * Math.PI * 2)

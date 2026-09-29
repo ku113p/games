@@ -1,4 +1,4 @@
-# Дневник разработки
+# Development journal
 
-| Дата | Игра | Вопрос | Делать | Играю сам | Люди | Главный вывод |
+| Date | Game | Question | Build | Play myself | People | Main takeaway |
 | --- | --- | --- | --- | --- | --- | --- |

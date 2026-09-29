@@ -1,12 +1,12 @@
-// Тач-ввод: Pointer Events (без hover), геометрия элемента читается заново
-// на каждом жесте — переживает смену ориентации без переподписки.
+// Touch input: Pointer Events (no hover), element geometry is re-read
+// on every gesture - survives orientation changes without resubscribing.
 //
-// Схема 'taps': холст отдаёт только наклон камеры (два пальца / правая кнопка), всё остальное — пульт
-// в углу (input/pad.ts, отдельные DOM-кнопки: касание, начатое на них, сюда не попадает вовсе).
+// 'taps' scheme: the canvas yields only camera tilt (two fingers / right button), everything else is the corner pad
+// (input/pad.ts, separate DOM buttons: a touch that starts on them never gets here at all).
 //
-// Указатель захватывается (setPointerCapture): если мышь ушла за пределы окна и
-// кнопку отпустили там, pointerup всё равно придёт на элемент; на всякий случай
-// состояние сбрасывается и по lostpointercapture / pointercancel.
+// The pointer is captured (setPointerCapture): if the mouse left the window and
+// the button was released there, pointerup still arrives on the element; just in case,
+// state is also reset on lostpointercapture / pointercancel.
 import type { Config } from '../core/rules'
 import {
   isDoubleTap,
@@ -29,11 +29,11 @@ export function attachTouch(
 ): () => void {
   let activePointerId: number | null = null
 
-  // Камера от игрока. ПК: наклон — тянуть мышью с правой кнопкой (левая остаётся за свайпами/тапами),
-  // зум — колесо. Телефон: два пальца, и они означают ЛИБО наклон (пальцы едут вместе), ЛИБО зум (щипок).
-  // Что именно — решается один раз за жест по тому, что набежало первым (twoFingerMode), дальше не пересматривается.
-  // Наружу уходят приращения (onCameraTiltBy / onCameraZoomBy): накопленное значение и его пределы держит main,
-  // поэтому наклон и зум остаются на месте после жеста, а сбросить их может только явный сброс.
+  // Camera from the player. PC: tilt - drag with the right mouse button (left stays for swipes/taps),
+  // zoom - wheel. Phone: two fingers, and they mean EITHER tilt (fingers move together) OR zoom (pinch).
+  // Which one is decided once per gesture by whichever accumulated first (twoFingerMode), and is not revisited.
+  // Increments go out (onCameraTiltBy / onCameraZoomBy): the accumulated value and its limits are kept by main,
+  // so tilt and zoom stay in place after the gesture and only an explicit reset can clear them.
   const down = new Map<number, { x: number; y: number }>()
   let tilting = false
   let tiltIsMouse = false
@@ -47,7 +47,7 @@ export function attachTouch(
   const tiltRadPerPx = config.input.tiltRadPerPx
   const tuning = zoomTuning(config)
 
-  // Центр и раскрытие (средняя дистанция пальцев от центра) всех прижатых указателей.
+  // Center and spread (mean finger distance from the center) of all pressed pointers.
   function centroid(): void {
     let sx = 0
     let sy = 0
@@ -64,7 +64,7 @@ export function attachTouch(
   }
 
   function startTilt(isMouse: boolean): void {
-    // Начатый одним пальцем жест отменяется целиком: ни поворота сейчас, ни свайпа/тапа при отпускании.
+    // A gesture begun with one finger is cancelled entirely: no turn now, and no swipe/tap on release.
     resetGesture()
     flushPendingTap()
     tilting = true
@@ -74,14 +74,14 @@ export function attachTouch(
     rebase()
   }
 
-  // Точка отсчёта жеста двух пальцев (для порога): сдвиг и раскрытие считаются от неё.
+  // The reference point for the two-finger gesture (for the threshold): shift and spread are measured from it.
   function rebase(): void {
     baseCx = prevCx
     baseCy = prevCy
     baseSpread = prevSpread
   }
 
-  // Жест закончился: НИЧЕГО не возвращаем, наклон и зум остаются как есть до явного сброса.
+  // The gesture ended: return NOTHING, tilt and zoom stay as they are until an explicit reset.
   function endTilt(): void {
     tilting = false
   }
@@ -91,16 +91,16 @@ export function attachTouch(
     if (!tilting) return
     if (down.size < tiltPointersNeeded(tiltIsMouse)) endTilt()
     else {
-      centroid() // ушёл один из трёх пальцев: без скачка
+      centroid() // one of three fingers lifted: no jump
       rebase()
     }
   }
   let startX = 0
   let startY = 0
-  // Свайп уже отправлен в текущем жесте — на pointerup это не тап.
+  // A swipe was already sent in the current gesture - on pointerup this is not a tap.
   let swiped = false
 
-  // Таймер одиночного/двойного тапа по центру (into/out).
+  // Timer for a single/double tap at the center (into/out).
   let pendingTapAt: number | null = null
   let pendingTapTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -112,8 +112,8 @@ export function attachTouch(
     pendingTapAt = null
   }
 
-  // Начался другой жест (свайп, два пальца), пока одиночный тап ещё ждал второго: это уже не двойной тап,
-  // но и не отменённый — сдаём его «вглубь» сразу и в порядке ввода (тап был раньше свайпа), а не теряем.
+  // Another gesture began (swipe, two fingers) while a single tap was still waiting for a second: it is no longer a double tap,
+  // but not a cancelled one either - flush it as "into" right away and in input order (the tap came before the swipe), rather than losing it.
   function flushPendingTap(): void {
     if (pendingTapTimer === null) return
     clearPendingTap()
@@ -121,10 +121,10 @@ export function attachTouch(
     h.onAxis('into')
   }
 
-  // Тап без направления (любое место в 'swipes'):
-  // одиночный — into, но если второй тап приходит в пределах doubleTapMs — out.
+  // Tap with no direction (anywhere in 'swipes'):
+  // single - into, but if a second tap arrives within doubleTapMs - out.
   function handleAxisTap(now: number): void {
-    // Фаза 'free': третьей оси нет — тап ничего не делает, таймеры не заводим.
+    // 'free' mode: no third axis - the tap does nothing, no timers are started.
     if (h.axisEnabled?.() === false) {
       clearPendingTap()
       return
@@ -139,7 +139,7 @@ export function attachTouch(
     pendingTapTimer = setTimeout(() => {
       pendingTapAt = null
       pendingTapTimer = null
-      if (h.axisEnabled?.() === false) return // фаза сменилась, пока ждали второй тап
+      if (h.axisEnabled?.() === false) return // mode changed while waiting for the second tap
       h.onAxis('into')
     }, config.input.doubleTapMs)
   }
@@ -157,10 +157,10 @@ export function attachTouch(
       try {
         el.setPointerCapture(e.pointerId)
       } catch {
-        // Указатель уже исчез — pointerup/lostpointercapture всё сбросят.
+        // The pointer is already gone: pointerup/lostpointercapture will reset everything.
       }
       if (tilting) {
-        // третий палец: без скачка
+        // third finger: no jump
         centroid()
         rebase()
       }
@@ -174,13 +174,13 @@ export function attachTouch(
     try {
       el.setPointerCapture(e.pointerId)
     } catch {
-      // Указатель уже исчез — pointerup/lostpointercapture всё сбросят.
+      // The pointer is already gone: pointerup/lostpointercapture will reset everything.
     }
   }
 
-  // Поворот отправляется в момент пересечения порога, а не на pointerup —
-  // иначе на скорости заметная задержка. После срабатывания точка отсчёта
-  // переносится сюда же, так что цепочка свайпов в одном касании тоже работает.
+  // A turn is sent the moment the threshold is crossed, not on pointerup -
+  // otherwise there is a noticeable delay at speed. After firing, the reference point
+  // moves right there, so a chain of swipes in one touch works too.
   function onPointerMove(e: PointerEvent): void {
     const p = down.get(e.pointerId)
     if (p !== undefined) {
@@ -201,14 +201,14 @@ export function attachTouch(
           Math.abs(prevSpread - baseSpread),
           tuning.lockPx,
         )
-        return // до решения ничего не шлём: набежавшие пиксели уходят в «мёртвую зону» жеста
+        return // nothing is sent until decided: accumulated pixels go into the gesture's "dead zone"
       }
       if (fingerMode === 'tilt') h.onCameraTiltBy?.(dx * tiltRadPerPx, dy * tiltRadPerPx)
       else h.onCameraZoomBy?.(pinchZoomFactor(ps, prevSpread, tuning.pinchGain))
       return
     }
     if (e.pointerId !== activePointerId) return
-    // В 'taps' холст свайпов и тапов не читает: повороты и ось — на пульте (input/pad.ts).
+    // In 'taps' the canvas does not read swipes and taps: turns and axis are on the pad (input/pad.ts).
     if (scheme === 'taps') return
     const dir = swipeDirection(e.clientX - startX, e.clientY - startY, config.input.swipeMinPx)
     if (dir === null) return
@@ -229,8 +229,8 @@ export function attachTouch(
     if (wasSwipe) return
     const now = e.timeStamp
 
-    // Порог не пройден (иначе сработал бы onPointerMove) — это тап в любом месте.
-    // В 'taps' тапы по холсту ничего не значат.
+    // Threshold not passed (otherwise onPointerMove would have fired) - this is a tap anywhere.
+    // In 'taps', taps on the canvas mean nothing.
     if (scheme === 'swipes') handleAxisTap(now)
   }
 
@@ -244,12 +244,12 @@ export function attachTouch(
     if (e.pointerId === activePointerId) resetGesture()
   }
 
-  // Длинное нажатие / правая кнопка не должны открывать системное меню поверх игры.
+  // A long press / right button must not open the system menu over the game.
   function onContextMenu(e: Event): void {
     e.preventDefault()
   }
 
-  // Колесо мыши — зум. Слушатель НЕ пассивный: иначе preventDefault не сработает и страница поедет.
+  // Mouse wheel - zoom. The listener is NOT passive: otherwise preventDefault will not work and the page will scroll.
   function onWheel(e: WheelEvent): void {
     e.preventDefault()
     if (e.deltaY === 0) return

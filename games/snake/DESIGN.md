@@ -1,292 +1,292 @@
-# Змейка 3D
+# Snake 3D
 
-> Статус: файл сведён с кодом и историей коммитов на 2026-09-30. Раздел «Решения дизайнера» в конце — что он уже решил;
-> «Нужно решение дизайнера» — что ещё открыто. Всё, что выше, уже реализовано; если что-то записано не так, как ты решил, — правь здесь,
-> код подгоним. Цитаты в кавычках — твои слова из работы.
+> Status: this file was reconciled with the code and the commit history on 2026-09-30. The "Designer decisions" section at the end is what he has already decided;
+> "Designer decision needed" is what is still open. Everything above is already implemented; if something is written down differently from how you decided it, fix it here
+> and we'll bring the code into line. Quotes in quotation marks are your own words from the work sessions.
 
-## Одна фраза
-Обычная на вид 2D-змейка, у которой есть ещё два направления по третьей оси, и камера доворачивается за ней.
+## One sentence
+A snake that looks like an ordinary 2D snake, but has two more directions along a third axis, and the camera rolls around after it.
 
-## Первое впечатление
-Сначала игра должна казаться **обычной змейкой**. Объём открывается позже, одним моментом (твист).
+## First impression
+At first the game must look like an **ordinary snake**. The volume reveals itself later, in one moment (the twist).
 
-## Цель и поражение
-Только **рекорд**. Победы нет. Цель — съесть как можно больше яблок.
-Смерть: **своё тело**, **стенка куба**, **препятствие**. Въехать в клетку, которую хвост освобождает в этот же ход, можно.
+## Goal and failure
+Only the **high score**. There is no winning. The goal is to eat as many apples as possible.
+Death: **your own body**, **a cube wall**, **an obstacle**. Moving into a cell that the tail is vacating on this same step is allowed.
 
-## Управление
+## Controls
 
-Шесть направлений: четыре обычных в текущей плоскости + два по третьей оси. Схема выбирается в настройках и запоминается.
+Six directions: the four usual ones in the current plane + two along the third axis. The scheme is chosen in settings and remembered.
 
-| Схема | Повороты в плоскости | Третья ось (только в плоской фазе) |
+| Scheme | Turns in the plane | Third axis (plane mode only) |
 | --- | --- | --- |
-| Свайпы | свайп в любом месте экрана | тап — вглубь (ждёт 240 мс, не будет ли второго), двойной тап — на себя |
-| Тапы | четыре кнопки-стрелки пульта в нижнем углу | две кнопки пульта: «вглубь» и «на себя» |
+| Swipes | swipe anywhere on the screen | tap - into the screen (waits 240 ms to see whether a second tap follows), double tap - toward the viewer |
+| Taps | four arrow buttons of the pad in the bottom corner | two pad buttons: "into" and "out" |
 
-В объёмной фазе третьей оси отдельно нет: четыре поворота уже покрывают все направления (кнопки оси на пульте скрыты).
+In free mode there is no separate third axis: the four turns already cover all directions (the axis buttons on the pad are hidden).
 
-**Пульт.** Крестовина в нижнем углу, кнопка не меньше 44 px. Команда уходит при касании, удержание её не повторяет.
-Принятая, но ещё не исполненная команда подсвечена. Сторона пульта (слева/справа, для левшей) — в настройках.
+**The pad.** A cross-shaped pad in the bottom corner, each button at least 44 px. The command fires on touch; holding does not repeat it.
+A command that has been accepted but not yet executed is highlighted. The pad side (left/right, for left-handed players) is in settings.
 
-**Ускорение (обе схемы).** Крупная круглая кнопка, работает **только пока удерживается**: отпустил — обычный темп.
-В схеме «Тапы» стоит в центре крестовины, в «Свайпах» — внизу в углу на стороне пульта. На кнопке написан **действующий**
-множитель (не купленный): если он упёрся в пол (см. «Скорость»), там будет меньшее число. Залипнуть ускорение не может:
-оно отпускается при уходе пальца, потере фокуса, скрытой вкладке, паузе, смерти.
-ПК: Shift или Space (зажать).
+**Boost (both schemes).** A big round button that works **only while held**: let go and the pace is back to normal.
+In the "Taps" scheme it sits in the center of the pad, in "Swipes" it is at the bottom, in the corner on the pad side. The button shows the **active**
+factor (not the purchased one): if it has hit the floor (see "Speed"), a smaller number is shown there. Boost cannot get stuck:
+it is released when the finger leaves, on focus loss, on a hidden tab, on pause, on death.
+PC: Shift or Space (hold).
 
-**Камера (обе схемы).** Наклон — два пальца по холсту или правая кнопка мыши; зум — щипок или колесо; наклон и зум держатся
-до сброса. Сброс — кнопка-прицел над ускорением, быстрый тап по стику или клавиша R. На телефоне в углу напротив пульта —
-стик поворота камеры (задаёт скорость поворота). Наклон и зум не переезжают в следующую партию.
+**Camera (both schemes).** Tilt - two fingers on the canvas or the right mouse button; zoom - pinch or wheel; tilt and zoom stay
+until reset. Reset - the crosshair button above the boost, a quick tap on the stick, or the R key. On a phone, in the corner opposite the pad, there is
+the camera stick (it sets the turn speed). Tilt and zoom do not carry over into the next game.
 
-**Пауза.** Кнопка «❚❚» в правом верхнем углу, Escape, сворачивание вкладки. При сворачивании игра встаёт на паузу, а не проживает
-пропущенное время. На паузе ускорение выключено, можно поменять звук, туман и качество, продолжить или выйти в меню.
-Выход в меню посреди партии засчитывает набранное: очки идут в таблицу рекордов и монеты в кошелёк.
+**Pause.** The "❚❚" button in the top right corner, Escape, minimizing the tab. When the tab is minimized the game pauses instead of living through
+the missed time. On pause boost is off, you can change sound, fog and quality, continue or leave to the menu.
+Leaving to the menu in the middle of a game counts what was earned: the score goes to the leaderboard and the coins go to the wallet.
 
-**ПК:** стрелки/WASD — плоскость, Q/E — третья ось, Shift/Space — ускорение, R — сброс камеры, Escape — пауза.
+**PC:** arrows/WASD - the plane, Q/E - the third axis, Shift/Space - boost, R - camera reset, Escape - pause.
 
-Схема «холд» — выкинута; жест «потянуть вверх для ×4» — отменён в пользу магазина.
+The "hold" scheme is thrown out; the "pull up for ×4" gesture is cancelled in favor of the shop.
 
-## Камера
-Камера доворачивается **вокруг той оси, вдоль которой змейка сейчас движется**. После доворота картинка снова читается плоско,
-но оси мира другие — доступны все три. Цена решения, которую ты принял осознанно: игрок легче теряет, где верх.
+## Camera
+The camera rolls around **the axis along which the snake is currently moving**. After the roll the picture reads as flat again,
+but the world axes are different - all three are available. The price of this decision, which you accepted knowingly: the player loses track of which way is up more easily.
 
-## Правила
-- Тело при смене оси **остаётся на месте**. Никакого телепорта и случайных клеток.
-- **Еда:** одно яблоко за раз, на случайной свободной клетке. Змейка растёт на 1 за яблоко. Одно яблоко = одно очко.
-- **Препятствия:** кубы и созвездия кубов (блоки слипаются). Жёсткое требование: **мёртвых зон нет** — любая свободная клетка
-  достижима. Внешний слой куба у стенок и область вокруг старта свободны от препятствий. Один и тот же набор параметров
-  и seed даёт ту же арену.
-- Стартовая длина змейки 3 клетки, старт в центре куба.
+## Rules
+- On an axis turn the body **stays where it is**. No teleport and no random cells.
+- **Food:** one apple at a time, on a random free cell. The snake grows by 1 per apple. One apple = one point.
+- **Obstacles:** cubes and obstacle clusters (blocks stick together). Hard requirement: **no dead zones** - every free cell
+  is reachable. The outer layer of the cube along the walls and the area around the start are free of obstacles. The same set of parameters
+  and the same seed give the same arena.
+- The starting snake length is 3 cells, the start is in the center of the cube.
 
-## Настройки партии
-Выбираются в магазине перед стартом (см. «Магазин»). Внутри партии их не поменять.
+## Game settings
+Chosen in the shop before the start (see "Shop"). They cannot be changed inside a game.
 
-- **Размер арены:** 20³ (по умолчанию), 50³, 100³ и тесный 5³ (см. ниже).
-- **Арена 5³ — только без препятствий.** В кубе 5³ зона очистки вокруг головы (радиус 4) накрывает весь куб, поэтому препятствий
-  нет ни при какой плотности (так же во всех кубах до 11³); зону очистки не масштабируем и препятствия в 5³ не добавляем
-  (решение дизайнера: «5*3 — без преград только»). Пока надета 5³, раздел «Препятствия» в магазине заперт: сверху подпись
-  с причиной, кнопки покупки и надевания неактивны, в шапке раздела «Без препятствий». Выбранная плотность **не стирается**:
-  она хранится и снова действует, как только игрок наденет арену побольше.
-- **Плотность препятствий:** стандарт (около 3% клеток) — по умолчанию; ×2, ×½, ×¼ от стандарта и «без препятствий»
-  (голые стены). Арена без препятствий — не удобство, а другая игра: риска врезаться почти нет, это способ отдохнуть.
-  Твоё решение: «пустая арена должна быть дорогая, но не сильно».
-- **Темп — четыре ступени:** «Спокойный» (медленнее стандарта), «Обычный» (по умолчанию), «Быстрый», «Очень быстрый».
-  Ступень растягивает или сжимает всю кривую разгона целиком, поэтому её форма и яблоко, на котором достигается предел
-  скорости, не меняются. У «Очень быстрого» старт быстрее нынешнего предела скорости — поэтому он дорогой.
-- **Ускорение:** множитель, см. ниже.
+- **Arena size:** 20³ (default), 50³, 100³ and the tight 5³ (see below).
+- **The 5³ arena is without obstacles only.** In a 5³ cube the clear zone around the head (radius 4) covers the whole cube, so there are
+  no obstacles at any density (the same in all cubes up to 11³); we do not scale the clear zone and we do not add obstacles to 5³
+  (designer decision: "5*3 — no obstacles only"). While 5³ is equipped, the "Obstacles" section in the shop is locked: a caption with
+  the reason on top, the buy and equip buttons inactive, "No obstacles" in the section header. The chosen density is **not erased**:
+  it is kept and takes effect again as soon as the player equips a bigger arena.
+- **Obstacle density:** standard (about 3% of cells) - the default; ×2, ×½, ×¼ of the standard and "no obstacles"
+  (bare walls). An arena without obstacles is not a convenience but a different game: there is almost no risk of crashing, it is a way to relax.
+  Your decision: "an empty arena should be expensive, but not too expensive."
+- **Pace - four tiers:** "Calm" (slower than standard), "Normal" (default), "Fast", "Very fast".
+  A tier stretches or squeezes the whole speed-up curve at once, so its shape and the apple at which the speed cap is reached
+  do not change. "Very fast" starts faster than the current speed cap - that is why it is expensive.
+- **Boost:** the factor, see below.
 
-## Скорость и ускорение
-- Змейка стартует с шагом 1080 мс, за каждое яблоко шаг короче на 24 мс, предел — 360 мс (достигается на 30-м яблоке).
-  Шаг постоянный, змейка идёт рывками по клеткам.
-- **Ускорение:** пока кнопка зажата, шаг делится на множитель. По умолчанию **×1.5** (бесплатно), остальные — ×2, ×3, ×4 —
-  покупаются. Верхняя ступень — ×4; ×8 убран (решение дизайнера: «x8 — убрать»). Выбранный множитель фиксируется на партию.
-- **Пол на ускоренный шаг: 60 мс** (`config.speed.minEffectiveStepMs`). Причина: сигналы головы (ниже) не успевают показаться
-  на очень коротком шаге, а купленное ускорение не должно ломать предупреждение об опасности. Следствие: на очень коротком
-  обычном шаге большие множители упираются в пол и едут медленнее заявленного (на «Очень быстром» темпе на пределе скорости
-  ×3 и ×4 дают одно и то же — 60 мс). Обычный шаг пол не трогает.
-- **Почему нет ×8:** при поле 60 мс это 16 клеток в секунду при окне предупреждения 120 мс, а человеческая реакция 200–250 мс:
-  увернуться от появившейся преграды физически нельзя. Ступень убрана из каталога и из конфига. Сохранение, где ×8 уже куплен,
-  разбирается без ошибок: неизвестный предмет отбрасывается, ускорение возвращается на ×1.5, монеты остаются.
-- Ускорение ускоряет и заработок: очки и монеты идут за яблоки, а не за время.
+## Speed and boost
+- The snake starts with a step of 1080 ms, each apple makes the step 24 ms shorter, the cap is 360 ms (reached at the 30th apple).
+  The step is constant, the snake moves in jerks from cell to cell.
+- **Boost:** while the button is held, the step is divided by the factor. The default is **×1.5** (free), the others - ×2, ×3, ×4 -
+  are bought. The top tier is ×4; ×8 is removed (designer decision: "x8 — remove"). The chosen factor is fixed for the game.
+- **Boosted-step floor: 60 ms** (`config.speed.minEffectiveStepMs`). Reason: the head signals (below) do not have time to show
+  on a very short step, and a purchased boost must not break the danger warning. Consequence: on a very short
+  normal step the big factors hit the floor and go slower than advertised (on the "Very fast" pace at the speed cap
+  ×3 and ×4 give the same thing - 60 ms). The floor does not touch a normal step.
+- **Why there is no ×8:** with a 60 ms floor that is 16 cells per second with a warning window of 120 ms, and human reaction is 200-250 ms:
+  it is physically impossible to dodge an obstacle that has just appeared. The tier is removed from the catalog and from the config. A save where ×8 is already bought
+  is parsed without errors: the unknown item is dropped, boost goes back to ×1.5, the coins stay.
+- Boost also speeds up earning: score and coins come for apples, not for time.
 
-## Подсказки
-Игра в объёме читается плохо, поэтому подсказки — часть механики. В плоской фазе (первая игра) они скрыты или ослаблены:
-первая партия должна выглядеть обычной плоской змейкой.
+## Hints
+The game is hard to read in volume, so the hints are part of the mechanics. In plane mode (the first game) they are hidden or weakened:
+the first game must look like an ordinary flat snake.
 
-**Сигналы головы — четыре состояния цветом.** Это механика, а не украшение:
+**Head signals - four states shown by color.** This is a mechanic, not decoration:
 
-| Состояние | Когда |
+| State | When |
 | --- | --- |
-| Обычное | приглушённая голова, ничего не происходит |
-| Цель | яблоко лежит на прямой по курсу и на пути нет преград (яблоко за препятствием — не цель); голова принимает цвет яблока |
-| Опасность через 2 хода | по курсу через два хода стена, препятствие или своё тело |
-| Опасность через 1 ход | то же через один ход; опасность перебивает цель |
+| Idle | a muted head, nothing is happening |
+| Goal | the apple lies on a straight line along the heading and the path is clear (an apple behind an obstacle is not a goal); the head takes the apple's color |
+| Danger in 2 steps | along the heading in two steps there is a wall, an obstacle or your own body |
+| Danger in 1 step | the same in one step; danger overrides the goal |
 
-Курс считается с учётом уже введённого, но ещё не исполненного поворота. Цвет нарастает за 110 мс и гаснет за 320 мс, чтобы
-на быстром шаге голова не мигала на каждый такт. Мигания нет: состояния различаются оттенком, остаётся лишь мягкое «дыхание»
-головы (при «уменьшить движение» в системе оно выключено). Причина: мигание около пяти раз в секунду опасно для
-светочувствительных людей. **Любая палитра обязана оставлять эти четыре состояния различимыми** (в норме и при дальтонизме);
-для косметики это жёсткое ограничение.
+The heading is computed taking into account a turn that has already been entered but not yet executed. The color rises in 110 ms and fades in 320 ms, so that
+on a fast step the head does not blink on every step. There is no blinking: the states differ by hue, and only a soft "breathing"
+of the head remains (it is off under "reduced motion" in the system). Reason: blinking about five times a second is dangerous for
+photosensitive people. **Any palette must keep these four states distinguishable** (normally and under color blindness);
+for cosmetics this is a hard constraint.
 
-**Компас.** Объёмная стрелка цвета яблока на верхней грани головы. Показывает направление на яблоко **по прямой**, а не путь
-в обход препятствий и хвоста, и честно передаёт «выше/ниже/ближе/дальше». Плавно доворачивается. Яблоко вплотную (до 1.5 клетки
-по прямой) — стрелка скрыта, с 3 клеток видна полностью, между ними плавно. Окно сужено намеренно: раньше стрелка гасла
-на расстоянии, до которого идти было далеко в обход, и это выглядело как залипший баг. В плоской фазе компаса нет.
+**Compass.** A 3D arrow in the apple's color on the top face of the head. It shows the direction to the apple **in a straight line**, not the path
+around obstacles and the tail, and honestly conveys "higher/lower/closer/farther". It turns smoothly. Apple right next to you (up to 1.5 cells
+in a straight line) - the arrow is hidden, from 3 cells it is fully visible, in between it fades smoothly. The window is narrowed on purpose: before, the arrow went out
+at a distance that was still a long way to go around, and it looked like a stuck bug. There is no compass in plane mode.
 
-**Решётка, луч, метки:**
-- **Решётка узлов** — редкая фоновая разметка «где я в объёме»: узлы через каждые 4 клетки вокруг головы, из каждого короткие
-  обрубки по осям. Направления не показывает.
-- **Луч вперёд** — пунктир от головы по ходу, обрывается о стену, препятствие, своё тело или яблоко; преграда, в которую он упирается,
-  закрашена.
-- **Метки соседних клеток** — стрелка в клетках, куда можно шагнуть (вперёд, влево, вправо, вверх, вниз) и ещё на клетку дальше
-  по той же оси; красно-оранжевый крестик, если туда нельзя. Метка за препятствием тусклее (треть яркости), чем на открытом
-  месте: читается «она за стеной», а не «она на стене».
+**Lattice, ray, markers:**
+- **The lattice** - a sparse background layout, "where am I in the volume": nodes every 4 cells around the head, with short
+  stubs along the axes coming out of each one. It does not show directions.
+- **The ahead ray** - a dashed line from the head along the heading, ending at a wall, an obstacle, your own body or the apple; the obstacle it hits
+  is painted over.
+- **Near-cell markers** - an arrow in the cells where you can step (forward, left, right, up, down) and one cell farther
+  along the same axis; a red-orange cross if you cannot go there. A marker behind an obstacle is dimmer (a third of the brightness) than in an open
+  spot: it reads as "it is behind a wall", not "it is on the wall".
 
-**Мини-карты** (только в объёмной фазе), твоё решение: «одна нормальная вид сверху, вторая буквально полоса вверх и вниз».
-- **Карта сверху** — оси мира X × Z, срез на высоте головы, окно 20×20 клеток. Повороты змейки карту не переориентируют.
-  У стены окно стоит и метка ходит внутри, в середине арены метка в центре, а мир едет под ней. Яблоко видно всегда
-  (в срезе, на другом уровне, вне окна — три вида метки).
-- **Вертикаль** — полоса «вверх и вниз», верх всегда верх мира, низ — низ. См. вопрос про окно полосы в конце.
+**Minimaps** (free mode only), your decision: "one normal top view, the second literally a strip up and down."
+- **The top map** - world axes X × Z, a slice at head height, a 20×20-cell window. The snake's turns do not reorient the map.
+  At a wall the window stands still and the marker moves inside it, in the middle of the arena the marker is in the center and the world moves under it. The apple is always visible
+  (in the slice, on another level, outside the window - three kinds of marker).
+- **The level gauge** - a strip "up and down", up is always the world's up, down is the world's down. See the question about the strip's window at the end.
 
-**Туман.** Твоё решение: «просто везде туман будет гуще вдаль». Один общий туман: чем дальше от камеры, тем гуще, всё растворяется
-в цвет фона. Яблоко в тумане не тонет, стенки куба, компас и ближние метки — вне тумана. В плоской фазе тумана нет.
-Тумблер «Туман» в настройках и на паузе, по умолчанию включён.
+**Fog.** Your decision: "just fog everywhere, getting thicker into the distance." One common fog: the farther from the camera, the thicker, everything dissolves
+into the background color. The apple does not sink in the fog, the cube walls, the compass and the near markers are outside the fog. There is no fog in plane mode.
+The "Fog" toggle in settings and on pause, on by default.
 
-## Магазин
+## Shop
 
-**Валюта — монеты. Одно съеденное яблоко = одна монета, одинаково при любых настройках** (размер арены, плотность, темп не влияют).
-Монеты начисляются после партии, в том числе при выходе в меню посреди неё. Кошелёк и таблица рекордов — разные вещи: покупка
-не «обесценивает» рекорд. Хранится только в браузере игрока.
+**The currency is coins. One eaten apple = one coin, the same at any settings** (arena size, density, pace do not affect it).
+Coins are awarded after the game, including on leaving to the menu in the middle of it. The wallet and the leaderboard are different things: a purchase
+does not "devalue" the high score. Stored only in the player's browser.
 
-**Покупка и выбор — только перед стартом партии**, внутри партии магазина нет. Вход — чип с балансом на главном экране и кнопка
-«В магазин» на экране проигрыша (если денег хватает на что-то новое). До первой законченной партии вход скрыт (у уже игравших
-открыт сразу). Купленное не отбирается, цена не растёт, возврата нет. В каждом разделе надето одно; надевание бесплатное.
+**Buying and choosing - only before the start of a game**, there is no shop inside a game. The entrance is the balance chip on the menu screen and the
+"To the shop" button on the game-over screen (if there is enough money for something new). Until the first finished game the entrance is hidden (for those who have already played
+it is open right away). What is bought is never taken away, the price does not rise, no refunds. In each section one item is equipped; equipping is free.
 
-| Раздел | Что продаётся (по умолчанию выдано — первым) | Цена, монет |
+| Section | What is sold (given by default - first) | Price, coins |
 | --- | --- | --- |
-| Ускорение | ×1.5 — дано; ×2, ×3, ×4 | 40, 100, 250 |
-| Арена | 20³ — дано; «Тесный» 5³, 50³, 100³ | 120, 80, 200 |
-| Препятствия | стандарт — дано; ×2, ×½, ×¼, без препятствий | 40, 40, 60, 300 |
-| Темп | «Обычный» — дано; «Спокойный», «Быстрый», «Очень быстрый» | 30, 50, 100 |
-| Множитель монет | постоянный ×1.25 и ×1.5; временный ×2 (5 партий), ×3 (5 партий), ×5 (3 партии) | 80, 240; 60, 150, 200 |
-| Палитра | «Ночной неон» и «Контраст» — даны; «Синтвейв», «Лёд», «Терминал» | по 250 |
-| Змейка | «Классика» — дано; «Хвост-указатель» (нить вдоль тела и стрелки на хвосте, чтобы видеть, куда идёт хвост) | 100 |
-| Яблоко | «Ромб» — дано; «Шар», «Звезда» | 15, 30 |
-| Стрелка (компас) | «Обычная» — дана; «Шеврон», «Кольцо» | 20, 50 |
+| Boost | ×1.5 - given; ×2, ×3, ×4 | 40, 100, 250 |
+| Arena | 20³ - given; "Tight" 5³, 50³, 100³ | 120, 80, 200 |
+| Obstacles | standard - given; ×2, ×½, ×¼, no obstacles | 40, 40, 60, 300 |
+| Pace | "Normal" - given; "Calm", "Fast", "Very fast" | 30, 50, 100 |
+| Coin multiplier | permanent ×1.25 and ×1.5; temporary ×2 (5 games), ×3 (5 games), ×5 (3 games) | 80, 240; 60, 150, 200 |
+| Palette | "Night Neon" and "Contrast" - given; "Synthwave", "Ice", "Terminal" | 250 each |
+| Snake | "Classic" - given; "Tail guides" (a thread along the body and arrows on the tail, to see where the tail is going) | 100 |
+| Apple | "Diamond" - given; "Orb", "Star" | 15, 30 |
+| Arrow (compass) | "Default" - given; "Chevron", "Ring" | 20, 50 |
 
-Три косметических раздела (змейка, яблоко, стрелка) содержат ещё по закрытому слоту «???»/«Скоро» — заглушка без покупки.
+The three cosmetic sections (snake, apple, arrow) also each contain one locked "???"/"Coming soon" slot - a coming-soon slot with no purchase.
 
-**Множитель монет** увеличивает только начисление в кошелёк. **На счёт партии и на таблицу рекордов он не влияет** — иначе
-купивший деньгами перебивал бы всех. Постоянный и временный множители перемножаются (берётся лучший каждого вида).
+**The coin multiplier** increases only what is credited to the wallet. **It does not affect the game score or the leaderboard** - otherwise
+someone who bought their way in would beat everyone. The permanent and temporary multipliers multiply together (the best of each kind is taken).
 
-**Временные предметы считаются в партиях, а не в минутах:** таймер по часам в браузерной игре нечестен (закрыл вкладку —
-оплаченное сгорело). Партия списывается на старте; последняя оплаченная партия ещё платит по повышенной ставке. Повторная
-покупка продлевает срок (не выше 50 партий суммарно), а не заводит второй предмет.
+**Temporary items are counted in games, not in minutes:** a wall-clock timer in a browser game is unfair (close the tab - and
+what you paid for burns away). A game is deducted at the start; the last paid game still pays at the increased rate. Buying again
+extends the term (no more than 50 games in total) instead of creating a second item.
 
-Игрок, выбравший в старых настройках 50³ или 100³, сохраняет этот размер надетым бесплатно.
+A player who chose 50³ or 100³ in the old settings keeps that size equipped for free.
 
-## Экраны и порядок
-1. **Предупреждение о светочувствительности** — при **каждом** открытии. Одна кнопка. Текст — `LEGAL.md`.
-2. **Условия использования** — только при самом первом открытии (согласие запоминается). Кнопка «Принимаю».
-   На обоих экранах есть переключатель языка: человек с чужим языком должен суметь его сменить до них.
-3. **Главный экран** — название, лучший рекорд одной строкой (тап открывает таблицу), крупная кнопка игры, шестерёнка,
-   язык, чип с балансом (после первой партии). Одна цель за три секунды.
-4. **Настройки** — схема управления, сторона пульта, музыка и звуки, туман, качество. Размер арены живёт в магазине.
-5. **Рекорды** — таблица.
-6. **Магазин** — разделы сверху вниз: то, что меняет партию (ускорение, арена, препятствия, темп), затем множитель монет,
-   затем внешний вид; внизу крупная «Играть».
-7. **Партия.** Пауза (см. «Управление»). В первой партии игрока при переезде камеры — экран объяснения (см. «Мой твист»).
-8. **Проигрыш** — неоновый GAME OVER (надпись не переводится), счёт, время, начисленные монеты (с множителем), таблица.
-   Если результат попал в топ-3 — ввод трёх букв барабаном (см. ниже), затем кнопки: «Ещё раз» (та же арена и схема, без меню),
-   «В магазин», «В меню».
+## Screens and flow
+1. **Photosensitivity warning** - on **every** launch. One button. The text is in `LEGAL.md`.
+2. **Terms of use** - only on the very first launch (the consent is remembered). An "Accept" button.
+   Both screens have a language switch: a person with a foreign language must be able to change it before them.
+3. **Menu screen** - the title, the best high score in one line (a tap opens the leaderboard), a big play button, a gear,
+   the language, the balance chip (after the first game). One goal within three seconds.
+4. **Settings** - control scheme, pad side, music and sounds, fog, quality. The arena size lives in the shop.
+5. **Records** - the leaderboard.
+6. **Shop** - sections from top to bottom: what changes the game (boost, arena, obstacles, pace), then the coin multiplier,
+   then the looks; at the bottom a big "Play".
+7. **Game.** Pause (see "Controls"). In the player's first game, on the camera transition, the explainer screen (see "My twist").
+8. **Game over** - a neon GAME OVER (the inscription is not translated), the score, the time, the coins earned (with the multiplier), the leaderboard.
+   If the result made the top 3 - entering three symbols with the drum (see below), then the buttons: "Again" (the same arena and scheme, no menu),
+   "To the shop", "To the menu".
 
-## Таблица рекордов
-**Одна на все настройки** (размер арены, плотность, темп, множители не разделяют её). Топ-3, каждая запись: очки, три буквы, время
-партии. В таблицу идут только результаты от 1 очка; при равенстве выше тот, кто набрал раньше. Три буквы — из A–Z и 0–9,
-вводятся барабаном из трёх слотов (не текстовое поле: экранная клавиатура ломает вёрстку на телефоне); запомненные буквы
-подставляются в следующий раз.
+## Leaderboard
+**One for all settings** (arena size, density, pace, multipliers do not split it). Top 3, each entry: score, three symbols, game
+time. Only results of 1 point or more go into the leaderboard; on a tie the one who scored earlier ranks higher. The three symbols are from A-Z and 0-9,
+entered with a drum of three slots (not a text field: the on-screen keyboard breaks the layout on a phone); the remembered symbols
+are filled in next time.
 
-## Что меняется со временем
-- **Внутри партии:** скорость растёт за каждое яблоко (см. «Скорость»). Больше ничего.
-- **Между партиями:** прогресс — покупки за монеты (см. «Магазин»).
+## What changes over time
+- **Within a game:** speed grows with every apple (see "Speed"). Nothing else.
+- **Between games:** progress is purchases for coins (see "Shop").
 
-## Мой твист
-**Игра начинается как обычная плоская змейка, а на 5-м ходу камера уезжает за голову и куб раскрывается в полноценное 3D.**
-Сам переезд камеры и есть твист.
+## My twist
+**The game starts as an ordinary flat snake, and on step 5 the camera moves behind the head and the cube opens up into full 3D.**
+The camera transition itself is the twist.
 
-| | Фаза «плоскость» | Фаза «объём» |
+| | "Plane" mode | "Free" mode |
 | --- | --- | --- |
-| Камера | сбоку, плоскость экрана | из-за головы, летит следом |
-| Движение | 4 стороны в срезе + третья ось тапом | 4 поворота покрывают весь объём |
-| Вид | неотличимо от 2D-змейки | честное 3D, доступны подсказки, карты, туман |
+| Camera | from the side, the screen plane | from behind the head, flying after it |
+| Movement | 4 sides in a slice + the third axis by tap | 4 turns cover the whole volume |
+| Look | indistinguishable from a 2D snake | honest 3D, hints, maps, fog available |
 
-**Только в самой первой игре игрока.** Все следующие партии стартуют сразу в объёмной фазе: плоское начало — разовый приём
-знакомства. Если игрок умер до переезда, знакомство не сгорает и повторится в следующей партии.
+**Only in the player's very first game.** All following games start right away in free mode: the flat start is a one-time intro
+device. If the player dies before the transition, the intro is not used up and will repeat in the next game.
 
-**Демо-момент (первая игра):** на 5-м ходу змейка сама сворачивает по третьей оси — в случайную свободную сторону (не в стену
-и не в препятствие); камера переезжает за голову с глитчем и доворотом, игра встаёт на паузу и показывает экран с объяснением.
-Дальше поворачивает игрок.
+**Demo turn (first game):** on step 5 the snake turns by itself along the third axis - into a random free side (not into a wall
+and not into an obstacle); the camera moves behind the head with a glitch and a roll, the game pauses and shows the explainer screen.
+After that the player does the turning.
 
 ## Game feel
-Неон и объём. Доворот камеры: плавный поворот с микропаузой + глитч (при «уменьшить движение» глитч-шум гасится, поворот остаётся).
-Змейка подъезжает в клетку рывком в начале такта и стоит до следующего.
+Neon and volume. The camera roll: a smooth turn with a micro-pause + a glitch (under "reduced motion" the glitch noise is muted, the turn stays).
+The snake slides into the cell in a jerk at the start of the step and stands until the next one.
 
-**Звук.** Включается только после первого касания. Музыка — *Cyber Runner* (Luis Zuno, CC0), тихая, зацикленная. Звуки
-генерируются, файлов нет:
-- **яблоко** — восходящий свип, каждое следующее подряд на полтона выше, потолок — октава;
-- **кнопки** — короткий тихий щелчок;
-- **смерть** — падающий низкий свип с шумом;
-- **тик шага** — тихий мягкий «тук» на каждый шаг, чуть разной высоты. Он **тише на разгоне**, чтобы не превращаться в стрекот:
-  громкость падает с темпом (на пределе скорости в несколько раз тише, но не ниже половины стартовой), а ниже 300 мс на шаг
-  звучит каждый второй тик. Если за шагом сразу идёт яблоко или смерть, тик не играется, чтобы не перекрывать важный звук.
-Музыку и звуки можно выключить отдельно (настройки и пауза).
+**Sound.** Turns on only after the first touch. Music - *Cyber Runner* (Luis Zuno, CC0), quiet, looped. The sounds are
+generated, there are no files:
+- **apple** - a rising sweep, each next one in a row a semitone higher, the ceiling is an octave;
+- **buttons** - a short quiet click;
+- **death** - a falling low sweep with noise;
+- **step tick** - a quiet soft "thud" on every step, of slightly varying pitch. It is **quieter during the speed-up**, so it does not turn into chatter:
+  the volume falls with the pace (at the speed cap several times quieter, but not below half of the starting one), and below 300 ms per step
+  every second tick sounds. If a step is immediately followed by an apple or death, the tick is not played, so as not to cover an important sound.
+Music and sounds can be turned off separately (settings and pause).
 
-**Качество картинки — три ступени** (настройки и пауза, выбор запоминается): «Высокое» — сглаживание MSAA ×4 и полное свечение,
-«Среднее» — полное разрешение и свечение, сглаживание SMAA вместо MSAA, «Низкое» — сниженное разрешение, без сглаживания и
-без свечения. Понадобилось потому, что на слабой встроенной графике MSAA тормозит каждый второй кадр независимо от размера
-экрана. Умолчание выбирается по классу видеокарты и размеру экрана (слабая встроенная — «Среднее», очень большой буфер или
-программный рендер — «Низкое», остальные — «Высокое»); любую ступень можно выбрать вручную.
+**Graphics quality - three tiers** (settings and pause, the choice is remembered): "High" - MSAA ×4 antialiasing and full bloom,
+"Medium" - full resolution and bloom, SMAA antialiasing instead of MSAA, "Low" - reduced resolution, no antialiasing and
+no bloom. It was needed because on weak integrated graphics MSAA lags every second frame regardless of screen
+size. The default is chosen by GPU class and screen size (weak integrated - "Medium", a very large buffer or
+software rendering - "Low", the rest - "High"); any tier can be chosen manually.
 
-**Языки — пять:** английский, испанский, бразильский португальский, упрощённый китайский, русский. Язык берётся из браузера
-(откат на английский), переключается двумя буквами EN ES PT ZH RU на главном и юридических экранах без перезагрузки, выбор
-запоминается. Флаги отвергнуты.
+**Languages - five:** English, Spanish, Brazilian Portuguese, Simplified Chinese, Russian. The language is taken from the browser
+(falling back to English), switched with the two-letter codes EN ES PT ZH RU on the menu and legal screens without a reload, the choice is
+remembered. Flags are rejected.
 
-## Аналитика (шаг 5 цикла)
-Пять безымянных счётчиков (не чаще раза за визит): начал партию, дошёл до твиста, доиграл (смерть), начал вторую партию,
-вернулся в другой день. Ничего личного (ни очков, ни букв, ни идентификатора). Не работает на локальных адресах.
+## Analytics (step 5 of the cycle)
+Five anonymous counters (at most once per visit): started a game, reached the twist, finished (death), played again,
+returned on another day. Nothing personal (no scores, no symbols, no identifier). Does not run on local addresses.
 
-## Вне скоупа
-- Телепорт змейки в случайную клетку — отменено.
-- Привязка смены оси к уровню — отменено.
-- Победа как состояние — не будет, только рекорд.
-- Схема управления «холд», жест «потянуть для ×4» — выкинуты.
-- Онлайн, сервер, реальные деньги, возврат покупок.
-- Другие змейки и поедание мелких — отложено, см. `IDEAS.md`.
+## Out of scope
+- Teleporting the snake to a random cell - cancelled.
+- Tying the axis turn to a level - cancelled.
+- Winning as a state - there will not be one, only the high score.
+- The "hold" control scheme, the "pull for ×4" gesture - thrown out.
+- Online, a server, real money, refunds for purchases.
+- Other snakes and eating smaller ones - deferred, see `IDEAS.md`.
 
-## Решения дизайнера (2026-09-30)
+## Designer decisions (2026-09-30)
 
-**Названия**
-- Игра называется **«Змейка 3D» / «Snake 3D»** — финально.
-- Коллекция называется **«Black Games»** (черновик «Tiny Games» отменён). Лендинг переименован.
+**Names**
+- The game is called **"Snake 3D"** - final.
+- The collection is called **"Black Games"** (the draft "Tiny Games" is cancelled). The landing page is renamed.
 
-**Магазин и экономика**
-- **Цены:** агенту доверяет, сверять не будет. В коде цены как в таблице «Магазин». Шкала «10 монет за очко» из старого разбора в `IDEAS.md` не действует: яблоко = 1 монета.
-- **Ускорение:** по умолчанию ×1.5, ×2 стоит 40 — его осознанное решение.
-- **Множители монет** перемножаются без потолка (×1.5 × ×5 = ×7.5) — так и задумано.
-- **Платное отклонение от стандарта в обе стороны** (и «сложнее», и «легче») — да. Оговорка: он задумывал иначе — чтобы очки и монеты были буквально одним и тем же, а перки давали больше. Пока оставляем как есть, возможно пересмотрим.
-- **Одна таблица рекордов на все настройки** — осознанный pay-to-win, его устраивает; пометки настроек в записи нет.
-- **Заглушки «???»/«Скоро»** остаются и появятся во всех разделах магазина (делает другой агент).
-- **Палитры** продаются целиком, без отдельных слотов под яблоко/препятствия/границы — принято.
-- **«Тип вектора направляющего»** = вид стрелки-компаса (принято); лучи и решётка вариантами не продаются.
-- **Вход в магазин** скрыт до первой законченной партии — принято.
+**Shop and economy**
+- **Prices:** he trusts the agent and will not check them. In the code the prices are as in the "Shop" table. The "10 coins per point" scale from the old analysis in `IDEAS.md` is not in force: an apple = 1 coin.
+- **Boost:** the default is ×1.5, ×2 costs 40 - his deliberate decision.
+- **Coin multipliers** multiply together with no cap (×1.5 × ×5 = ×7.5) - that is how it was intended.
+- **Paid deviation from the standard in both directions** (both "harder" and "easier") - yes. A caveat: he had intended it differently - so that score and coins would be literally the same thing, and perks would give more. For now we leave it as is, we may revisit.
+- **One leaderboard for all settings** - a deliberate pay-to-win, he is fine with it; there is no settings mark on the entry.
+- **The "???"/"Coming soon" slots** stay and will appear in all sections of the shop (another agent is doing it).
+- **Palettes** are sold whole, with no separate slots for apple/obstacles/borders - accepted.
+- **"Type of the guide vector"** = the look of the compass arrow (accepted); rays and the lattice are not sold as variants.
+- **The shop entrance** is hidden until the first finished game - accepted.
 
-**Правила и экраны**
-- **Мини-карты:** принято как есть (окно ±5 клеток у вертикали, а не статичная полоса). Доделка — отложена, см. `IDEAS.md`, раздел «Мини-карты».
-- **Свечение на «Низком»:** сигналы головы слабее — принято, чинить не будем.
-- **Планка различимости цветов** утверждена: между четырьмя состояниями головы ΔE ≥ 30 в норме и ≥ 20 при дейтеранопии/протанопии.
-- **Выход в меню с паузы засчитывает партию** (очки в таблицу, монеты в кошелёк) — так и надо.
-- **Рост за яблоко — одна клетка** — подтверждено.
-- **Двойной тап в «Свайпах»:** дизайнер не понял, есть ли проблема, и оставил решение агенту. Разобрано на реальном браузере: одиночный тап
-  в плоской фазе ждёт ровно `input.doubleTapMs` = 240 мс (замер: 240–241 мс десять раз из десяти), в объёмной фазе ждать нечего — тап ничего
-  не делает. Плоская фаза — это первые 5 ходов первой партии игрока (около 5,4 с при шаге 1080 мс), поэтому задержка касается только
-  необязательного тапа «вглубь» в эти секунды: реакция запаздывает на 240 мс, а с вероятностью около 22% (240/1080) тап не успевает
-  на ближайший такт и поворот уходит на шаг позже. Признано мелким, значение 240 не меняется (короче — начнут теряться двойные тапы
-  медленных пальцев; двойной тап с промежутком 80–200 мс срабатывает как `out` сразу на втором касании). Найдена и починена настоящая ошибка: тап, за которым
-  в те же 240 мс шёл свайп (или касание двумя пальцами), молча пропадал. Теперь такой тап уходит сразу, до свайпа.
+**Rules and screens**
+- **Minimaps:** accepted as is (a ±5-cell window on the level gauge, not a static strip). Finishing it is deferred, see `IDEAS.md`, the "Minimaps" section.
+- **Bloom on "Low":** the head signals are weaker - accepted, we will not fix it.
+- **The color distinguishability bar** is approved: between the four head states ΔE ≥ 30 normally and ≥ 20 under deuteranopia/protanopia.
+- **Leaving to the menu from pause counts the game** (score to the leaderboard, coins to the wallet) - that is how it should be.
+- **Growth per apple is one cell** - confirmed.
+- **Double tap in "Swipes":** the designer did not understand whether there is a problem and left the decision to the agent. Investigated in a real browser: a single tap
+  in plane mode waits exactly `input.doubleTapMs` = 240 ms (measured: 240-241 ms ten times out of ten), in free mode there is nothing to wait for - a tap does nothing.
+  Plane mode is the first 5 steps of the player's first game (about 5.4 s at a 1080 ms step), so the delay only concerns the
+  optional "into" tap during those seconds: the reaction is 240 ms late, and with a probability of about 22% (240/1080) the tap misses
+  the nearest step and the turn goes one step later. Deemed minor, the value 240 does not change (shorter - and the double taps of
+  slow fingers will start to get lost; a double tap with a 80-200 ms gap fires as `out` immediately on the second touch). A real bug was found and fixed: a tap followed
+  within the same 240 ms by a swipe (or a two-finger touch) silently vanished. Now such a tap goes out at once, before the swipe.
 
-**Ускорение и арена (2026-09-30)**
-- **×8 — убрать** (причина — в разделе «Скорость и ускорение»). Верхняя ступень ×4.
-- **5³ — только без преград.** Правило записано в «Настройках партии».
+**Boost and arena (2026-09-30)**
+- **×8 - remove** (the reason is in the "Speed and boost" section). The top tier is ×4.
+- **5³ - no obstacles only.** The rule is written down in "Game settings".
 
-## Нужно решение дизайнера
+## Designer decision needed
 
-Остались вопросы, на которые ответа ещё нет.
+The questions that still have no answer.
 
-1. **Пол 60 мс на ускоренный шаг.** Он выбран агентом. На «Очень быстром» темпе на пределе скорости ×3 и ×4 дают одно и то же (60 мс),
-   значит часть купленного ускорения там бесполезна. Так и должно быть, или пол сделать ниже/выше, или запретить бесполезные покупки?
-   Заодно: цвет головы нарастает 50 мс, пол ускоренного шага — 60 мс.
-2. **«×3 бесплатно после 10 партий»** (идея из `IDEAS.md`) в коде не реализована. Нужна или забыть?
-3. **«Контраст» бесплатный** (доступность не продаётся) — твоё решение или оставить как решил агент?
-4. **Юридический текст.** В условиях перечислены четыре события («открыли игру, начали партию, доиграли, вернулись»), в коде их
-   пять (добавлены «дошёл до твиста» и «вторая партия»), «открыли игру» отдельным событием не отправляется. Поправить текст
-   до выкладки? Это твоё имя под текстом.
+1. **The 60 ms floor on the boosted step.** It was chosen by the agent. On the "Very fast" pace at the speed cap ×3 and ×4 give the same thing (60 ms),
+   which means part of the purchased boost is useless there. Should it be that way, or make the floor lower/higher, or forbid the useless purchases?
+   Also: the head color rises in 50 ms, the boosted-step floor is 60 ms.
+2. **"×3 free after 10 games"** (an idea from `IDEAS.md`) is not implemented in the code. Is it needed or forget it?
+3. **"Contrast" is free** (accessibility is not sold) - is that your decision, or leave it as the agent decided?
+4. **Legal text.** The terms list four events ("opened the game, started a game, finished, returned"), the code has
+   five (added "reached the twist" and "second game"), and "opened the game" is not sent as a separate event. Fix the text
+   before release? It is your name under the text.

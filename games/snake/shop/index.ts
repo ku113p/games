@@ -1,4 +1,4 @@
-// shop/index.ts — публичный вход магазина. Витрина импортирует только отсюда.
+// shop/index.ts — the public entry point of the shop. The storefront imports only from here.
 export type { Item, ItemKind, ItemPayload, RawItem, ShopConfig, ShopRoot, ShopState, Slot, TemporaryEntry } from './types'
 export {
   SLOTS,

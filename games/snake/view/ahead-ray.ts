@@ -1,23 +1,23 @@
-// Лучи направления. Основной (по движению) — тонкий пунктир: объёмные штрихи
-// (0.11 x 0.11 x 0.4 клетки, шаг 1.5) от центра головы вдоль хода. Боковые
-// (по умолчанию выключены) — куда пойдёт голова при повороте: тонкие рельсы,
-// тусклее основного.
+// Direction rays. The main one (along the heading) is a thin dashed line: 3D dashes
+// (0.11 x 0.11 x 0.4 cells, step 1.5) from the head center along the heading. The side ones
+// (off by default) show where the head would go on a turn: thin rails,
+// dimmer than the main one.
 //
-// Основной луч обрывается о стенку куба, препятствие, собственное тело или
-// яблоко. Преграду подсвечиваем: препятствие/тело — сплошной заливкой грани, в которую
-// упирается луч (обращена к голове), стенка — заливкой её грани (одинаково; не рамка,
-// а закрашенный квадрат). Яблоко под лучом цвет не меняет (сигнал цели даёт голова, SnakeView)
-// (см. appleTargeted). Боковые лучи преграды не подсвечивают: четыре
-// подсветки разом дали бы рябь.
+// The main ray ends at a cube wall, obstacle, the snake's own body or
+// the apple. The obstacle is highlighted: an obstacle/body by a solid fill of the face the ray
+// hits (the one facing the head), a wall by a fill of its face (the same; a filled
+// square, not a frame). An apple under the ray does not change color (the head gives the target signal, SnakeView)
+// (see appleTargeted). Side rays do not highlight obstacles: four
+// highlights at once would ripple.
 //
-// Фаза plane: боковые только в плоскости экрана (±right, ±up из viewFrame),
-// глубина не показывается — первая игра должна выглядеть плоской змейкой.
-// Фаза free: heading = -depth, боковые = ±right, ±up (то же, что четыре свайпа).
-// Разворот назад не рисуется никогда (направление вдоль оси движения отсеяно).
+// Plane mode: side rays only in the screen plane (±right, ±up from viewFrame),
+// depth is not shown - the first game must look like a flat snake.
+// Free mode: heading = -depth, sides = ±right, ±up (same as the four swipes).
+// A reversal is never drawn (the direction along the movement axis is filtered out).
 //
-// Всё — один InstancedMesh из единичных боксов, растянутых по мировым осям
-// (лучи всегда вдоль осей): ~300 инстансов максимум. Пул создан заранее,
-// в кадре только мутация матриц и цветов, объектов не создаётся.
+// All one InstancedMesh of unit boxes stretched along the world axes
+// (rays always run along axes): ~300 instances at most. The pool is created up front,
+// per frame only matrices and colors are mutated, no objects are created.
 
 import { BoxGeometry, Color, Matrix4, MeshBasicMaterial, type Scene } from 'three'
 import type { GameState } from '../core/state'
@@ -25,25 +25,25 @@ import { applePos, viewFrame, cubeSize, elapsedMs, forEachSnakeSegment, gameMode
 import { InstancedPool } from './pool'
 import { RAY_HIT_FILL_BRIGHTNESS, RAY_DANGER_COLOR, RAY_MAIN_BRIGHTNESS, RAY_SIDE_BRIGHTNESS } from './palette'
 
-// Оформительские константы, не числа баланса.
+// Styling constants, not balance values.
 const MAIN_CELLS = 18
 const SIDE_CELLS = 5
-const BODY_SCALE = 0.86 // габарит сегмента змейки (= SEGMENT_SCALE в snake-view)
-const DASH_CROSS = 0.11 // поперечник штриха в клетках
-const DASH_LEN = 0.4 // длина штриха вдоль хода
-const DASH_STEP = 1.5 // шаг штрихов
-const DASH_FIRST = 0.75 // центр первого штриха от центра головы
+const BODY_SCALE = 0.86 // snake segment size (= SEGMENT_SCALE in snake-view)
+const DASH_CROSS = 0.11 // dash cross-section in cells
+const DASH_LEN = 0.4 // dash length along the heading
+const DASH_STEP = 1.5 // dash step
+const DASH_FIRST = 0.75 // center of the first dash from the head center
 const MAIN_DASHES = Math.ceil(MAIN_CELLS / DASH_STEP)
-const SIDE_CROSS = 0.5 // поперечник бокового луча относительно габарита
+const SIDE_CROSS = 0.5 // cross-section of a side ray relative to the segment size
 const SIDE_BEAM = 0.025
-// Заливка грани удара: тонкая плита. Грань непрозрачного куба лежит на 0.49 от центра
-// клетки (её сдвигает polygonOffset), плита занимает 0.50..0.53 — снаружи и без
-// касания по глубине, поэтому не мерцает. У стенки (плоскость на 0.5) плита
-// 0.465..0.495 внутри куба. Сторона плиты = сторона грани препятствия (0.98).
+// Hit face fill: a thin slab. The face of an opaque cube lies at 0.49 from the cell
+// center (pushed by polygonOffset), the slab occupies 0.50..0.53 - outside and without
+// depth contact, so it does not flicker. At a wall (plane at 0.5) the slab is
+// 0.465..0.495 inside the cube. The slab side = the obstacle face side (0.98).
 const HIT_FILL_SIZE = 0.98
 const HIT_FILL_THICK = 0.03
-const HIT_FACE_OFFSET = 0.515 // центр плиты от центра клетки-препятствия к голове
-const WALL_INSET = 0.02 // центр плиты на стенке: 0.5 - 0.02 от центра последней свободной клетки
+const HIT_FACE_OFFSET = 0.515 // slab center from the obstacle cell center toward the head
+const WALL_INSET = 0.02 // slab center on a wall: 0.5 - 0.02 from the center of the last free cell
 const SIDE_RING_STEP = 2
 const WAVE_DEPTH = 0.12
 const WAVE_PERIOD_MS = 900
@@ -67,8 +67,8 @@ export class AheadRay {
   private color = new Color()
   private n = 0
 
-  // Тело змейки: ключ клетки -> индекс сегмента. Пересобирается, только если
-  // голова или длина сменились.
+  // Snake body: cell key -> segment index. Rebuilt only if
+  // the head or the length changed.
   private body = new Map<number, number>()
   private bodyHeadKey = -1
   private bodyLen = -1
@@ -77,17 +77,17 @@ export class AheadRay {
     this.body.set(x + this.bodySize * (y + this.bodySize * z), i)
   }
 
-  // Результат последней трассировки.
+  // Result of the last trace.
   private hitKind: Hit = Hit.None
   private hitX = 0
   private hitY = 0
   private hitZ = 0
   private freeCells = 0
 
-  // Боковые направления текущего кадра (предвыделено, 4 x 3).
+  // Side directions of the current frame (pre-allocated, 4 x 3).
   private readonly sideDirs = new Int8Array(SIDE_MAX * 3)
 
-  /** true, если основной луч упирается в яблоко (яблоко цвет не меняет; поле оставлено для совместимости). */
+  /** true if the main ray hits the apple (the apple does not change color; the field is kept for compatibility). */
   appleTargeted = false
 
   private sides: boolean
@@ -98,7 +98,7 @@ export class AheadRay {
     for (let i = 0; i < CAPACITY; i++) this.pool.mesh.setColorAt(i, this.color.setRGB(0, 0, 0))
   }
 
-  /** Кадр: без новых объектов. dx/dy/dz — единичное направление движения (в plane). */
+  /** Frame: no new objects. dx/dy/dz is the unit movement direction (in plane). */
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest): void {
     const size = cubeSize(s)
     const h = head(s)
@@ -118,7 +118,7 @@ export class AheadRay {
     this.n = 0
     const phase = ((elapsedMs(s) % WAVE_PERIOD_MS) / WAVE_PERIOD_MS) * Math.PI * 2
 
-    // Основной луч.
+    // Main ray.
     this.trace(s, size, h.x, h.y, h.z, dx, dy, dz, MAIN_CELLS, isSolid)
     this.appleTargeted = this.hitKind === Hit.Apple
     const free0 = this.freeCells
@@ -126,8 +126,8 @@ export class AheadRay {
     const hx = this.hitX
     const hy = this.hitY
     const hz = this.hitZ
-    // Штрих виден целиком, только если помещается в свободный путь (до границы
-    // последней свободной клетки).
+    // A dash is visible in full only if it fits into the free path (up to the boundary of
+    // the last free cell).
     const reach = free0 + 0.5
     for (let i = 0, t = DASH_FIRST; i < MAIN_DASHES && t + DASH_LEN / 2 <= reach; i++, t += DASH_STEP) {
       const k = this.rayBrightness(t, phase)
@@ -136,7 +136,7 @@ export class AheadRay {
     }
     if (hk === Hit.Obstacle || hk === Hit.Body) {
       this.setDanger()
-      // Только грань удара, закрашенная целиком: плита в плоскости грани, обращённой к голове.
+      // Only the hit face, filled entirely: a slab in the plane of the face facing the head.
       this.plate(hx - dx * HIT_FACE_OFFSET, hy - dy * HIT_FACE_OFFSET, hz - dz * HIT_FACE_OFFSET, dx, dy)
     } else if (hk === Hit.Wall) {
       this.setDanger()
@@ -146,7 +146,7 @@ export class AheadRay {
       this.plate(fx, fy, fz, dx, dy)
     }
 
-    // Боковые лучи.
+    // Side rays.
     const sides = !this.sides ? 0 : this.collectSides(frame.right, frame.up, dx, dy, dz)
     for (let i = 0; i < sides; i++) {
       const sx = this.sideDirs[i * 3]!
@@ -169,7 +169,7 @@ export class AheadRay {
     this.pool.markDirty()
   }
 
-  /** Штрих: параллелепипед вдоль хода с центром в (cx,cy,cz). */
+  /** Dash: a cuboid along the heading centered at (cx,cy,cz). */
   private dash(cx: number, cy: number, cz: number, dx: number, dy: number, dz: number): void {
     const i = this.n
     if (i >= CAPACITY) return
@@ -182,7 +182,7 @@ export class AheadRay {
   }
 
   private rayBrightness(d: number, phase: number): number {
-    // Затухания по дальности здесь нет: дальний конец луча тает в общем тумане сцены (palette.ts).
+    // No distance falloff here: the far end of the ray melts into the scene's shared fog (palette.ts).
     const wave = 1 - WAVE_DEPTH + WAVE_DEPTH * Math.sin(phase - d * WAVE_PHASE_STEP)
     return RAY_MAIN_BRIGHTNESS * wave
   }
@@ -192,8 +192,8 @@ export class AheadRay {
   }
 
   /**
-   * Боковые направления: ±right, ±up кадра без тех, что лежат вдоль оси движения
-   * (разворот назад и «сквозь себя»). В plane это два поворота в плоскости, в free — четыре.
+   * Side directions: ±right, ±up of the frame minus those lying along the movement axis
+   * (reversal and "through itself"). In plane mode these are two turns in the plane, in free mode four.
    */
   private collectSides(
     right: { x: number; y: number; z: number },
@@ -205,7 +205,7 @@ export class AheadRay {
     let n = 0
     for (let a = 0; a < 2; a++) {
       const v = a === 0 ? right : up
-      // Вдоль оси движения (dot != 0) — пропуск.
+      // Along the movement axis (dot != 0) - skip.
       if (Math.abs(v.x * dx + v.y * dy + v.z * dz) > 0.5) continue
       for (let sign = -1; sign <= 1; sign += 2) {
         this.sideDirs[n * 3] = Math.round(v.x) * sign
@@ -229,9 +229,9 @@ export class AheadRay {
   }
 
   /**
-   * Идёт от головы по направлению до преграды, максимум maxCells клеток.
-   * Тело считается преградой, только если к моменту прихода головы сегмент
-   * ещё на месте (хвост за d шагов уедет: сегменты с индексом >= length - d свободны).
+   * Walks from the head along the direction to an obstacle, at most maxCells cells.
+   * A body counts as an obstacle only if by the time the head arrives the segment
+   * is still in place (the tail moves away in d steps: segments with index >= length - d are free).
    */
   private trace(
     s: GameState,
@@ -272,7 +272,7 @@ export class AheadRay {
     }
   }
 
-  /** Балка вдоль оси axis (0/1/2) длиной len и толщиной t с центром в (cx,cy,cz). */
+  /** Beam along axis (0/1/2) of length len and thickness t centered at (cx,cy,cz). */
   private beam(axis: number, cx: number, cy: number, cz: number, len: number, t: number): void {
     const i = this.n
     if (i >= CAPACITY) return
@@ -282,7 +282,7 @@ export class AheadRay {
     this.n = i + 1
   }
 
-  /** Сплошная плита HIT_FILL_SIZE x HIT_FILL_SIZE в плоскости, перпендикулярной движению. */
+  /** Solid slab HIT_FILL_SIZE x HIT_FILL_SIZE in the plane perpendicular to the movement. */
   private plate(cx: number, cy: number, cz: number, dx: number, dy: number): void {
     const i = this.n
     if (i >= CAPACITY) return
@@ -295,7 +295,7 @@ export class AheadRay {
     this.n = i + 1
   }
 
-  /** Четыре рельса вдоль оси движения общей длиной len с центром в (cx,cy,cz). */
+  /** Four rails along the movement axis of total length len centered at (cx,cy,cz). */
   private rails(cx: number, cy: number, cz: number, half: number, t: number, dx: number, dy: number, len: number): void {
     const axis = dx !== 0 ? 0 : dy !== 0 ? 1 : 2
     const b = (axis + 1) % 3
@@ -307,19 +307,19 @@ export class AheadRay {
     }
   }
 
-  /** Квадратное кольцо в плоскости, перпендикулярной движению. */
+  /** Square ring in the plane perpendicular to the movement. */
   private ring(cx: number, cy: number, cz: number, half: number, t: number, dx: number, dy: number): void {
     const axis = dx !== 0 ? 0 : dy !== 0 ? 1 : 2
     const b = (axis + 1) % 3
     const c = (axis + 2) % 3
     const len = 2 * half + t
     for (let s = -1; s <= 1; s += 2) {
-      this.beamAt(b, axis, c, 0, s * half, cx, cy, cz, len, t) // вдоль b, смещение по c
-      this.beamAt(c, axis, b, 0, s * half, cx, cy, cz, len, t) // вдоль c, смещение по b
+      this.beamAt(b, axis, c, 0, s * half, cx, cy, cz, len, t) // along b, offset along c
+      this.beamAt(c, axis, b, 0, s * half, cx, cy, cz, len, t) // along c, offset along b
     }
   }
 
-  /** Балка вдоль axis, смещённая на ob по оси b и на oc по оси c. */
+  /** Beam along axis, offset by ob along axis b and by oc along axis c. */
   private beamAt(axis: number, b: number, c: number, ob: number, oc: number, cx: number, cy: number, cz: number, len: number, t: number): void {
     let x = cx
     let y = cy

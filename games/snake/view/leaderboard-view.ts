@@ -1,11 +1,11 @@
-// view/leaderboard-view.ts — DOM-представление таблицы лучших и «барабана» ввода имени.
-// Холодный путь (экран проигрыша, меню): элементы создаются свободно. Из кадра не вызывается.
-// Барабан вместо HTML-input: экранная клавиатура не поднимается и не ломает вёрстку на телефоне.
+// view/leaderboard-view.ts is the DOM view of the leaderboard and the name-entry drum.
+// Cold path (game-over screen, menu): elements are created freely. Not called from the frame.
+// A drum instead of an HTML input: the on-screen keyboard does not pop up and does not break the layout on a phone.
 
 import { t } from '../i18n/runtime'
 import { formatDuration, stepSymbol, type LeaderboardConfig, type ScoreEntry } from '../scores/leaderboard'
 
-/** Рисует таблицу в `el`: `size` строк, свободные — тусклые прочерки. `highlight` — индекс своей записи (-1 — нет). */
+/** Draws the table into `el`: `size` rows, empty ones are dim dashes. `highlight` is the index of your own entry (-1 for none). */
 export function renderBoard(el: HTMLElement, table: readonly ScoreEntry[], size: number, highlight: number): void {
   el.replaceChildren()
   for (let i = 0; i < size; i++) {
@@ -31,8 +31,8 @@ export function renderBoard(el: HTMLElement, table: readonly ScoreEntry[], size:
 }
 
 /**
- * Строка рекорда №1 для главного экрана: «1 ABC 1240». Таблица пуста — подпись «Рекордов пока нет».
- * Возвращает true, если рекорд есть (кнопка-вход в таблицу при пустой таблице выключается).
+ * Row for high score #1 for the main screen: "1 ABC 1240". If the table is empty, the label reads "No records yet".
+ * Returns true if there is a record (with an empty table the button that opens the table is disabled).
  */
 export function renderTopLine(el: HTMLElement, table: readonly ScoreEntry[]): boolean {
   el.replaceChildren()
@@ -54,10 +54,10 @@ export function renderTopLine(el: HTMLElement, table: readonly ScoreEntry[]): bo
 }
 
 export interface Drum {
-  /** Показать барабан с этим именем; onChange — на каждое изменение, onConfirm — «Готово» / Enter. */
+  /** Show the drum with this name; onChange fires on every change, onConfirm on "Done" / Enter. */
   show(name: string, onChange: (name: string) => void, onConfirm: () => void): void
   hide(): void
-  /** Язык сменился: пересобрать подписи (aria-label) стрелок. */
+  /** Language changed: rebuild the arrow labels (aria-label). */
   relabel(): void
 }
 
@@ -100,7 +100,7 @@ export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
     window.clearInterval(repeatInterval)
   }
 
-  // Удержание стрелки прокручивает дальше: до нужной буквы из 36 иначе долго тапать.
+  // Holding an arrow scrolls further: otherwise reaching the right symbol out of 36 takes a lot of tapping.
   function bindStep(btn: HTMLButtonElement, slot: number, delta: number): void {
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault()
@@ -153,7 +153,7 @@ export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
   relabel()
   window.addEventListener('blur', stopRepeat)
 
-  // ПК: символы набираются с клавиатуры, стрелки и Enter — как на барабане.
+  // Desktop: symbols are typed on the keyboard, arrows and Enter work as on the drum.
   function onKey(e: KeyboardEvent): void {
     if (e.ctrlKey || e.metaKey || e.altKey) return
     const key = e.key

@@ -1,18 +1,18 @@
-// Публичный API вида (three.js, неон). Строго по контракту:
-// - подписан на события (handle), состояние читает ТОЛЬКО через core/queries,
-// - никогда не вызывает команды и не меняет состояние,
-// - render(s, dtMs) не создаёт новых объектов и не использует await.
+// Public API of the view (three.js, neon). Strictly per the contract:
+// - subscribes to events (handle), reads state ONLY through core/queries,
+// - never calls commands and never changes state,
+// - render(s, dtMs) creates no new objects and uses no await.
 //
-// WebGLRenderer и PostFx (composer + пассы) создаются один раз на canvas и
-// переиспользуются между партиями: пересоздание рендерера на том же
-// GL-контексте оставляет чужое состояние и утечки. View.dispose() освобождает
-// только ресурсы партии (сцена, пулы, геометрии, материалы).
+// WebGLRenderer and PostFx (composer + passes) are created once per canvas and
+// reused between games: recreating the renderer on the same
+// GL context leaves foreign state and leaks. View.dispose() releases
+// only the game's resources (scene, pools, geometries, materials).
 //
-// Тонмаппинг: ВЫКЛЮЧЕН (NoToneMapping). Палитра неона задана в конечных
-// цветах, ACES сжимал бы их; свечение даёт bloom, OutputPass делает только
-// sRGB-конвертацию. Поэтому флагов toneMapped у материалов нет.
-// Antialias канваса выключен: рендер идёт в RenderTarget composer'а, MSAA канваса ничего бы не сглаживал.
-// Сглаживание — свой способ в PostFx (MSAA-цель, 8-битная цель или постобработочный SMAA, view/perf-settings.ts: AA_PRESETS).
+// Tone mapping: OFF (NoToneMapping). The neon palette is defined in final
+// colors, ACES would compress them; the glow comes from bloom, OutputPass only does
+// sRGB conversion. That is why materials have no toneMapped flags.
+// Canvas antialias is off: rendering goes into the composer's RenderTarget, canvas MSAA would smooth nothing.
+// Antialiasing is our own, in PostFx (MSAA target, 8-bit target or post-processing SMAA, view/perf-settings.ts: AA_PRESETS).
 
 import { WebGLRenderer, Scene, NoToneMapping, MathUtils } from 'three'
 import type { GameState } from '../core/state'
@@ -38,24 +38,24 @@ export interface View {
   resize(width: number, height: number): void
   handle(event: GameEvent, s: GameState): void
   render(s: GameState, dtMs: number): void
-  /** Наклон камеры от игрока, рад, оба в пределах ±1; сам возвращается к нулю. */
+  /** Camera tilt from the player, rad, both within ±1; returns to zero by itself. */
   setCameraTilt(yaw: number, pitch: number): void
-  /** Тумблер «Туман» из меню: общий туман по дальности (плотность — config.fog.density). */
+  /** The "Fog" toggle from the menu: global distance fog (density is config.fog.density). */
   setFogOn(on: boolean): void
-  /** Отладка (перф-панель), холодный путь: применить view/perf-settings.ts (MSAA, bloom, потолок МПикс) сразу. */
+  /** Debug (perf panel), cold path: apply view/perf-settings.ts (MSAA, bloom, MPix cap) immediately. */
   applyPerf(width: number, height: number): void
-  /** Отладка: заполнить снимок показателей рендера (после отрисовки кадра). Без аллокаций. */
+  /** Debug: fill the render metrics snapshot (after the frame is drawn). No allocations. */
   readPerf(out: PerfSnapshot): void
-  /** Отладка (лог бенчмарка): видеокарта и возможности WebGL. Холодный путь. */
+  /** Debug (benchmark log): GPU and WebGL capabilities. Cold path. */
   gpuInfo(): GpuInfo
   dispose(): void
 }
 
-// Ограничение pixel ratio — защита слабых телефонов от перерасхода fillrate (perf-settings.ts: MAX_PIXEL_RATIO).
-// Потолок числа пикселей буфера отрисовки, МПикс (0 — без потолка, как было). Стоимость MSAA и bloom растёт
-// линейно с пикселями: на ретина-мониторе буфер 5-8 МПикс, на телефоне ~1.3. Включение снижает pixelRatio
-// на больших окнах и делает картинку мягче; решать дизайнеру (см. отчёт), поэтому по умолчанию выключен.
-// Значение живёт в perf.megapixelCap (view/perf-settings.ts): его меняет отладочная панель.
+// Pixel ratio limit protects weak phones from fillrate overuse (perf-settings.ts: MAX_PIXEL_RATIO).
+// Cap on the number of render buffer pixels, MPix (0 means no cap, as before). The cost of MSAA and bloom grows
+// linearly with pixels: on a retina monitor the buffer is 5-8 MPix, on a phone ~1.3. Enabling it lowers pixelRatio
+// on large windows and makes the picture softer; for the designer to decide (see the report), so it is off by default.
+// The value lives in perf.megapixelCap (view/perf-settings.ts): the debug panel changes it.
 
 function pixelRatioFor(cssW: number, cssH: number): number {
   let pr = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)
@@ -81,7 +81,7 @@ function getShared(canvas: HTMLCanvasElement): Shared {
   return shared
 }
 
-/** Полное освобождение renderer и composer (при уходе со страницы игры). */
+/** Full release of the renderer and composer (when leaving the game page). */
 export function disposeSharedRenderer(): void {
   if (!shared) return
   shared.postFx?.dispose()
@@ -90,16 +90,16 @@ export function disposeSharedRenderer(): void {
 }
 
 /**
- * `cosmetics` — что надето в магазине (палитра, вид змейки, яблока, стрелки); без него — вид по умолчанию.
- * Применяется при создании вида, то есть при старте партии (холодный путь): смена набора на лету не поддерживается.
+ * `cosmetics` is what is equipped in the shop (palette, snake, apple and arrow skins); without it, the default look.
+ * Applied when the view is created, i.e. at game start (cold path): changing the set on the fly is not supported.
  */
 export function createView(canvas: HTMLCanvasElement, config: Config, s: GameState, cosmetics?: CosmeticsInput): View {
   const look = resolveCosmetics(cosmetics)
-  // Цвета — до создания любого объекта вида: материалы копируют цвет при создании.
+  // Colors come before creating any view object: materials copy the color at creation.
   applyPaletteById((config as { palettes?: PalettesConfig }).palettes, look.palette)
   const sh = getShared(canvas)
   const renderer = sh.renderer
-  renderer.setClearColor(BACKGROUND_COLOR, 1) // renderer общий между партиями, фон набора ставится каждый раз
+  renderer.setClearColor(BACKGROUND_COLOR, 1) // the renderer is shared between games, the set's background is applied every time
 
   const scene = new Scene()
   const cameraRig = new CameraRig(config)
@@ -117,7 +117,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
 
   const initialWidth = canvas.clientWidth || canvas.width || 1
   const initialHeight = canvas.clientHeight || canvas.height || 1
-  // Качество могли сменить в меню между партиями: множитель плотности пересчитывается по текущему потолку.
+  // Quality could have been changed in the menu between games: the density multiplier is recomputed against the current cap.
   const startPr = pixelRatioFor(initialWidth, initialHeight)
   if (startPr !== renderer.getPixelRatio()) renderer.setPixelRatio(startPr)
   renderer.setSize(initialWidth, initialHeight, false)
@@ -158,8 +158,8 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
     syncCheap(state)
   }
 
-  // Структура (каркас + препятствия) уже собрана под состояние из createView;
-  // первый 'started' её не пересобирает.
+  // The structure (frame + obstacles) is already built for the state from createView;
+  // the first 'started' does not rebuild it.
   syncStructural(s)
   let structuralFresh = true
   let disposed = false
@@ -219,18 +219,18 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
           break
         case 'moved':
         case 'ate':
-          // Ёмкость пула заранее (холодный путь), рендер только мутирует.
+          // Pool capacity up front (cold path), render only mutates.
           snakeView.ensureCapacity(state)
           break
         default:
-          // axisTurned и modeChanged камере не нужны: она ведётся к
-          // cameraFrame(s) и фазе из состояния (самоисцеление).
+          // axisTurned and modeChanged are not needed by the camera: it is driven toward
+          // cameraFrame(s) and the mode from state (self-healing).
           break
       }
     },
 
     render(state: GameState, dtMs: number): void {
-      // Панель открыта: composer рисует несколько пассов, а info по умолчанию сбрасывается на каждом render().
+      // Panel is open: the composer draws several passes, and info is reset on every render() by default.
       if (perf.statsOn) renderer.info.reset()
       cameraRig.update(dtMs, state)
       if (cameraRig.consumeGlitchRequest()) {
@@ -239,13 +239,13 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       const cam = cameraRig.camera.position
       snakeView.update(state, cam.x, cam.y, cam.z, cameraRig.freeAmount)
       const h = head(state)
-      // viewFrame, а не cameraFrame: кадр ядра доворачивается только на такте, и ось
-      // глубины препятствий отставала бы от камеры на шаг после ввода поворота.
+      // viewFrame, not cameraFrame: the core frame rolls only on a step, and the obstacles' depth
+      // axis would lag one step behind the camera after a turn input.
       const fr = viewFrame(state)
       obstaclesView.update(dtMs, cam.x, cam.y, cam.z, h.x, h.y, h.z, fr.depth.x, fr.depth.y, fr.depth.z, cameraRig.freeAmount)
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)
-      // Туман проявляется вместе с объёмом (в plane камера далеко снаружи, там он выключен); 0 — тумблер «выкл».
+      // Fog appears together with volume (in plane mode the camera is far outside, where it is off); 0 means the toggle is off.
       fog.density = fogOn && perf.fog ? config.fog.density * MathUtils.smoothstep(cameraRig.freeAmount, 0, 1) : 0
       appleView.update(state, aheadRay.appleTargeted)
       compass?.update(state, cameraRig.camera, dtMs, cameraRig.freeAmount)

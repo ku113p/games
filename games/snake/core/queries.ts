@@ -1,5 +1,5 @@
-// core/queries.ts — только чтение состояния. Чистый TS, без Three.js.
-// Вызывается из view/ каждый кадр (рендер и препятствия через InstancedMesh) — без аллокаций.
+// core/queries.ts — read-only access to state. Pure TS, no Three.js.
+// Called from view/ every frame (rendering and obstacles via InstancedMesh), so no allocations.
 
 import { rotateFrameOf } from './rules'
 import { boostedStepMs, cellKey, effectiveStepMs, type GameState, type Mode, type Vec3, type Frame } from './state'
@@ -24,7 +24,7 @@ export function score(s: GameState): number {
   return s.score
 }
 
-/** Обходит препятствия без аллокаций — декодирует cellKey обратно в координаты. */
+/** Walks the obstacles without allocating: decodes each cellKey back into coordinates. */
 export function forEachObstacle(s: GameState, fn: (x: number, y: number, z: number) => void): void {
   const size = s.size
   for (const key of s.obstacles) {
@@ -35,7 +35,7 @@ export function forEachObstacle(s: GameState, fn: (x: number, y: number, z: numb
   }
 }
 
-/** Обходит сегменты змейки от головы (index 0) к хвосту, без аллокаций. */
+/** Walks the snake segments from head (index 0) to tail, without allocating. */
 export function forEachSnakeSegment(
   s: GameState,
   fn: (x: number, y: number, z: number, index: number) => void,
@@ -47,7 +47,7 @@ export function forEachSnakeSegment(
   }
 }
 
-/** Позиция яблока (только чтение, без копии). */
+/** Apple position (read-only, no copy). */
 export function applePos(s: GameState): Readonly<Vec3> {
   return s.apple
 }
@@ -60,14 +60,14 @@ export function elapsedMs(s: GameState): number {
   return s.elapsedMs
 }
 
-/** Фаза камеры: 'plane' (плоская змейка) или 'free' (камера за головой). */
+/** Camera mode: 'plane' (flat snake) or 'free' (camera behind the head). */
 export function gameMode(s: GameState): Mode {
   return s.mode
 }
 
 /**
- * Прогресс до следующего шага, 0..1 (sinceStepMs / длительность идущего шага) — для интерполяции
- * головы в виде. Считается по действующему темпу, поэтому нажатие/отпускание посреди шага его не двигает.
+ * Progress to the next step, 0..1 (sinceStepMs / duration of the current step), used by the view to
+ * interpolate the head. Uses the active pace, so pressing/releasing boost mid-step does not move it.
  */
 export function stepProgress(s: GameState): number {
   const stepMs = effectiveStepMs(s)
@@ -77,30 +77,30 @@ export function stepProgress(s: GameState): number {
 }
 
 /**
- * Зажата ли кнопка ускорения (ЗАПРОШЕННОЕ состояние). Меняется мгновенно вместе с событием
- * boostChanged — для подсветки кнопки без задержки. Темп меняется позже, см. isBoostActive.
+ * Whether the boost button is held (the REQUESTED state). Changes instantly together with the
+ * boostChanged event, so the button highlight has no delay. The pace changes later, see isBoostActive.
  */
 export function isBoosting(s: GameState): boolean {
   return s.boostRequested
 }
 
-/** Идёт ли текущий шаг в ускоренном темпе (ДЕЙСТВУЮЩЕЕ состояние; переключается на границе шага). */
+/** Whether the current step runs at the boosted pace (the ACTIVE state; switches on a step boundary). */
 export function isBoostActive(s: GameState): boolean {
   return s.boosting
 }
 
 /**
- * Куда змейка повёрнута ПРЯМО СЕЙЧАС в глазах игрока: направление, которое она возьмёт на ближайшем такте
- * (буфер pendingTurn: свайп, кнопка пульта, ось), а если ввода нет — текущий heading. Только чтение,
- * без копии. Голова, луч и подсказки берут направление отсюда, а не из геометрии тела: тело до такта
- * не двигается, и по разнице «голова минус шея» ввод был бы виден только на следующем шаге.
- * Правила ядра (столкновения, шаг) этим запросом не пользуются — там истина s.heading.
+ * Where the snake is pointing RIGHT NOW as the player sees it: the direction it will take on the next step
+ * (pendingTurn buffer: swipe, pad button, axis), or the current heading if nothing is queued. Read-only,
+ * no copy. The head, ray and hints take their direction from here rather than from body geometry: the body
+ * does not move until the step, so "head minus neck" would show the input only one step late.
+ * Core rules (collisions, stepping) do not use this query; there the truth is s.heading.
  */
 export function intendedHeading(s: GameState): Readonly<Vec3> {
   return s.pendingTurn ?? s.heading
 }
 
-// Переиспользуемый кадр под viewFrame: запрос вызывается каждый кадр, без аллокаций.
+// Reused frame for viewFrame: the query is called every frame, so no allocations.
 const VIEW_FRAME: Frame = {
   right: { x: 0, y: 0, z: 0 },
   up: { x: 0, y: 0, z: 0 },
@@ -115,13 +115,13 @@ function copyVec(to: Vec3, from: Vec3): void {
 }
 
 /**
- * Кадр камеры в глазах игрока: cameraFrame плюс уже введённый, но ещё не исполненный поворот.
- * В 'free' камера смотрит вдоль heading (depth = -heading), поэтому поворот (свайп) доворачивает кадр
- * на то же +90° вокруг heading × pendingTurn, что сделает такт (rules.reorientFrameFree) — но сразу,
- * не дожидаясь шага. На такте кадр ядра станет ровно этим же, повторного скачка нет.
- * В 'plane' камера от heading не зависит, а доворот оси (turnAxis) ядро делает в момент команды —
- * там кадр и так актуален. Возвращает общий переиспользуемый объект (не хранить между кадрами, не менять);
- * без ввода в очереди — сам s.frame.
+ * Camera frame as the player sees it: cameraFrame plus a turn that was entered but not yet executed.
+ * In 'free' the camera looks along heading (depth = -heading), so a turn (swipe) rolls the frame
+ * by the same +90° around heading × pendingTurn that the step will do (rules.reorientFrameFree), but right away,
+ * without waiting for the step. On the step the core frame becomes exactly this one, so there is no second jump.
+ * In 'plane' the camera does not depend on heading, and the core does the axis roll (turnAxis) at the moment of
+ * the command, so the frame is already current. Returns a shared reused object (do not keep it between frames or mutate it);
+ * with nothing queued, returns s.frame itself.
  */
 export function viewFrame(s: GameState): Frame {
   const pending = s.pendingTurn
@@ -130,7 +130,7 @@ export function viewFrame(s: GameState): Frame {
   VIEW_AXIS.x = h.y * pending.z - h.z * pending.y
   VIEW_AXIS.y = h.z * pending.x - h.x * pending.z
   VIEW_AXIS.z = h.x * pending.y - h.y * pending.x
-  // Поворот «прямо» или на 180° оси не задаёт (ввод такое не пропускает); кадр остаётся как есть.
+  // A "straight" or 180° turn defines no axis (input never lets one through); the frame stays as is.
   if (VIEW_AXIS.x === 0 && VIEW_AXIS.y === 0 && VIEW_AXIS.z === 0) return s.frame
   copyVec(VIEW_FRAME.right, s.frame.right)
   copyVec(VIEW_FRAME.up, s.frame.up)
@@ -140,10 +140,10 @@ export function viewFrame(s: GameState): Frame {
 }
 
 /**
- * Занята ли клетка (x,y,z) в момент, когда голова входит в неё на j-м ходу (j >= 1) по прямой:
- * стена куба, препятствие или тело. Хвост освобождается по ходу: к j-му входу из тела ушли
- * последние max(0, j - growth) сегментов (ядро пускает и в вот-вот уходящую клетку хвоста, если
- * growth исчерпан, см. commands.isFreeAhead). Ядро при этом не трогается: только чтение, без аллокаций.
+ * Whether cell (x,y,z) is occupied at the moment the head enters it on step j (j >= 1) going straight:
+ * cube wall, obstacle or body. The tail vacates along the way: by the j-th entry the last
+ * max(0, j - growth) segments have left the body (the core also allows entering the cell the tail is about to leave, if
+ * growth is used up, see commands.isFreeAhead). The core is left untouched: read-only, no allocations.
  */
 function isBlockedAtStep(s: GameState, x: number, y: number, z: number, j: number): boolean {
   const size = s.size
@@ -161,11 +161,11 @@ function isBlockedAtStep(s: GameState, x: number, y: number, z: number, j: numbe
 }
 
 /**
- * Через сколько ходов змейка врежется (в стену, препятствие или своё тело), если не повернёт:
- * идёт по intendedHeading (учитывает введённый, но ещё не исполненный поворот). 1 — следующий же ход
- * смертелен, 2 — через один, и так до horizon включительно. 0 — в пределах horizon ничего нет.
- * horizon приходит снаружи (config.headSignal.dangerHorizon). Вне фазы running всегда 0.
- * Не мутирует состояние, без аллокаций; стоит O(horizon).
+ * How many steps until the snake crashes (into a wall, obstacle or its own body) if it does not turn:
+ * follows intendedHeading (accounts for a turn that was entered but not yet executed). 1 means the very next step
+ * is fatal, 2 means one step later, and so on up to and including horizon. 0 means nothing within horizon.
+ * horizon comes from outside (config.headSignal.dangerHorizon). Always 0 outside the running phase.
+ * Does not mutate state, no allocations; costs O(horizon).
  */
 export function stepsToCrash(s: GameState, horizon: number): number {
   if (s.phase !== 'running') return 0
@@ -178,10 +178,10 @@ export function stepsToCrash(s: GameState, horizon: number): number {
 }
 
 /**
- * Идёт ли змейка прямо на яблоко: яблоко лежит на луче из головы по intendedHeading, и до него по
- * пути нет стены, препятствия и тела (иначе змейка до него не дойдёт и «на верном пути» было бы ложью:
- * яблоко за препятствием НЕ на курсе). Дальность не ограничена, кроме размера куба.
- * Вне фазы running — false. Не мутирует состояние, без аллокаций; O(size).
+ * Whether the snake is heading straight at the apple: the apple lies on the ray from the head along intendedHeading, and
+ * the path to it has no wall, obstacle or body (otherwise the snake would never reach it and "on the right track" would be a lie:
+ * an apple behind an obstacle is NOT on the heading). Range is unlimited except by the cube size.
+ * False outside the running phase. Does not mutate state, no allocations; O(size).
  */
 export function appleOnCourse(s: GameState): boolean {
   if (s.phase !== 'running') return false
@@ -191,7 +191,7 @@ export function appleOnCourse(s: GameState): boolean {
   const dx = a.x - h.x
   const dy = a.y - h.y
   const dz = a.z - h.z
-  // Яблоко на оси движения: две другие координаты совпадают, вдоль оси — впереди (не позади и не в голове).
+  // Apple on the movement axis: the other two coordinates match, and along the axis it is ahead (not behind and not at the head).
   const along = dx * d.x + dy * d.y + dz * d.z
   if (along < 1) return false
   if (dx - d.x * along !== 0 || dy - d.y * along !== 0 || dz - d.z * along !== 0) return false
@@ -201,14 +201,14 @@ export function appleOnCourse(s: GameState): boolean {
   return true
 }
 
-/** Множитель ускорения этой партии (выбран до старта): для подписи кнопки и экрана выбора. */
+/** Boost factor of this game (chosen before the start): for the button label and the selection screen. */
 export function getBoostFactor(s: GameState): number {
   return s.boostFactor
 }
 
 /**
- * Во сколько раз ускоренный шаг реально короче обычного с учётом пола (config.speed.minEffectiveStepMs).
- * Равен getBoostFactor, пока пол не мешает; меньше — когда ускорение упёрлось в пол. Для подписи вида «×4 → ×3.0».
+ * How many times shorter a boosted step actually is than a normal one, given the floor (config.speed.minEffectiveStepMs).
+ * Equals getBoostFactor while the floor does not interfere; smaller when boost hits the floor. For a label like "×4 → ×3.0".
  */
 export function effectiveBoostFactor(s: GameState): number {
   const b = boostedStepMs(s)

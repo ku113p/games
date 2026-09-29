@@ -1,4 +1,4 @@
-// Общие помощники для тестов ядра (не тест-файл, bun test его не запускает).
+// Shared helpers for core tests (not a test file, bun test does not run it).
 import { cellKey, type Frame, type GameState, type Vec3 } from './state'
 import type { Config } from './rules'
 
@@ -21,8 +21,8 @@ export const V = {
   L: { x: -1, y: 0, z: 0 },
   U: { x: 0, y: 1, z: 0 },
   D: { x: 0, y: -1, z: 0 },
-  B: { x: 0, y: 0, z: 1 }, // к зрителю (depth в базовом frame)
-  F: { x: 0, y: 0, z: -1 }, // от зрителя
+  B: { x: 0, y: 0, z: 1 }, // toward the viewer (depth in the base frame)
+  F: { x: 0, y: 0, z: -1 }, // away from the viewer
 } as const
 
 export function v(x: number, y: number, z: number): Vec3 {
@@ -33,7 +33,7 @@ export function baseFrame(): Frame {
   return { right: v(1, 0, 0), up: v(0, 1, 0), depth: v(0, 0, 1) }
 }
 
-/** Змейка из клеток head → tail. */
+/** A snake from cells head → tail. */
 export function makeState(overrides: Partial<GameState> = {}): GameState {
   const size = overrides.size ?? 20
   const snake = overrides.snake ?? [v(10, 10, 10), v(9, 10, 10), v(8, 10, 10)]
@@ -67,7 +67,7 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
   return { ...base, ...overrides }
 }
 
-/** Независимый от продакшена mulberry32 для передачи в generateObstacles. */
+/** A mulberry32 independent of production code, to pass into generateObstacles. */
 export function makeRng(seed: number): () => number {
   let st = seed | 0
   return () => {
@@ -79,7 +79,7 @@ export function makeRng(seed: number): () => number {
   }
 }
 
-/** Сколько свободных клеток достижимо заливкой от стартов; и сколько свободных всего. */
+/** How many free cells are reachable by flood fill from the starts; and how many free cells there are in total. */
 export function reachability(
   size: number,
   starts: Iterable<number>,

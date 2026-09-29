@@ -1,59 +1,59 @@
-// Слой «решётка»: фоновая разметка пространства редкой решёткой узлов.
+// Lattice layer: background markup of space with a sparse lattice of nodes.
 //
-// Она про «где я в объёме», а НЕ про направление (направление показывает луч
-// ahead-ray.ts, ближние клетки — near-cells.ts; слои собирает direction-hint.ts).
+// It answers "where am I in the volume", NOT "which way am I heading" (the heading is shown by the ray in
+// ahead-ray.ts, the neighbouring cells by near-cells.ts; direction-hint.ts assembles the layers).
 //
-// Шаг и привязка — config.hints (правится без пересборки):
-//   latticeAt   'corners' — узлы в углах клеток (координаты k - 0.5);
-//               'centers' — узлы в центрах клеток (координаты k);
-//   latticeStep через сколько клеток ставить узел по каждой оси
-//               (4 — решётка из кубов 4x4x4 клеток).
+// Step and anchoring come from config.hints (tunable without a rebuild):
+//   latticeAt   'corners' - nodes at cell corners (coordinates k - 0.5);
+//               'centers' - nodes at cell centers (coordinates k);
+//   latticeStep how many cells between nodes on each axis
+//               (4 - a lattice of 4x4x4-cell cubes).
 //
-// Решётка глобальная: точки стоят на месте, при движении змейки лишь
-// проявляются у головы и тают у края окна. При шаге 4 она редкая, коридор она
-// показывать не должна — это делает луч.
+// The lattice is global: dots stay in place; as the snake moves they only
+// fade in near the head and fade out at the window edge. At step 4 it is sparse and must not
+// show the corridor - the ray does that.
 //
-// СТОИМОСТЬ. Рисуются только узлы рядом с головой: статичный буфер точек
-// фиксированного размера, зависящего от радиуса отсечения и шага, но НЕ от
-// размера куба. Позиции считает вершинный шейдер из униформ (голова, направление,
-// якорь решётки); в кадре CPU трогает только униформы: ни новых объектов, ни
-// await, ни перезаписи буферов. Узлов решётки в кубе: (n/шаг + 1)^3 — на 100^3
-// с шагом 1 это ~1 млн, поэтому окно отсекается по радиусу при любом шаге и режиме.
-// Радиусы окна (клетки): поперёк ±LATERAL_CELLS, вперёд AHEAD_CELLS, назад
-// BEHIND_CELLS; узлы вне куба и вне окна шейдер отбрасывает.
+// COST. Only nodes near the head are drawn: a static point buffer
+// of fixed size that depends on the clip radius and the step, but NOT on the
+// cube size. The vertex shader computes positions from uniforms (head, direction,
+// lattice anchor); per frame the CPU touches only uniforms: no new objects, no
+// await, no buffer rewrites. Lattice nodes in the cube: (n/step + 1)^3 - at 100^3
+// with step 1 that is ~1M, so the window is clipped by radius at any step and mode.
+// Window radii (cells): sideways ±LATERAL_CELLS, ahead AHEAD_CELLS, behind
+// BEHIND_CELLS; the shader discards nodes outside the cube and outside the window.
 //
-// «ЁЖИКИ». Узел — место, где пересекаются плоскости пространственной сетки; одна
-// точка не показывает, как они идут. Поэтому из каждого узла выходят шесть коротких
-// обрубков по осям мира (±x, ±y, ±z) — начала рёбер, длиной STUB_CELLS клетки
-// (0.25 клетки при любом шаге решётки: обрубки показывают масштаб клетки). Точка в узле оставлена: она отмечает
-// само пересечение, а обрубки показывают, куда идут плоскости. Обрубок, конец
-// которого вышел бы за куб, скрывается. Обрубки вдоль оси глубины экрана в plane
-// растут из нуля вместе с freeAmount (иначе перспектива выдала бы глубину).
-// Стоимость: тот же статичный буфер окна, на узел 6 отрезков (12 вершин); окно
-// по радиусу отсекает шейдер одним и тем же кодом для точек и отрезков.
+// "HEDGEHOGS". A node is where the planes of the spatial grid intersect; a single
+// dot does not show how they run. So six short stubs come out of each node along
+// the world axes (±x, ±y, ±z) - the starts of edges, STUB_CELLS cells long
+// (0.25 cell at any lattice step: the stubs show the cell scale). The dot at the node is kept: it marks
+// the intersection itself, while the stubs show where the planes go. A stub whose end
+// would leave the cube is hidden. Stubs along the screen depth axis in plane mode
+// grow from zero together with freeAmount (otherwise perspective would give the depth away).
+// Cost: the same static window buffer, 6 segments (12 vertices) per node; the shader
+// clips the window by radius with the same code for dots and segments.
 //
-// ЗАТУХАНИЕ. Своей кривой по дальности нет: узлы и обрубки тают в общем тумане сцены (palette.ts,
-// fogVisibility — множитель альфы). Остаётся только таяние у краёв окна (edge), это не глубина.
+// FALLOFF. There is no distance curve of its own: nodes and stubs fade in the scene's shared fog (palette.ts,
+// fogVisibility - an alpha multiplier). Only the fade at the window edges (edge) remains; it is not depth.
 //
-// Фаза plane: глубина не показывается (первая игра выглядит плоской змейкой) —
-// остаётся один слой узлов у камеры; по мере полёта камеры (freeAmount)
-// остальные слои проявляются.
+// Plane mode: depth is not shown (the first game looks like a flat snake) -
+// a single layer of nodes at the camera remains; as the camera flies (freeAmount)
+// the other layers fade in.
 
 import { BufferGeometry, Float32BufferAttribute, LineSegments, Points, ShaderMaterial, Vector3, type Scene } from 'three'
 import type { Config } from '../core/rules'
 import { DOT_BASE_ALPHA, DOT_BASE_COLOR, FOG_VISIBILITY_GLSL, fogUniforms } from './palette'
 
-// Оформительские константы (радиус отсечения и вид точек), не числа баланса.
-const LATERAL_CELLS = 8 // радиус окна фона поперёк хода
+// Presentation constants (clip radius and dot look), not balance values.
+const LATERAL_CELLS = 8 // radius of the background window across the heading
 const BEHIND_CELLS = 4
 const AHEAD_CELLS = 18
-const DOT_BASE_SIZE = 0.12 // диаметр точки в клетках
+const DOT_BASE_SIZE = 0.12 // dot diameter in cells
 const MIN_PX = 3
 const MAX_PX = 9
-/** Длина обрубка ребра в КЛЕТКАХ (четверть одной клетки; от шага решётки не зависит). */
+/** Length of an edge stub in CELLS (a quarter of a cell; independent of the lattice step). */
 export const STUB_CELLS = 0.25
 
-// Общая часть: униформы и отсечение узла. Возвращает альфу узла (0 — скрыт).
+// Shared part: uniforms and node clipping. Returns the node alpha (0 - hidden).
 const COMMON = /* glsl */ `
 ${FOG_VISIBILITY_GLSL}
 uniform vec3 uHead;
@@ -93,18 +93,18 @@ bool inCube(vec3 w) {
   return !(w.x < lo || w.y < lo || w.z < lo || w.x > hi || w.y > hi || w.z > hi);
 }
 
-// Узел (ia, ib, if) — целые индексы от якоря вдоль (A, B, dir): мировая позиция.
+// Node (ia, ib, if) - integer indices from the anchor along (A, B, dir): world position.
 vec3 nodeWorld(vec3 idx) {
   return uAnchor + (idx.x * uA + idx.y * uB + idx.z * uDir) * uSpacing;
 }
 
-// Альфа узла: окно вокруг головы, слой глубины в plane, таяние краёв. 0 — скрыт.
+// Node alpha: window around the head, depth layer in plane mode, edge fade. 0 - hidden.
 float nodeAlpha(vec3 world, float viewLen) {
   vec3 off = world - uHead;
   float f = dot(off, uDir);
   float lat = max(abs(dot(off, uA)), abs(dot(off, uB)));
   if (lat > uLatR || f < -uBehind || f > uAhead) return 0.0;
-  // В центрах: голова и клетки позади неё по оси заняты змейкой, точек там нет.
+  // At centers: the head and the cells behind it along the axis are occupied by the snake, no dots there.
   if (uCenters > 0.5 && lat < 0.25 && f < 0.25) return 0.0;
   float dd = dot(off, uDepth);
   float hs = 0.5 * uSpacing;
@@ -133,7 +133,7 @@ void main() {
 }
 `
 
-// Обрубки: aStub = (ось 0..5 -> +x,-x,+y,-y,+z,-z; конец 0 — узел, 1 — кончик).
+// Stubs: aStub = (axis 0..5 -> +x,-x,+y,-y,+z,-z; end 0 - node, 1 - tip).
 const VERT_STUB = /* glsl */ `
 ${COMMON}
 attribute vec2 aStub;
@@ -141,7 +141,7 @@ void main() {
   vec3 world = nodeWorld(position);
   int ax = int(aStub.x + 0.5);
   vec3 axis = vec3(float(ax == 0) - float(ax == 1), float(ax == 2) - float(ax == 3), float(ax == 4) - float(ax == 5));
-  // Вдоль глубины экрана обрубок растёт из нуля вместе с freeAmount.
+  // Along the screen depth the stub grows from zero together with freeAmount.
   float len = uStub * mix(1.0 - abs(dot(axis, uDepth)), 1.0, uFreeAmt);
   vec3 tip = world + axis * len;
   if (!inCube(world) || !inCube(tip) || len < 0.001) { hide(); return; }
@@ -199,7 +199,7 @@ export class AheadDots {
     const centers = this.centers
     const N = this.spacing
 
-    // Индексы узлов от якоря. Диапазоны в узлах с запасом +1 на сдвиг якоря.
+    // Node indices from the anchor. Ranges in nodes with +1 margin for the anchor shift.
     const latN = Math.ceil(LATERAL_CELLS / N) + 1
     const behindN = Math.ceil(BEHIND_CELLS / N) + 1
     const aheadN = Math.ceil(AHEAD_CELLS / N) + 1
@@ -271,7 +271,7 @@ export class AheadDots {
     const sg = new BufferGeometry()
     sg.setAttribute('position', new Float32BufferAttribute(stubPos, 3))
     sg.setAttribute('aStub', new Float32BufferAttribute(stubAttr, 2))
-    // Те же униформы (по ссылке): update() трогает их один раз на оба слоя.
+    // The same uniforms (by reference): update() touches them once for both layers.
     this.stubMaterial = new ShaderMaterial({
       uniforms,
       vertexShader: VERT_STUB,
@@ -285,14 +285,14 @@ export class AheadDots {
     this.scene.add(this.stubs)
   }
 
-  /** Высота буфера кадра в пикселях (для размера точек). Холодный путь: init и resize. */
+  /** Frame buffer height in pixels (for dot size). Cold path: init and resize. */
   setViewportHeight(pixels: number): void {
     this.material.uniforms['uPxScale']!.value = pixels * 0.5
   }
 
   /**
-   * Кадр: без новых объектов, только униформы. (dx,dy,dz) — единичное
-   * направление хода, (px,py,pz) — ось глубины экрана, (hx,hy,hz) — голова.
+   * Frame: no new objects, only uniforms. (dx,dy,dz) is the unit
+   * heading, (px,py,pz) is the screen depth axis, (hx,hy,hz) is the head.
    */
   update(
     size: number,
@@ -310,14 +310,14 @@ export class AheadDots {
     const N = this.spacing
     this.uHead.set(hx, hy, hz)
     this.uDir.set(dx, dy, dz)
-    // Якорь: узел решётки (угол клетки k*N - 0.5 или центр k*N), ближайший к голове.
+    // Anchor: the lattice node (cell corner k*N - 0.5 or center k*N) closest to the head.
     const sh = this.centers ? 0 : 0.5
     this.uAnchor.set(
       Math.round((hx + sh) / N) * N - sh,
       Math.round((hy + sh) / N) * N - sh,
       Math.round((hz + sh) / N) * N - sh,
     )
-    // Две оси поперёк движения (любые ортогональные единичные).
+    // Two axes across the heading (any orthogonal unit vectors).
     const axis = dx !== 0 ? 0 : dy !== 0 ? 1 : 2
     this.uA.set(0, 0, 0)
     this.uB.set(0, 0, 0)

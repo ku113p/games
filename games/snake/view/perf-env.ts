@@ -1,9 +1,9 @@
-// Окружение для лога бенчмарка: видеокарта (незамаскированный рендерер), версия WebGL, расширения,
-// браузер, окно. Холодный путь: вызывается один раз в конце прогона, объекты и строки создаются свободно.
+// Environment for the benchmark log: GPU (unmasked renderer), WebGL version, extensions,
+// browser, window. Cold path: called once at the end of a run, objects and strings are created freely.
 
 import type { BenchEnv } from './perf-bench'
 
-/** Расширения, важные для этой игры (MSAA/bloom в HalfFloat, таймеры, компиляция шейдеров). */
+/** Extensions that matter for this game (MSAA/bloom in HalfFloat, timers, shader compilation). */
 const EXTENSIONS_OF_INTEREST = [
   'EXT_color_buffer_float',
   'EXT_color_buffer_half_float',
@@ -14,7 +14,7 @@ const EXTENSIONS_OF_INTEREST = [
   'WEBGL_debug_renderer_info',
 ]
 
-/** Признаки программного растеризатора в имени рендерера. */
+/** Signs of a software rasterizer in the renderer name. */
 const SOFTWARE_RE = /swiftshader|llvmpipe|software|softpipe|microsoft basic render|basic render driver/i
 
 export interface GpuInfo {

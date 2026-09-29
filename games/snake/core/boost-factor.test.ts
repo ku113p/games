@@ -5,60 +5,60 @@ import { effectiveStepMs } from './state'
 import { effectiveBoostFactor, getBoostFactor } from './queries'
 import { config } from './test-helpers'
 
-// Тестовый конфиг: startStepMs 180 (helpers), boostFactor 2. Список ×2/×3/×4 повторяет config.speed.boostFactors.
+// Test config: startStepMs 180 (helpers), boostFactor 2. The ×2/×3/×4 list mirrors config.speed.boostFactors.
 const cfg = { ...config, speed: { ...config.speed, boostFactors: [2, 3, 4] } }
 
-/** Партия с множителем f; зажать ускорение, дойти до границы шага — дальше шаг идёт в темпе множителя. */
+/** A game with factor f; hold boost, reach the step boundary; from then on the step runs at the factor's pace. */
 function boosted(f: number | undefined) {
   const s = f === undefined ? createGame(cfg, 20, 1, false) : createGame(cfg, 20, 1, false, f)
   startGame(s)
   setBoost(s, true)
-  for (let i = 0; i < 4; i++) tick(s, cfg, 50) // 200 мс > 180: первый шаг сделан, ускорение действует
+  for (let i = 0; i < 4; i++) tick(s, cfg, 50) // 200 ms > 180: the first step is done, boost is active
   return s
 }
 
-describe('множитель ускорения партии', () => {
-  test('по умолчанию — config.speed.boostFactor', () => {
+describe('game boost factor', () => {
+  test('defaults to config.speed.boostFactor', () => {
     const s = boosted(undefined)
     expect(getBoostFactor(s)).toBe(2)
     expect(effectiveStepMs(s)).toBe(s.stepMs / 2)
   })
 
-  test.each([1, 2, 3, 4])('×%i: длительность шага = stepMs / множитель', (f) => {
+  test.each([1, 2, 3, 4])('×%i: step duration = stepMs / factor', (f) => {
     const s = boosted(f)
     expect(getBoostFactor(s)).toBe(f)
     expect(effectiveStepMs(s)).toBeCloseTo(s.stepMs / f, 9)
   })
 
-  test('до границы шага темп прежний, ускорение не действует', () => {
+  test('before the step boundary the pace is unchanged, boost is not active', () => {
     const s = createGame(cfg, 20, 1, false, 4)
     startGame(s)
     setBoost(s, true)
     expect(effectiveStepMs(s)).toBe(s.stepMs)
   })
 
-  test('шагов за то же время ровно во столько раз больше, во сколько множитель', () => {
+  test('in the same time there are exactly as many times more steps as the factor', () => {
     const count = (f: number) => {
       const s = createGame(cfg, 100, 1, false, f)
       startGame(s)
       setBoost(s, true)
-      tick(s, cfg, 10) // маленький кадр, чтобы ничто не упёрлось в потолок
-      s.boosting = true // условие сравнения: ускорение уже действует с первого шага
+      tick(s, cfg, 10) // small frame so that nothing hits the cap
+      s.boosting = true // comparison condition: boost is already active from the first step
       s.sinceStepMs = 0
       const before = s.stepCount
-      for (let i = 0; i < 24; i++) tick(s, cfg, 15) // 360 мс
+      for (let i = 0; i < 24; i++) tick(s, cfg, 15) // 360 ms
       return s.stepCount - before
     }
     expect(count(2)).toBe(4)
     expect(count(4)).toBe(8)
   })
 
-  test('×1 валиден: ускорение включается, но темп не меняется', () => {
+  test('×1 is valid: boost turns on but the pace does not change', () => {
     const s = boosted(1)
     expect(effectiveStepMs(s)).toBe(s.stepMs)
   })
 
-  test('негодный множитель (NaN, 0, отрицательный, <1, Infinity) становится ×1 и не ломает цикл', () => {
+  test('an invalid factor (NaN, 0, negative, <1, Infinity) becomes ×1 and does not break the loop', () => {
     for (const bad of [Number.NaN, 0, -3, 0.5, Infinity]) {
       const s = boosted(bad)
       expect(getBoostFactor(s)).toBe(1)
@@ -67,7 +67,7 @@ describe('множитель ускорения партии', () => {
     }
   })
 
-  test('детерминизм: та же партия с ×4 даёт тот же результат', () => {
+  test('determinism: the same game with ×4 gives the same result', () => {
     const run = () => {
       const s = createGame(cfg, 20, 9, false, 4)
       startGame(s)
@@ -78,7 +78,7 @@ describe('множитель ускорения партии', () => {
     expect(run()).toBe(run())
   })
 
-  test('потолок шагов за кадр учитывает ×4: длинный кадр не даёт бесконечный цикл', () => {
+  test('the per-frame step cap accounts for ×4: a long frame does not cause an infinite loop', () => {
     const s = createGame(cfg, 100, 1, false, 4)
     startGame(s)
     setBoost(s, true)
@@ -89,11 +89,11 @@ describe('множитель ускорения партии', () => {
   })
 })
 
-describe('список множителей из конфига', () => {
-  test('берётся из speed.boostFactors как есть', () => {
+describe('factor list from config', () => {
+  test('taken from speed.boostFactors as is', () => {
     expect(availableBoostFactors(cfg)).toEqual([2, 3, 4])
   })
-  test('нет списка — единственный boostFactor; негодные отбрасываются', () => {
+  test('no list: the single boostFactor; invalid values are dropped', () => {
     expect(availableBoostFactors(config)).toEqual([2])
     const dirty = { ...config, speed: { ...config.speed, boostFactors: [0, 3, Number.NaN, 0.5, 4] } }
     expect(availableBoostFactors(dirty)).toEqual([3, 4])
@@ -108,7 +108,7 @@ describe('список множителей из конфига', () => {
   })
 })
 
-describe('пол на длительность ускоренного шага (config.speed.minEffectiveStepMs)', () => {
+describe('floor on the boosted step duration (config.speed.minEffectiveStepMs)', () => {
   const floored = { ...cfg, speed: { ...cfg.speed, minEffectiveStepMs: 90 } }
   const at = (f: number, stepMs: number, c: Config = floored) => {
     const s = createGame(c, 20, 1, false, f)
@@ -119,12 +119,12 @@ describe('пол на длительность ускоренного шага (
     return s
   }
 
-  test('выше пола ничего не меняется: 360 мс ×4 = 90 мс', () => {
+  test('above the floor nothing changes: 360 ms ×4 = 90 ms', () => {
     expect(effectiveStepMs(at(4, 360))).toBe(90)
     expect(effectiveStepMs(at(3, 360))).toBe(120)
   })
 
-  test('×4 на 240 мс упирается в пол: 90 мс, как ×3; эффективный множитель 240/90', () => {
+  test('×4 on 240 ms hits the floor: 90 ms, same as ×3; effective factor 240/90', () => {
     const s4 = at(4, 240)
     expect(effectiveStepMs(s4)).toBe(90)
     expect(effectiveStepMs(s4)).toBe(effectiveStepMs(at(3, 240)))
@@ -132,25 +132,25 @@ describe('пол на длительность ускоренного шага (
     expect(getBoostFactor(s4)).toBe(4)
   })
 
-  test('на медленном старте пол не мешает: ×4 на 1080 мс даёт 270, эффективный множитель 4', () => {
+  test('on a slow start the floor does not interfere: ×4 on 1080 ms gives 270, effective factor 4', () => {
     expect(effectiveStepMs(at(4, 1080))).toBe(270)
     expect(effectiveBoostFactor(at(4, 1080))).toBe(4)
   })
 
-  test('без ускорения пол не действует, ускорение не делает шаг длиннее обычного', () => {
+  test('without boost the floor does not apply, boost never makes a step longer than normal', () => {
     const s = createGame(floored, 20, 1, false, 4)
     startGame(s)
-    s.stepMs = 60 // базовый темп ниже пола
+    s.stepMs = 60 // base pace is below the floor
     expect(effectiveStepMs(s)).toBe(60)
     s.boosting = true
     expect(effectiveStepMs(s)).toBe(60)
   })
 
-  test('нет пола в конфиге — прежнее поведение', () => {
+  test('no floor in config: the old behavior', () => {
     expect(effectiveStepMs(at(4, 180, cfg))).toBe(45)
   })
 
-  test('в игре: за то же время на ×4 шагов ровно столько же, сколько на ×3, когда оба упёрлись в пол', () => {
+  test('in game: in the same time ×4 makes exactly as many steps as ×3 when both hit the floor', () => {
     const run = (f: number) => {
       const s = createGame(floored, 100, 1, false, f)
       startGame(s)

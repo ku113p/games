@@ -1,13 +1,13 @@
-// Список игр лендинга. Новая игра = новый элемент массива + скриншот/гифка в site/img/.
-// `href` — относительная ссылка от корня сайта (сборка кладёт игру в dist/<папка>/), поэтому
-// работает под любым base path (GitHub Pages /<репозиторий>/, локальный сервер и т.д.).
+// List of landing-page games. A new game = a new array element + a screenshot/gif in site/img/.
+// `href` is a relative link from the site root (the build puts the game in dist/<folder>/), so it
+// works under any base path (GitHub Pages /<repository>/, a local server, etc.).
 import snakeGif from './img/snake.gif'
 
 export interface GameEntry {
   readonly title: string
   readonly blurb: string
   readonly href: string
-  /** Картинка карточки: гифка геймплея (16:10, как рамка карточки) или статичный кадр. */
+  /** Card image: a gameplay gif (16:10, like the card frame) or a still frame. */
   readonly media: string
   readonly mediaAlt: string
 }

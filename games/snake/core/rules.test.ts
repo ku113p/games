@@ -119,8 +119,8 @@ describe('createGame', () => {
 
   test('free start: the snake does not face a wall or obstacle (cells ahead free), clearRadius still holds', () => {
     for (const first of [true, false]) {
-      // Генерация с заливкой на 100³ — это миллион клеток за прогон, поэтому
-      // полный перебор сидов только на мелком кубе, на крупных по два. Свойство то же.
+      // Generation with a fill on 100³ is a million cells per run, so
+      // a full seed sweep only on the small cube, two seeds on the large ones. The property is the same.
       for (const [size, seeds] of [[20, 8], [50, 2], [100, 2]] as const) {
         for (let seed = 1; seed <= seeds; seed++) {
           const cfg = { ...config, obstacles: { ...config.obstacles, density: 0.3 } }
@@ -133,8 +133,8 @@ describe('createGame', () => {
             expect(x >= 0 && y >= 0 && z >= 0 && x < size && y < size && z < size).toBe(true)
             expect(s.obstacles.has(cellKey(x, y, z, size))).toBe(false)
           }
-          // Обход препятствий копит минимум расстояния и проверяет его один раз:
-          // expect на каждую клетку давал миллионы вызовов и тест упирался в таймаут.
+          // The obstacle walk accumulates the minimum distance and checks it once:
+          // an expect per cell meant millions of calls and the test hit the timeout.
           const r = cfg.obstacles.clearRadius
           let nearest = Infinity
           for (const key of s.obstacles) {
@@ -188,7 +188,7 @@ describe('createGame', () => {
   })
 })
 
-describe('fillDeadZones — замкнутый карман засыпается', () => {
+describe('fillDeadZones: an enclosed pocket gets filled', () => {
   test('a cell sealed in a hand-built shell is filled, the open space is untouched', () => {
     const size = 9
     const obstacles = new Set<number>()
@@ -208,18 +208,18 @@ describe('fillDeadZones — замкнутый карман засыпается
   test('a pocket of several cells is filled entirely', () => {
     const size = 9
     const obstacles = new Set<number>()
-    // Стенка-плоскость x=4 целиком делит куб на две половины; старт слева.
+    // The wall plane x=4 splits the cube into two halves entirely; the start is on the left.
     for (let y = 0; y < size; y++) for (let z = 0; z < size; z++) obstacles.add(cellKey(4, y, z, size))
     const wall = obstacles.size
     fillDeadZones(size, obstacles, new Set([cellKey(0, 0, 0, size)]))
-    // правая половина (x=5..8) недостижима и засыпана
+    // the right half (x=5..8) is unreachable and filled in
     expect(obstacles.size).toBe(wall + 4 * size * size)
     expect(obstacles.has(cellKey(8, 8, 8, size))).toBe(true)
     expect(obstacles.has(cellKey(3, 3, 3, size))).toBe(false)
   })
 })
 
-describe('generateObstacles — no dead zones (боевые clearCells, густой ввод)', () => {
+describe('generateObstacles: no dead zones (real clearCells, dense input)', () => {
   const cases: Array<{ size: number; density: number; stickiness: number; seeds: number[] }> = [
     { size: 20, density: 0.3, stickiness: 0.9, seeds: [1, 2, 3, 42, 1000] },
     { size: 20, density: 0.08, stickiness: 0.6, seeds: [1, 2, 3] },
@@ -249,7 +249,7 @@ describe('generateObstacles — no dead zones (боевые clearCells, густ
     const clear = centerClear(size, 2)
     const loose = generateObstacles(size, 0.03, 0, clear, makeRng(5))
     const sticky = generateObstacles(size, 0.03, 1, clear, makeRng(5))
-    // Один и тот же объём препятствий, но липкие образуют куда больше соседних пар.
+    // The same amount of obstacles, but sticky ones form far more adjacent pairs.
     expect(Math.abs(loose.size - sticky.size)).toBeLessThan(size * size)
     expect(adjacentPairs(size, sticky)).toBeGreaterThan(adjacentPairs(size, loose) * 3)
   })
@@ -280,7 +280,7 @@ describe('spawnApple', () => {
     const size = 3
     const snake: Vec3[] = []
     for (let k = 0; k < size ** 3 - 1; k++) snake.push(v(k % size, Math.floor(k / size) % size, Math.floor(k / 9)))
-    // свободна только последняя клетка (2,2,2)
+    // only the last cell (2,2,2) is free
     for (let seed = 0; seed < 30; seed++) {
       const s = makeState({ size, snake, apple: v(0, 0, 0), rngState: seed * 104729 })
       spawnApple(s)
@@ -329,11 +329,11 @@ describe('speedAfterApples', () => {
 
   test('clamps to minStepMs', () => {
     expect(speedAfterApples(config, 1000)).toBe(config.speed.minStepMs)
-    expect(speedAfterApples(config, 30)).toBe(60) // ровно на границе
+    expect(speedAfterApples(config, 30)).toBe(60) // exactly on the boundary
   })
 })
 
-describe('rotateFrame — доворот +90° вокруг знакового вектора', () => {
+describe('rotateFrame: roll by +90° around a signed vector', () => {
   const cases: Array<{ name: string; axis: Vec3; right: Vec3; up: Vec3; depth: Vec3 }> = [
     { name: '+right', axis: v(1, 0, 0), right: v(1, 0, 0), up: v(0, 0, 1), depth: v(0, -1, 0) },
     { name: '-right', axis: v(-1, 0, 0), right: v(1, 0, 0), up: v(0, 0, -1), depth: v(0, 1, 0) },
@@ -394,7 +394,7 @@ describe('isInWallMargin', () => {
   })
 })
 
-describe('generateObstacles — wallMargin: у стен препятствий нет', () => {
+describe('generateObstacles: wallMargin: no obstacles by the walls', () => {
   const cases: Array<{ size: number; density: number; stickiness: number; margin: number; seeds: number[] }> = [
     { size: 20, density: 0.03, stickiness: 0.6, margin: 1, seeds: [1, 2, 3, 4] },
     { size: 50, density: 0.03, stickiness: 0.6, margin: 1, seeds: [1, 2] },
@@ -411,10 +411,10 @@ describe('generateObstacles — wallMargin: у стен препятствий �
         const obstacles = generateObstacles(c.size, c.density, c.stickiness, clear, makeRng(seed), c.margin)
         expect(obstacles.size).toBeGreaterThan(0)
         for (const k of obstacles) expect(minWallDistance(c.size, k)).toBeGreaterThanOrEqual(c.margin)
-        // Свободный коридор вдоль стен цел, мёртвых зон по-прежнему нет.
+        // The free corridor along the walls is intact, still no dead zones.
         const r = reachability(c.size, clear, obstacles)
         expect(r.reachable).toBe(r.free)
-        // Плотность не просела: препятствия набираются в оставшемся ядре куба.
+        // Density did not drop: obstacles are packed into the remaining core of the cube.
         expect(obstacles.size).toBeGreaterThanOrEqual(Math.floor(c.size ** 3 * c.density * 0.9))
       })
     }
@@ -433,7 +433,7 @@ describe('generateObstacles — wallMargin: у стен препятствий �
 
   test('fill of a sealed pocket still works with margin (sealed core is filled, wall layer stays free)', () => {
     const size = 12
-    // Оболочка на расстоянии 3 от стен, внутри карман; старт снаружи оболочки.
+    // The shell is at distance 3 from the walls, a pocket inside; the start is outside the shell.
     const obstacles = new Set<number>()
     for (let x = 3; x <= 8; x++)
       for (let y = 3; y <= 8; y++)
@@ -448,7 +448,7 @@ describe('generateObstacles — wallMargin: у стен препятствий �
   })
 })
 
-describe('createGame — wallMargin из config', () => {
+describe('createGame: wallMargin from config', () => {
   test.each([20, 50, 100])('size %i: no obstacles within margin, on a dense config too', (size) => {
     const dense = { ...config, obstacles: { ...config.obstacles, density: 0.2, wallMargin: 1 } }
     const s = createGame(dense, size, 11, false)
@@ -473,8 +473,8 @@ describe('createGame — boost', () => {
   })
 })
 
-describe('arenaHasObstacles: бывают ли препятствия в кубе', () => {
-  test('совпадает с настоящей генерацией на плотности ×30 для кубов 3..14 при радиусе очистки 4 и стенке 1', () => {
+describe('arenaHasObstacles: whether a cube has obstacles', () => {
+  test('matches real generation at density ×30 for cubes 3..14 with clear radius 4 and wall 1', () => {
     const cfg = { ...config, obstacles: { ...config.obstacles, clearRadius: 4, wallMargin: 1 } }
     for (let size = 3; size <= 14; size++) {
       let any = false
@@ -482,7 +482,7 @@ describe('arenaHasObstacles: бывают ли препятствия в куб�
       expect(any).toBe(arenaHasObstacles(size, 4, 1))
     }
   })
-  test('5³ — нет, 12³ и 20³ — да; без зоны очистки препятствия есть везде, где есть внутренность', () => {
+  test('5³: no; 12³ and 20³: yes; without a clear zone obstacles exist everywhere there is an interior', () => {
     expect(arenaHasObstacles(5, 4, 1)).toBe(false)
     expect(arenaHasObstacles(11, 4, 1)).toBe(false)
     expect(arenaHasObstacles(12, 4, 1)).toBe(true)

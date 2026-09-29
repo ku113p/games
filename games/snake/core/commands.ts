@@ -1,6 +1,6 @@
-// core/commands.ts — действия игрока меняют состояние и возвращают события.
-// Чистый TS, без Three.js. Горячий путь (tick, шаг, проверки столкновений) — без аллокаций:
-// события пишутся в один и тот же переиспользуемый на GameState массив.
+// core/commands.ts — player actions change state and return events.
+// Pure TS, no Three.js. Hot path (tick, step, collision checks) is allocation-free:
+// events are written into the same array that is reused per GameState.
 
 import { enterFreeFrame, reorientFrameFree, rotateFrame, spawnApple, speedAfterApples, type Config } from './rules'
 import { boostedStepMs, cellKey, effectiveStepMs, nextRandom, type AxisDir, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
@@ -19,7 +19,7 @@ export type GameEvent =
   | { type: 'modeChanged'; mode: Mode }
   | { type: 'died'; cause: DeathCause }
 
-// События без полезной нагрузки — замороженные синглтоны (без аллокации на каждый шаг).
+// Payload-free events are frozen singletons (no allocation on every step).
 const STARTED: GameEvent = Object.freeze({ type: 'started' })
 const MOVED: GameEvent = Object.freeze({ type: 'moved' })
 const BOOST_ON: GameEvent = Object.freeze({ type: 'boostChanged', on: true })
@@ -27,8 +27,8 @@ const BOOST_OFF: GameEvent = Object.freeze({ type: 'boostChanged', on: false })
 const DEMO_TURN: GameEvent = Object.freeze({ type: 'demoTurn' })
 const MODE_FREE: GameEvent = Object.freeze({ type: 'modeChanged', mode: 'free' })
 
-// Каждый GameState получает свой переиспользуемый массив событий (без аллокаций на каждый
-// вызов; изолировано между параллельными партиями, например в тестах).
+// Each GameState gets its own reusable events array (no allocation on every
+// call; isolated between concurrent games, e.g. in tests).
 const eventBuffers = new WeakMap<GameState, GameEvent[]>()
 
 function getEventBuffer(s: GameState): GameEvent[] {
@@ -64,8 +64,8 @@ function signed(sign: -1 | 1, value: number): number {
 }
 
 /**
- * Направление ведёт голову ровно в вторую клетку тела (шею). После разворота на месте heading
- * уже не совпадает с последним пройденным ходом, поэтому одного isOpposite(heading) мало.
+  * The direction leads the head exactly into the second body cell (the neck). After a turn in place, heading
+  * no longer matches the last move made, so isOpposite(heading) alone is not enough.
  */
 function pointsIntoNeck(s: GameState, dir: Vec3): boolean {
   if (s.snake.length < 2) return false
@@ -77,18 +77,18 @@ function pointsIntoNeck(s: GameState, dir: Vec3): boolean {
 export function startGame(s: GameState): GameEvent[] {
   const buf = getEventBuffer(s)
   buf.length = 0
-  if (s.phase !== 'ready') return buf // из running/dead старт не делает ничего
+  if (s.phase !== 'ready') return buf // from running/dead, start does nothing
   s.phase = 'running'
   buf.push(STARTED)
   return buf
 }
 
 /**
- * Ускорение: меняет ЗАПРОШЕННОЕ состояние (boostRequested). Действующее (boosting, от него зависит
- * длительность шага) подхватит tick на границе шага: нажатие и отпускание вступают с начала
- * следующего хода, идущий доигрывается в своём темпе. Событие boostChanged — сразу и только при
- * реальной смене запроса (ввод дёргает вызов часто). Вне running — ничего не делает.
- * sinceStepMs не трогаем.
+  * Boost: changes the REQUESTED state (boostRequested). The active state (boosting, which the step
+  * duration depends on) is picked up by tick on a step boundary: pressing and releasing take effect from the start of
+  * the next step, and the current one finishes at its own pace. The boostChanged event fires immediately and only when the
+  * request actually changes (input calls this often). Does nothing outside running.
+  * sinceStepMs is left alone.
  */
 export function setBoost(s: GameState, on: boolean): GameEvent[] {
   const buf = getEventBuffer(s)
@@ -101,9 +101,9 @@ export function setBoost(s: GameState, on: boolean): GameEvent[] {
 }
 
 /**
- * Поворот в плоскости экрана: heading меняется на ±right/±up текущего frame. Frame не
- * меняется. Разворот на 180° (относительно последнего сделанного хода) запрещён.
- * Применяется на следующем шаге (буфер pendingTurn). Вне фазы running — ничего не делает.
+  * Turn in the screen plane: heading becomes ±right/±up of the current frame. The frame does not
+  * change. A 180° reversal (relative to the last move made) is forbidden.
+  * Applied on the next step (pendingTurn buffer). Does nothing outside the running phase.
  */
 export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[] {
   const buf = getEventBuffer(s)
@@ -112,7 +112,7 @@ export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[] {
 
   const newHeading = screenDirToVec(dir, s.frame)
   if (isOpposite(newHeading, s.heading) || pointsIntoNeck(s, newHeading)) {
-    return buf // разворот на 180° (и ход в собственную шею после разворота на месте) запрещён — игнорируем
+    return buf // a 180° reversal (and a move into its own neck after a turn in place) is forbidden, so ignore it
   }
 
   s.pendingTurn = newHeading
@@ -121,21 +121,21 @@ export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[] {
 }
 
 /**
- * Смена оси: 'into' → -depth, 'out' → +depth (depth ДО доворота). Инвариант: frame
- * доворачивается СРАЗУ, в момент команды, и событие axisTurned эмитится ровно тогда, когда
- * доворот реально случился — камера (cameraFrame) и мир не расходятся. Новый heading
- * применится на СЛЕДУЮЩЕМ ТАКТЕ, который целиком уходит на разворот на месте (змейка не
- * двигается, не растёт, не ест, не умирает, stepCount не растёт; событие turnedInPlace);
- * ехать в новую сторону она начнёт только тактом после. Последующие turnInPlane выбирают направление уже в
- * довёрнутом frame и доворот не отменяют. Второй turnAxis до шага frame не крутит ещё раз,
- * а лишь заменяет буферизованный heading (into/out поменялись местами) и эмитит turned.
- * Вне фазы running — ничего не делает.
+  * Axis turn: 'into' → -depth, 'out' → +depth (depth BEFORE the roll). Invariant: the frame
+  * is rolled IMMEDIATELY, at the moment of the command, and the axisTurned event is emitted exactly when
+  * the roll actually happened, so the camera (cameraFrame) and the world do not diverge. The new heading
+  * takes effect on the NEXT STEP, which is spent entirely on a turn in place (the snake does not
+  * move, grow, eat or die, stepCount does not grow; turnedInPlace event);
+  * it starts moving in the new direction only on the step after that. Subsequent turnInPlane calls pick a direction in the
+  * already rolled frame and do not cancel the roll. A second turnAxis before the step does not rotate the frame again,
+  * it only replaces the buffered heading (into/out swap places) and emits turned.
+  * Does nothing outside the running phase.
  */
 export function turnAxis(s: GameState, dir: AxisDir): GameEvent[] {
   const buf = getEventBuffer(s)
   buf.length = 0
   if (s.phase !== 'running') return buf
-  if (s.mode === 'free') return buf // в 'free' четыре свайпа покрывают все направления, третья ось не нужна
+  if (s.mode === 'free') return buf // in 'free' four swipes cover every direction, so the third axis is not needed
   queueAxisTurn(s, dir, buf)
   return buf
 }
@@ -145,7 +145,7 @@ function queueAxisTurn(s: GameState, dir: AxisDir, buf: GameEvent[]): void {
   const h = s.heading
 
   if (s.rolledSinceStep) {
-    // Frame уже довёрнут вокруг h. Прежний depth = -(h × depth'), в него и целимся.
+    // The frame is already rolled around h. The former depth = -(h × depth'), and that is what we aim at.
     const d = s.frame.depth
     const ox = -(h.y * d.z - h.z * d.y)
     const oy = -(h.z * d.x - h.x * d.z)
@@ -168,7 +168,7 @@ function queueAxisTurn(s: GameState, dir: AxisDir, buf: GameEvent[]): void {
   buf.push({ type: 'axisTurned', rollAxis: axis, direction: dir })
 }
 
-/** Клетка перед головой со смещением (dx,dy,dz) свободна: не стена, не препятствие, не тело. */
+/** The cell in front of the head at offset (dx,dy,dz) is free: not a wall, not an obstacle, not the body. */
 function isFreeAhead(s: GameState, dx: number, dy: number, dz: number): boolean {
   const head = s.snake[0]!
   const nx = head.x + dx
@@ -186,11 +186,11 @@ function isFreeAhead(s: GameState, dx: number, dy: number, dz: number): boolean 
 }
 
 /**
- * Демо-переход plane → free (отдельный такт, змейка стоит): направление случайное среди свободных (into/out). Если свободных
- * нет — ничего не делает, флаг demoTurnPending не тратится (повторная попытка на следующем шаге).
- * Голова сворачивает сразу (heading = ∓depth, frame подгоняется так, чтобы depth = -heading),
- * эмитятся modeChanged и demoTurn. Возвращает true, если сработал (tick останавливает цикл
- * шагов — паузу ставит main.ts).
+  * Demo transition plane → free (a separate step, the snake stands still): the direction is random among the free ones (into/out). If none
+  * is free, does nothing and the demoTurnPending flag is not spent (retry on the next step).
+  * The head turns immediately (heading = ∓depth, the frame is adjusted so that depth = -heading),
+  * modeChanged and demoTurn are emitted. Returns true if it fired (tick stops the step
+  * loop; main.ts sets the pause).
  */
 function tryDemoTurn(s: GameState, buf: GameEvent[]): boolean {
   const d = s.frame.depth
@@ -203,7 +203,7 @@ function tryDemoTurn(s: GameState, buf: GameEvent[]): boolean {
   else sign = intoFree ? -1 : 1
 
   s.demoTurnPending = false
-  s.pendingTurn = null // буфер плоскостного поворота относился к старому frame
+  s.pendingTurn = null // the plane turn buffer belonged to the old frame
   s.mode = 'free'
   enterFreeFrame(s, sign)
   buf.push({ type: 'turnedInPlace', heading: { x: s.heading.x, y: s.heading.y, z: s.heading.z } })
@@ -213,14 +213,14 @@ function tryDemoTurn(s: GameState, buf: GameEvent[]): boolean {
 }
 
 /**
- * Один такт. Такт разворота на месте (ручная смена оси или демо-переход) только меняет
- * heading: без движения, роста, еды и проверки столкновений; stepCount не растёт. Иначе — шаг
- * по сетке: применение буферизованного поворота, движение, столкновения, еда.
- * Возвращает true, если сработал демо-переход (tick прерывает цикл — паузу ставит main.ts).
+  * One step. A turn-in-place step (manual axis turn or demo transition) only changes
+  * heading: no movement, growth, eating or collision checks; stepCount does not grow. Otherwise a grid
+  * step: apply the buffered turn, move, collisions, eating.
+  * Returns true if the demo transition fired (tick breaks the loop; main.ts sets the pause).
  */
 function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
   if (s.rolledSinceStep) {
-    // frame уже довёрнут командой turnAxis — этот такт применяет новый heading, стоя на месте.
+    // The frame was already rolled by the turnAxis command; this step applies the new heading, standing still.
     if (s.pendingTurn) {
       s.heading.x = s.pendingTurn.x
       s.heading.y = s.pendingTurn.y
@@ -232,7 +232,7 @@ function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
     return false
   }
   if (s.demoTurnPending && s.stepCount >= config.demo.afterSteps && tryDemoTurn(s, buf)) {
-    return true // демо-переход — отдельный такт разворота: змейка не двигалась
+    return true // demo transition is a separate turn-in-place step: the snake did not move
   }
 
   if (s.pendingTurn) {
@@ -274,13 +274,13 @@ function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
   }
 
   if (willGrow) {
-    // Рост — редкое событие (раз в яблоко), один новый Vec3 неизбежен: длина растёт.
+    // Growth is a rare event (once per apple); one new Vec3 is unavoidable: the length grows.
     const newHead: Vec3 = { x: nx, y: ny, z: nz }
     s.snake.unshift(newHead)
     s.snakeCells.add(key)
     s.growth -= 1
   } else {
-    // Обычный шаг: хвост переиспользуется как новая голова — без новых объектов.
+    // Normal step: the tail is reused as the new head, with no new objects.
     const reused = s.snake.pop()!
     s.snakeCells.delete(tailKey)
     reused.x = nx
@@ -314,10 +314,10 @@ function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
 }
 
 /**
- * Копит sinceStepMs и делает шаги, пока хватает времени. Время приходит параметром (dtMs) —
- * ядро не знает о реальных часах. dt ограничен config.loop.maxFrameMs; NaN, отрицательный и
- * нулевой dt игнорируются; stepMs <= 0 не зацикливает. События пишутся в один и тот же
- * переиспользуемый массив.
+  * Accumulates sinceStepMs and makes steps while there is enough time. Time comes in as a parameter (dtMs);
+  * the core knows nothing about real clocks. dt is capped by config.loop.maxFrameMs; NaN, negative and
+  * zero dt are ignored; stepMs <= 0 does not loop. Events are written into the same
+  * reused array.
  */
 export function tick(s: GameState, config: Config, dtMs: number): GameEvent[] {
   const buf = getEventBuffer(s)
@@ -325,29 +325,29 @@ export function tick(s: GameState, config: Config, dtMs: number): GameEvent[] {
 
   if (s.phase !== 'running') return buf
   const dt = Math.min(dtMs, config.loop.maxFrameMs)
-  if (!(dt > 0)) return buf // отрицательный, ноль, NaN
-  if (!(effectiveStepMs(s) > 0)) return buf // защита от бесконечного цикла
+  if (!(dt > 0)) return buf // negative, zero, NaN
+  if (!(effectiveStepMs(s) > 0)) return buf // guard against an infinite loop
 
   s.elapsedMs += dt
   s.sinceStepMs += dt
 
-  // Потолок шагов за вызов: даже при испорченном sinceStepMs цикл конечен.
-  // Запрошенное ускорение включится на границе шага внутри этого вызова: потолок — по ускоренному шагу.
+  // Cap on steps per call: even with a corrupted sinceStepMs the loop is finite.
+  // The requested boost kicks in on a step boundary within this call: the cap is based on the boosted step.
   const ceilingMs = s.boostRequested && s.boostFactor > 1 ? boostedStepMs(s) : effectiveStepMs(s)
   const maxSteps = Math.ceil(config.loop.maxFrameMs / ceilingMs) + 1
   let steps = 0
-  // Длительность шага берётся заново на каждой итерации: до границы она не меняется задним числом.
+  // Step duration is re-read on every iteration: it is not changed retroactively before the boundary.
   while (steps < maxSteps && s.phase === 'running') {
     const stepMs = effectiveStepMs(s)
     if (!(stepMs > 0) || s.sinceStepMs < stepMs) break
     s.sinceStepMs -= stepMs
     steps++
     const paused = step(s, config, buf)
-    s.boosting = s.boostRequested // граница шага: запрошенное ускорение становится действующим
-    if (paused) break // демо-доворот: main ставит паузу, лишние шаги не делаем
+    s.boosting = s.boostRequested // step boundary: the requested boost becomes active
+    if (paused) break // demo turn: main sets the pause, no extra steps
   }
   const restMs = effectiveStepMs(s)
-  if (restMs > 0 && s.sinceStepMs >= restMs) s.sinceStepMs = 0 // сброс остатка после потолка или паузы демо
+  if (restMs > 0 && s.sinceStepMs >= restMs) s.sinceStepMs = 0 // reset the remainder after the cap or the demo pause
 
   return buf
 }

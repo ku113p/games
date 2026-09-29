@@ -1,15 +1,15 @@
-// i18n/dictionaries.ts — ВСЕ тексты интерфейса, по словарю на язык. Единственное место со строками.
+// i18n/dictionaries.ts — ALL interface texts, one dictionary per language. The only place with strings.
 //
-// Добавить шестой язык: (1) скопировать любой словарь ниже (например `en`) и перевести значения,
-// (2) дописать запись в LANGUAGES в конце файла. Больше нигде ничего править не надо: переключатель в меню,
-// разбор языка браузера и `lang` документа строятся из LANGUAGES. Компилятор не даст пропустить ключ.
+// To add a sixth language: (1) copy any dictionary below (for example `en`) and translate the values,
+// (2) add an entry to LANGUAGES at the end of the file. Nothing else needs editing: the menu switcher,
+// browser language parsing and the document `lang` are all built from LANGUAGES. The compiler will not let you skip a key.
 //
-// Ключи — по смыслу. Плейсхолдеры вида {n} подставляются функцией format (см. locale.ts).
-// GAME OVER здесь нет намеренно: надпись не переводится (решение дизайнера).
-// Термины из DESIGN.md держим единообразно: пульт, вглубь / на себя, туман, свайпы / тапы.
+// Keys are meaning-based. Placeholders like {n} are filled in by the format function (see locale.ts).
+// GAME OVER is intentionally absent here: the inscription is not translated (a designer's decision).
+// Keep the DESIGN.md terms consistent: pad, into / out, fog, swipes / taps.
 
-/** Исходный язык (русский) задаёт набор ключей; остальные словари обязаны его повторять. */
-export const ru = {
+/** Russian: an ordinary translation on a par with es, pt-BR and zh-Hans. The reference dictionary is `en` (see below). */
+const ru: Dictionary = {
   'doc.title': 'Змейка 3D',
   'menu.title': 'Змейка 3D',
   'menu.scheme': 'Управление',
@@ -135,12 +135,16 @@ export const ru = {
   'aria.shop': 'Открыть магазин',
   'aria.shopBalance': 'Монеты: {n}',
   'aria.shopLocked': 'Ещё закрыто: скоро в магазине',
-} as const
+}
 
-export type TextKey = keyof typeof ru
+export type TextKey = keyof typeof en
 export type Dictionary = Record<TextKey, string>
 
-const en: Dictionary = {
+/**
+ * The reference dictionary: it defines the set of keys (TextKey is derived from it), and every other
+ * dictionary, including `ru`, must repeat exactly these keys (checked by the compiler and by tests).
+ */
+export const en = {
   'doc.title': 'Snake 3D',
   'menu.title': 'Snake 3D',
   'menu.scheme': 'Controls',
@@ -266,7 +270,7 @@ const en: Dictionary = {
   'aria.shop': 'Open the shop',
   'aria.shopBalance': 'Coins: {n}',
   'aria.shopLocked': 'Locked: coming soon to the shop',
-}
+} as const
 
 const es: Dictionary = {
   'doc.title': 'Snake 3D',
@@ -653,16 +657,16 @@ const zhHans: Dictionary = {
 }
 
 export interface Language {
-  /** Тег BCP 47 — идёт в `lang` документа и в localStorage. */
+  /** BCP 47 tag: goes into the document `lang` and into localStorage. */
   readonly code: string
-  /** Главный подтег (`pt` для `pt-PT`, `pt-BR`, `pt`): по нему подбирается язык из настроек браузера. */
+  /** Primary subtag (`pt` for `pt-PT`, `pt-BR`, `pt`): used to match a language from the browser settings. */
   readonly primary: string
-  /** Название на самом языке — подпись кнопки переключателя. */
+  /** The name in the language itself: the label of the switcher button. */
   readonly native: string
   readonly dict: Dictionary
 }
 
-/** Порядок = порядок кнопок в меню. Первый в списке НЕ запасной: запасной — FALLBACK_CODE. */
+/** Order = order of the buttons in the menu. The first in the list is NOT the fallback: the fallback is FALLBACK_CODE. */
 export const LANGUAGES: readonly Language[] = [
   { code: 'en', primary: 'en', native: 'English', dict: en },
   { code: 'es', primary: 'es', native: 'Español', dict: es },
@@ -671,5 +675,5 @@ export const LANGUAGES: readonly Language[] = [
   { code: 'ru', primary: 'ru', native: 'Русский', dict: ru },
 ]
 
-/** Язык для неопознанных локалей. */
+/** The language for unrecognized locales. */
 export const FALLBACK_CODE = 'en'

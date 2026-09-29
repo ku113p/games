@@ -1,5 +1,5 @@
-// shop/types.ts — типы магазина. Чистый TS: ни DOM, ни Three.js, ни view/input/screens.
-// Деньги и косметика живут вне core/ (AGENTS.md, раздел 4): ядро о них не знает.
+// shop/types.ts — shop types. Pure TS: no DOM, no Three.js, no view/input/screens.
+// Coins and cosmetics live outside core/ (AGENTS.md, section 4): the core knows nothing about them.
 
 export type ItemKind =
   | 'boost'
@@ -14,60 +14,60 @@ export type ItemKind =
   | 'pace'
   | 'comingSoon'
 
-/** Слот «надето»: по одному предмету на слот. У множителей очков и заглушек слота нет. */
+/** The equip slot: one item per slot. Coin multipliers and coming-soon slots have no slot. */
 export type Slot = 'boost' | 'palette' | 'snakeSkin' | 'appleSkin' | 'compassSkin' | 'arenaSize' | 'obstacles' | 'pace'
 
-/** Поля payload. Какие нужны — зависит от вида: boost {factor}, scoreMult* {mult}, косметика {palette | skin}. */
+/** Payload fields. Which are needed depends on the kind: boost {factor}, scoreMult* {mult}, cosmetics {palette | skin}. */
 export interface ItemPayload {
   factor?: number
   mult?: number
   palette?: string
   skin?: string
   slot?: string
-  /** arenaSize: ребро куба (должно быть в config.cube.sizes). */
+  /** arenaSize: cube edge (must be in config.cube.sizes). */
   size?: number
-  /** obstacleDensity: множитель к config.obstacles.density (0 — без препятствий). */
+  /** obstacleDensity: multiplier on config.obstacles.density (0 = no obstacles). */
   density?: number
-  /** pace: масштаб кривой темпа (1 — как в config.speed, больше — спокойнее). */
+  /** pace: scale of the pace curve (1 = as in config.speed, larger = calmer). */
   scale?: number
 }
 
-/** Предмет каталога. payload по видам: boost {factor}, scoreMult* {mult}, косметика {palette|skin}. */
+/** A catalog item. payload by kind: boost {factor}, scoreMult* {mult}, cosmetics {palette|skin}. */
 export interface Item {
   id: string
   kind: ItemKind
   price: number
   payload: Readonly<ItemPayload>
-  /** Срок в партиях: только у scoreMultTemporary. */
+  /** Term in games: only on scoreMultTemporary. */
   games?: number
 }
 
 export interface TemporaryEntry {
   id: string
-  /** Сколько партий ещё НЕ НАЧАТО. Партия, у которой множитель ещё действует, уже вычтена в beginSession. */
+  /** How many games are NOT YET STARTED. A game whose multiplier is still active has already been subtracted in beginSession. */
   gamesLeft: number
 }
 
 export interface ShopState {
-  /** Монеты, которые можно потратить. Всегда целое ≥ 0. */
+  /** Coins that can be spent. Always an integer ≥ 0. */
   balance: number
-  /** Всего заработано, не убывает при покупках. */
+  /** Total earned, does not decrease on purchases. */
   totalEarned: number
-  /** id купленного и выданного по умолчанию. Заглушки и временные множители сюда не попадают. */
+  /** ids of owned items and of those granted by default. Coming-soon slots and temporary multipliers are not included. */
   owned: string[]
-  /** Надето по слотам. */
+  /** Equipped per slot. */
   equipped: Partial<Record<Slot, string>>
-  /** Действующие временные множители. */
+  /** Temporary multipliers in effect. */
   temporary: TemporaryEntry[]
   /**
-   * Множитель текущей партии: замораживается в beginSession и сгорает в earn. Не сохраняется.
-   * Нужен, чтобы временный множитель, чья последняя партия только что началась, всё равно
-   * заплатил за неё (в temporary он к этому моменту уже снят).
+      * Multiplier of the current game: frozen in beginSession and burned in earn. Not saved.
+      * Needed so that a temporary multiplier whose last game has just started still
+      * pays for it (by then it has already been removed from temporary).
    */
   sessionMult: number
 }
 
-/** Строка предмета в config.json (kind и payload не проверены типом: валидация при catalog()). */
+/** An item row in config.json (kind and payload are not type-checked: validation happens in catalog()). */
 export interface RawItem {
   id: string
   kind: string
@@ -77,13 +77,13 @@ export interface RawItem {
 }
 
 export interface ShopConfig {
-  /** Монет за одно яблоко (до множителей). */
+  /** Coins per apple (before multipliers). */
   coinPerApple: number
-  /** Множитель ускорения без покупок и запасной, когда надетое негодно. */
+  /** Boost factor without purchases, and the fallback when the equipped one is invalid. */
   defaultBoost: number
-  /** Размер арены без покупок и запасной, когда надетое негодно. */
+  /** Arena size without purchases, and the fallback when the equipped one is invalid. */
   defaultArenaSize: number
-  /** Потолок суммарного срока одного временного множителя (партий): повторная покупка продлевает, но не бесконечно. */
+  /** Cap on the total term of one temporary multiplier (games): buying again extends it, but not indefinitely. */
   maxTemporaryGames: number
   defaults: {
     balance: number
@@ -93,7 +93,7 @@ export interface ShopConfig {
   items: readonly RawItem[]
 }
 
-/** Всё, что нужно магазину от config.json целиком: раздел shop и запасной множитель ускорения. */
+/** Everything the shop needs from config.json as a whole: the shop section and the fallback boost factor. */
 export interface ShopRoot {
   shop: ShopConfig
   speed: { boostFactor: number }

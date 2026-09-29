@@ -1,28 +1,28 @@
-// Маленький самовозвращающийся стик поворота камеры (телефон, обе схемы). DOM-элемент-сосед холста:
-// касание, начатое на нём, до обработчиков холста (touch.ts) не доходит, поэтому со свайпами, тапами
-// и наклоном двумя пальцами не путается. Стик задаёт СКОРОСТЬ поворота, а не позицию: держишь вбок —
-// камера едет, отпустил — ручка вернулась в центр, камера осталась где была (сброс — только явный).
-// Наружу отдаёт отклонение в осях -1..1 (после мёртвой зоны и кривой) — main опрашивает его каждый кадр.
-// Быстрый тап по стику (короткое касание, палец не выходил за мёртвую зону) — сброс камеры: см. isStickTap.
+// Small self-centering camera turn stick (phone, both schemes). A DOM element next to the canvas:
+// a touch that starts on it never reaches the canvas handlers (touch.ts), so it does not get mixed up with swipes, taps
+// and the two-finger tilt. The stick sets turn SPEED, not position: hold it sideways -
+// the camera moves, release it - the knob returns to center and the camera stays where it was (reset is explicit only).
+// Outputs deflection per axis in -1..1 (after dead zone and curve) - main polls it every frame.
+// A quick tap on the stick (short touch, finger never left the dead zone) resets the camera: see isStickTap.
 
 export interface StickTuning {
-  /** Мёртвая зона: доля радиуса, внутри которой отклонения нет (дрожание пальца камеру не двигает). */
+  /** Dead zone: fraction of the radius inside which there is no deflection (finger jitter does not move the camera). */
   deadZone: number
-  /** Степень кривой отклика: 1 — линейно, > 1 — у центра тоньше, у края быстрее. */
+  /** Response curve exponent: 1 - linear, > 1 - finer near the center, faster at the edge. */
   curve: number
-  /** Тап: касание не дольше этого (мс) и без выхода за мёртвую зону — это сброс камеры, а не поворот. */
+  /** Tap: a touch no longer than this (ms) that never leaves the dead zone is a camera reset, not a turn. */
   tapMaxMs: number
 }
 
-/** Отклонение стика по оси: x — вправо, y — вниз (как на экране), каждое в -1..1. Мутируется на месте. */
+/** Stick deflection per axis: x - right, y - down (as on screen), each in -1..1. Mutated in place. */
 export interface StickState {
   x: number
   y: number
 }
 
 /**
- * Отклонение по вектору смещения ручки (px) от центра, без аллокаций: результат пишется в out.
- * Длина вектора зажимается радиусом, до мёртвой зоны — ноль, дальше 0..1 растёт по кривой.
+ * Deflection from the knob's offset vector (px) from the center, allocation-free: the result is written to out.
+ * The vector length is clamped to the radius; up to the dead zone it is zero, beyond it grows 0..1 along the curve.
  */
 export function stickDeflection(
   dx: number,
@@ -49,23 +49,23 @@ export function stickDeflection(
 }
 
 /**
- * Было ли касание тапом (→ сброс камеры). Тап — И короткое, И без единого отклонения:
- * если стик хоть раз вышел за мёртвую зону (`maxTravel` — доля радиуса, максимум за касание), то это поворот,
- * даже если палец вернулся в центр до отпускания. Так попытка чуть подвернуть камеру не сбросит её случайно.
+ * Whether the touch was a tap (-> camera reset). A tap is BOTH short AND with no deflection at all:
+ * if the stick ever left the dead zone (`maxTravel` - fraction of the radius, maximum during the touch), it is a turn,
+ * even if the finger returned to the center before release. So an attempt to nudge the camera slightly will not reset it by accident.
  */
 export function isStickTap(durationMs: number, maxTravel: number, t: StickTuning): boolean {
   return durationMs >= 0 && durationMs <= t.tapMaxMs && maxTravel <= t.deadZone
 }
 
-/** Поворот за кадр (рад): отклонение × максимальная скорость × dt. Знак — как у перетаскивания (вправо/вниз — плюс). */
+/** Turn per frame (rad): deflection × max speed × dt. The sign follows dragging (right/down - positive). */
 export function stickStep(deflection: number, maxRadPerSec: number, dtMs: number): number {
   return (deflection * maxRadPerSec * dtMs) / 1000
 }
 
 export interface Stick {
-  /** Текущее отклонение (живой объект, читать в кадре без копий). */
+  /** Current deflection (live object, read in the frame without copies). */
   readonly state: StickState
-  /** Принудительно отпустить (пауза, смерть, конец партии, сброс камеры не нужен: стик позиции не хранит). */
+  /** Force release (pause, death, end of game; camera reset not needed: the stick stores no position). */
   release(): void
   detach(): void
 }
@@ -76,7 +76,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
   let cx = 0
   let cy = 0
   let radius = 1
-  // Для распознавания тапа: когда началось касание и как далеко от центра ушёл палец (доля радиуса, до зажима).
+  // For tap detection: when the touch began and how far from the center the finger went (fraction of the radius, before clamping).
   let downAt = 0
   let maxTravel = 0
 
@@ -85,7 +85,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
   }
 
   function update(e: PointerEvent): void {
-    // Ручка ходит по кругу радиуса radius; вектор зажимаем той же длиной, что и отклонение.
+    // The knob moves on a circle of radius radius; clamp the vector to the same length as the deflection.
     let dx = e.clientX - cx
     let dy = e.clientY - cy
     const len = Math.hypot(dx, dy)
@@ -104,7 +104,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
       try {
         base.releasePointerCapture(pointerId)
       } catch {
-        // Указатель уже исчез.
+        // The pointer is already gone.
       }
     }
     pointerId = null
@@ -116,12 +116,12 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
 
   function onDown(e: PointerEvent): void {
     if (e.pointerType === 'mouse' && e.button !== 0) return
-    e.preventDefault() // без фокуса, выделения и синтетического click
-    if (pointerId !== null) return // один палец на стик
+    e.preventDefault() // no focus, no selection and no synthetic click
+    if (pointerId !== null) return // one finger per stick
     const r = base.getBoundingClientRect()
     cx = r.left + r.width / 2
     cy = r.top + r.height / 2
-    radius = (r.width - knob.offsetWidth) / 2 // ручка не выходит за край основания
+    radius = (r.width - knob.offsetWidth) / 2 // the knob does not go past the edge of the base
     if (radius < 1) radius = r.width / 2
     pointerId = e.pointerId
     downAt = e.timeStamp
@@ -129,7 +129,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
     try {
       base.setPointerCapture(e.pointerId)
     } catch {
-      // Указатель уже исчез — pointerup/lostpointercapture всё сбросят.
+      // The pointer is already gone: pointerup/lostpointercapture will reset everything.
     }
     base.classList.add('active')
     update(e)
@@ -142,7 +142,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
 
   function onEnd(e: PointerEvent): void {
     if (e.pointerId !== pointerId) return
-    // Тапом считается только настоящее отпускание: cancel, потеря захвата, blur и пауза — не сброс.
+    // Only a real release counts as a tap: cancel, lost capture, blur and pause are not a reset.
     const tap = e.type === 'pointerup' && isStickTap(e.timeStamp - downAt, maxTravel, t)
     release()
     if (tap) {
@@ -151,10 +151,10 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
     }
   }
 
-  // Короткая вспышка стика: сброс сработал (кнопка-прицел может уже стоять «тусклой», если камера и так в исходном виде).
+  // A brief stick flash: the reset fired (the aim button may already be "dim" if the camera is at its default view anyway).
   function flash(): void {
     base.classList.remove('flash')
-    void base.offsetWidth // перезапуск анимации при повторном тапе
+    void base.offsetWidth // restart the animation on a repeated tap
     base.classList.add('flash')
   }
 
@@ -167,7 +167,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
   }
 
   function onTouchStart(e: Event): void {
-    e.preventDefault() // нет long-press жеста, меню и лупы
+    e.preventDefault() // no long-press gesture, menu, or magnifier
   }
 
   function onBlur(): void {

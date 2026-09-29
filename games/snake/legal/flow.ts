@@ -1,5 +1,5 @@
-// legal/flow.ts — порядок юридических экранов и память о согласии. Без DOM: хранилище и показ передаются снаружи.
-// Порядок: предупреждение о мигающих огнях (при КАЖДОМ открытии) -> условия (только пока согласие не сохранено) -> меню.
+// legal/flow.ts — the order of the legal screens and the memory of consent. No DOM: storage and display are passed in from outside.
+// Order: the flashing-lights warning (on EVERY open) -> the terms (only while consent is not saved) -> the menu.
 
 export const TERMS_ACCEPTED_KEY = 'snake:termsAccepted'
 
@@ -10,28 +10,28 @@ export interface LegalStorage {
   set(key: string, value: string): void
 }
 
-/** Условия нужны, пока нет сохранённого согласия: первый запуск, сброшенное хранилище, недоступное хранилище. */
+/** The terms are needed while there is no saved consent: first launch, reset storage, unavailable storage. */
 export function needsTerms(storage: LegalStorage): boolean {
   return storage.get(TERMS_ACCEPTED_KEY) !== '1'
 }
 
-/** Экраны к показу в этом запуске, по порядку. Предупреждение есть всегда. */
+/** The screens to show in this launch, in order. The warning is always there. */
 export function legalSteps(storage: LegalStorage): LegalStep[] {
   return needsTerms(storage) ? ['warning', 'terms'] : ['warning']
 }
 
 export interface LegalFlow {
-  /** Показывает первый экран. */
+  /** Shows the first screen. */
   start(): void
-  /** Кнопка текущего экрана нажата: принять условия (если это они) и перейти дальше или закончить. */
+  /** The current screen's button is pressed: accept the terms (if that is what it is) and move on or finish. */
   confirm(): void
-  /** Отладочный режим: экраны не показываются, согласие не записывается — при обычном запуске игрок увидит их как обычно. */
+  /** Debug mode: the screens are not shown, consent is not recorded, so on a normal launch the player sees them as usual. */
   skipAll(): void
 }
 
 /**
- * show(step) — показать экран; show(null) — все пройдены, можно открывать меню.
- * Согласие пишется в момент нажатия «Принимаю», а не при показе: закрыл вкладку на экране условий — увидит их снова.
+  * show(step) shows a screen; show(null) means all are passed, the menu can open.
+  * Consent is written at the moment "Accept" is pressed, not on display: close the tab on the terms screen and they show again.
  */
 export function createLegalFlow(storage: LegalStorage, show: (step: LegalStep | null) => void): LegalFlow {
   let queue: LegalStep[] = []
@@ -59,8 +59,8 @@ export function createLegalFlow(storage: LegalStorage, show: (step: LegalStep | 
 }
 
 /**
- * Отладка включена параметром ?perf (?perf=bench, ?perf=freeze); ?perf=0 и ?perf=false — выключена.
- * Одно условие и для отладочной панели, и для пропуска юридических экранов: они не должны расходиться.
+  * Debug is on via the ?perf parameter (?perf=bench, ?perf=freeze); ?perf=0 and ?perf=false turn it off.
+  * One condition for both the debug panel and skipping the legal screens: they must not diverge.
  */
 export function isPerfDebugRequested(search: string): boolean {
   const p = new URLSearchParams(search).get('perf')
@@ -68,9 +68,9 @@ export function isPerfDebugRequested(search: string): boolean {
 }
 
 /**
- * Режим сам запускает замер через полсекунды после загрузки: ?perf=bench и ?perf=freeze. Только тогда юридические
- * экраны пропускаются: непрозрачный экран поверх канваса испортил бы числа. Простой ?perf ничего не запускает —
- * там предупреждение о мигающих огнях показывается как обычно.
+  * The mode starts the measurement itself half a second after load: ?perf=bench and ?perf=freeze. Only then are the legal
+  * screens skipped: an opaque screen over the canvas would spoil the numbers. A plain ?perf starts nothing,
+  * there the flashing-lights warning shows as usual.
  */
 export function isSelfStartingPerfMode(search: string): boolean {
   const p = new URLSearchParams(search).get('perf')

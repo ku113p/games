@@ -1,13 +1,13 @@
-// Каркас куба: только двенадцать рёбер, ярким неоном, внутри пусто.
-// Рёбра — тонкие параллелепипеды (MeshBasicMaterial, цвет ярче 1 -> выше порога
-// bloom -> светятся): линия в 1 px на телефоне не читается, а это теперь
-// единственная геометрия, по которой видно пространство.
+// Cube frame: only the twelve edges, bright neon, empty inside.
+// Edges are thin cuboids (MeshBasicMaterial, color brighter than 1 -> above the
+// bloom threshold -> they glow): a 1 px line is unreadable on a phone, and this is now
+// the only geometry that shows the space.
 //
-// Проекция головы (по желанию, SHOW_HEAD_PROJECTION): на каждой из шести стенок
-// перекрестие и квадрат-«тень» вокруг клетки головы, очень тихо (тише рёбер).
-// Выключается одной константой. В фазе plane стенки между камерой и полем
-// скрываются вместе с проекцией; в фазе free не скрываются никогда.
-// Всё строится один раз (событие 'started'); в кадре только update(), без аллокаций.
+// Head projection (optional, SHOW_HEAD_PROJECTION): on each of the six walls,
+// a crosshair and a square "shadow" around the head cell, very quiet (quieter than the edges).
+// Switched off by one constant. In plane mode the walls between the camera and the field
+// are hidden together with the projection; in free mode they are never hidden.
+// Everything is built once ('started' event); per frame only update(), allocation-free.
 
 import {
   BoxGeometry,
@@ -29,24 +29,24 @@ import {
   MARK_SQUARE_ALPHA,
 } from './palette'
 
-// Проекция головы на стенки: включена/выключена одной правкой.
+// Head projection on the walls: on/off with one edit.
 const SHOW_HEAD_PROJECTION = true
-// Оформительские константы, не числа баланса.
+// Styling constants, not balance values.
 const MARK_SIZE_SMALL_MAX = 20
-// Затухание альфы проекции с расстоянием: exp(-d / L), L = size * k в пределах [min, max].
+// Projection alpha falls off with distance: exp(-d / L), L = size * k within [min, max].
 export const FALLOFF_PER_SIZE = 0.6
 export const FALLOFF_MIN = 12
 export const FALLOFF_MAX = 40
-// Ближе этого расстояния (клеток) линии растворяются, не лезут в глаз.
+// Closer than this distance (cells) the lines dissolve, so they do not poke the eye.
 export const NEAR_FADE_CELLS = 2.5
-// Проекция головы: квадрат-тень (полуширина, клеток), зазор от стенки внутрь
-// (против z-fighting с сеткой) и доля яркости на любом удалении.
+// Head projection: shadow square (half-width, cells), inward gap from the wall
+// (against z-fighting with the grid) and brightness fraction at any distance.
 const MARK_HALF_SMALL = 0.5
 const MARK_HALF_LARGE = 1.5
 const MARK_INSET = 0.03
 const MARK_FAR_FLOOR = 0.7
 
-// 2 линии перекрестия + 4 стороны квадрата = 6 отрезков = 12 вершин.
+// 2 crosshair lines + 4 square sides = 6 segments = 12 vertices.
 const MARK_VERTS = 12
 
 export const VERT = /* glsl */ `
@@ -96,7 +96,7 @@ export class CubeFrame {
     this.scene = scene
   }
 
-  /** Холодный путь: вызывать из handle('started', s), не из render(). */
+  /** Cold path: call from handle('started', s), not from render(). */
   setSize(size: number): void {
     if (size === this.currentSize) return
     this.currentSize = size
@@ -105,7 +105,7 @@ export class CubeFrame {
     if (SHOW_HEAD_PROJECTION) this.buildMarks(size)
   }
 
-  /** Двенадцать рёбер: по четыре вдоль каждой оси, внешняя рамка от -0.5 до size - 0.5. */
+  /** Twelve edges: four along each axis, outer frame from -0.5 to size - 0.5. */
   private buildEdges(size: number): void {
     const t = Math.min(
       CUBE_EDGE_THICKNESS_MAX,
@@ -113,7 +113,7 @@ export class CubeFrame {
     )
     const len = size + t
     const geometry = new BoxGeometry(1, 1, 1)
-    const material = new MeshBasicMaterial({ color: CUBE_EDGE_COLOR, fog: false }) // вне общего тумана: стенки куба видны всегда
+    const material = new MeshBasicMaterial({ color: CUBE_EDGE_COLOR, fog: false }) // outside the shared fog: the cube walls are always visible
     this.edgeGeometry = geometry
     this.edgeMaterial = material
     const lo = -0.5
@@ -140,7 +140,7 @@ export class CubeFrame {
     }
   }
 
-  /** Холодный путь: заранее создаёт шесть проекций головы (индекс как у стенок). */
+  /** Cold path: pre-creates six head projections (indexed like the walls). */
   private buildMarks(size: number): void {
     this.markHalf = size <= MARK_SIZE_SMALL_MAX ? MARK_HALF_SMALL : MARK_HALF_LARGE
     const mat = new ShaderMaterial({
@@ -158,7 +158,7 @@ export class CubeFrame {
       depthWrite: false,
     })
     this.markMaterial = mat
-    // aMajor: 0 — линии перекрестия, 1 — квадрат.
+    // aMajor: 0 is the crosshair lines, 1 is the square.
     const kind = new Float32Array(MARK_VERTS)
     for (let i = 4; i < MARK_VERTS; i++) kind[i] = 1
     for (let i = 0; i < 6; i++) {
@@ -176,7 +176,7 @@ export class CubeFrame {
     this.markX = NaN
   }
 
-  /** Перекладывает вершины проекции на стенку (axis, side) под клетку (hu, hv). */
+  /** Moves the projection vertices onto wall (axis, side) for cell (hu, hv). */
   private writeMark(idx: number, axis: number, side: number, hu: number, hv: number): void {
     const arr = this.markPos[idx]!
     const u = (axis + 1) % 3
@@ -185,7 +185,7 @@ export class CubeFrame {
     const hi = this.currentSize - 0.5
     const w = side === 0 ? lo + MARK_INSET : hi - MARK_INSET
     const r = this.markHalf
-    // Отрезки (u0,v0,u1,v1): перекрестие, затем квадрат.
+    // Segments (u0,v0,u1,v1): crosshair, then square.
     let o = 0
     for (let seg = 0; seg < 6; seg++) {
       let u0: number, v0: number, u1: number, v1: number
@@ -209,9 +209,9 @@ export class CubeFrame {
   }
 
   /**
-   * Кадр, без аллокаций. Фаза plane (freeAmount < 0.5): камера снаружи куба —
-   * стенки между ней и полем скрыты, чтобы не рисоваться поверх змейки.
-   * Фаза free: не скрывается ничего. hx/hy/hz — клетка головы (из queries.head).
+   * Frame, allocation-free. Plane mode (freeAmount < 0.5): the camera is outside the cube,
+   * the walls between it and the field are hidden so they do not draw over the snake.
+   * Free mode: nothing is hidden. hx/hy/hz is the head cell (from queries.head).
    */
   update(
     camX: number,
