@@ -68,8 +68,19 @@
       "sizeMaxPx": 112,
       "deadZone": 0.2,
       "curve": 1.5,
-      "maxRadPerSec": 1.2
+      "maxRadPerSec": 1.2,
+      "tapMaxMs": 250
     }
+  },
+  "leaderboard": {
+    "size": 3,
+    "nameLength": 3,
+    "alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    "defaultName": "AAA",
+    "legacyName": "---",
+    "minScore": 1,
+    "repeatDelayMs": 350,
+    "repeatMs": 110
   },
   "sound": {
     "music": {
@@ -102,6 +113,18 @@
         "decayMs": 50,
         "gain": 0.25,
         "combo": false
+      },
+      "death": {
+        "wave": "sawtooth",
+        "freqFrom": 330,
+        "freqTo": 32,
+        "sweepMs": 1000,
+        "attackMs": 4,
+        "decayMs": 1150,
+        "gain": 0.85,
+        "combo": false,
+        "layer": { "wave": "square", "ratio": 0.5, "gain": 0.4 },
+        "noise": { "gain": 0.7, "decayMs": 650, "filterFrom": 7000, "filterTo": 180 }
       }
     },
     "combo": {

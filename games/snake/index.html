@@ -374,9 +374,13 @@
          Самовозвращающийся: держишь — камера едет, отпустил — ручка в центре, камера остаётся. Размер ставит main из config.json. */
       #stick {
         --stick: 92px;
+        /* Высота ряда, с которым стик на одной горизонтали: «×2» (Свайпы) или крестовина пульта (Тапы, .beside-pad).
+           Стик стоит центром на середине ряда, но не ниже безопасной зоны экрана. */
+        --row: clamp(64px, 20vmin, 96px);
+        display: none; /* стик — только для сенсорных устройств (см. @media ниже); на ПК камеру крутят мышью, сброс — клавиша R */
         position: absolute;
         z-index: 4;
-        bottom: max(12px, env(safe-area-inset-bottom));
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + max(0px, (var(--row) - var(--stick)) / 2));
         left: max(12px, env(safe-area-inset-left));
         width: var(--stick);
         height: var(--stick);
@@ -390,6 +394,16 @@
         opacity: 0.8;
         transition: opacity 120ms;
       }
+      /* any-pointer, а не pointer: у ноутбука с тач-экраном и у планшета с мышью основной указатель — не сенсор,
+         но пальцем играть можно. Медиазапрос живой: переживает поворот экрана и смену устройств ввода. */
+      @media (any-pointer: coarse) {
+        #stick {
+          display: block;
+        }
+      }
+      #stick.beside-pad {
+        --row: calc(clamp(48px, 15vmin, 72px) * 3 + 8px);
+      }
       #stick.side-right {
         left: auto;
         right: max(12px, env(safe-area-inset-right));
@@ -397,6 +411,14 @@
       #stick.active {
         opacity: 1;
         border-color: var(--neon);
+      }
+      /* Быстрый тап = сброс камеры: короткая вспышка кольца. */
+      #stick.flash {
+        animation: stick-flash 260ms ease-out 1;
+      }
+      @keyframes stick-flash {
+        0% { background: rgba(57, 255, 224, 0.55); box-shadow: 0 0 22px var(--neon); border-color: var(--neon); opacity: 1; }
+        100% { box-shadow: 0 0 0 transparent; }
       }
       #stick.hidden {
         display: none;
@@ -500,6 +522,215 @@
         height: 24px;
         pointer-events: none;
       }
+
+      /* ---- Экран проигрыша: неоновая надпись GAME OVER (HTML+CSS, свечение — слоями text-shadow: bloom на DOM не действует).
+         Палитра из :root: розовый --accent для трубки, --neon для глитч-слоя. Текст не переводится (аркадная формула). ---- */
+      #game-over {
+        justify-content: center;
+        gap: 12px;
+        overflow-y: auto;
+        touch-action: pan-y;
+      }
+      #game-over h2.neon-title {
+        --tube: #ffe3f6;
+        margin: 0 0 4px;
+        font-size: clamp(48px, min(21vw, 15vh), 112px);
+        font-weight: 900;
+        line-height: 0.95;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--tube);
+        text-shadow:
+          0 0 2px #fff,
+          0 0 7px var(--accent),
+          0 0 18px var(--accent),
+          0 0 40px var(--accent),
+          0 0 80px rgba(255, 47, 176, 0.65);
+        animation:
+          neon-on 800ms linear 1 both,
+          neon-flicker 7s linear 1.4s infinite;
+      }
+      .neon-title .word {
+        display: block;
+        position: relative;
+        /* letter-spacing добавляет хвост справа: компенсируем, чтобы слово стояло по центру */
+        padding-left: 0.1em;
+      }
+      /* Глитч на появлении: циановая копия со смещёнными срезами, ~0.6 с, дальше clip схлопывается в ноль. */
+      .neon-title .word::before {
+        content: attr(data-text);
+        position: absolute;
+        inset: 0;
+        padding-left: 0.1em;
+        color: var(--neon);
+        text-shadow: 0 0 10px var(--neon);
+        clip-path: inset(0 0 100% 0);
+        animation: neon-glitch 600ms steps(1, end) 1 both;
+        pointer-events: none;
+      }
+      .neon-title .word:last-child::before {
+        animation-delay: 90ms;
+      }
+      /* Тонкая неоновая линия под надписью. */
+      .neon-rule {
+        width: min(70%, 320px);
+        height: 2px;
+        margin: 0 auto 6px;
+        border-radius: 2px;
+        background: var(--neon);
+        box-shadow: 0 0 6px var(--neon), 0 0 16px var(--neon-dim);
+        animation: neon-on 800ms linear 1 both;
+      }
+      @keyframes neon-on {
+        0% { opacity: 0; }
+        6% { opacity: 1; }
+        11% { opacity: 0.15; }
+        18% { opacity: 1; }
+        26% { opacity: 0.35; }
+        32%, 100% { opacity: 1; }
+      }
+      /* Редкое дрожание трубки: пара коротких провалов яркости раз в несколько секунд. */
+      @keyframes neon-flicker {
+        0%, 4%, 7%, 60%, 63%, 65%, 100% { opacity: 1; }
+        5% { opacity: 0.55; }
+        61% { opacity: 0.8; }
+        64% { opacity: 0.45; }
+      }
+      @keyframes neon-glitch {
+        0% { clip-path: inset(12% 0 62% 0); transform: translateX(-7px); }
+        16% { clip-path: inset(55% 0 18% 0); transform: translateX(6px); }
+        33% { clip-path: inset(72% 0 4% 0); transform: translateX(-4px); }
+        50% { clip-path: inset(25% 0 50% 0); transform: translateX(5px); }
+        66% { clip-path: inset(40% 0 34% 0); transform: translateX(-2px); }
+        83% { clip-path: inset(4% 0 80% 0); transform: translateX(3px); }
+        100% { clip-path: inset(0 0 100% 0); transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .neon-title, .neon-rule { animation: none; }
+        .neon-title .word::before { animation: none; }
+      }
+
+      .run-stats {
+        display: flex;
+        gap: 22px;
+        justify-content: center;
+        align-items: baseline;
+        font-size: 16px;
+      }
+      .run-stats b {
+        font-size: 28px;
+        color: var(--neon);
+        text-shadow: 0 0 10px var(--neon-dim);
+        letter-spacing: 0.04em;
+      }
+
+      /* Таблица лучших (экран проигрыша и меню). */
+      .board-wrap {
+        width: 100%;
+        max-width: 340px;
+      }
+      .board-title {
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        opacity: 0.7;
+        margin: 0 0 6px;
+      }
+      ol.board {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .board-row {
+        display: grid;
+        grid-template-columns: 2ch 1fr auto 5ch;
+        align-items: baseline;
+        gap: 12px;
+        padding: 6px 12px;
+        border: 1px solid rgba(57, 255, 224, 0.22);
+        border-radius: 8px;
+        background: rgba(57, 255, 224, 0.05);
+        font-variant-numeric: tabular-nums;
+        text-align: left;
+      }
+      .board-row .rank { opacity: 0.6; }
+      .board-row .name {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.22em;
+        color: var(--neon);
+      }
+      .board-row .score { font-weight: 700; font-size: 18px; text-align: right; }
+      .board-row .time { font-size: 13px; opacity: 0.7; text-align: right; }
+      .board-row.empty { opacity: 0.35; }
+      .board-row.mine {
+        border-color: var(--accent);
+        background: rgba(255, 47, 176, 0.12);
+        box-shadow: 0 0 14px rgba(255, 47, 176, 0.45);
+      }
+      .board-row.mine .name { color: var(--accent); text-shadow: 0 0 8px var(--accent); }
+
+      /* Барабан ввода имени: три слота, тап по стрелкам (не меньше 44 px), удержание прокручивает. */
+      .drum {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        touch-action: none;
+      }
+      .drum.hidden { display: none; }
+      .reel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .reel .step {
+        width: 64px;
+        height: 48px;
+        padding: 0;
+        font-size: 20px;
+        line-height: 1;
+        touch-action: none;
+      }
+      .reel .sym {
+        width: 64px;
+        height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 44px;
+        font-weight: 700;
+        color: var(--neon);
+        border: 1px solid var(--neon-dim);
+        border-radius: 10px;
+        background: rgba(5, 6, 10, 0.7);
+        text-shadow: 0 0 10px var(--neon);
+      }
+      .reel .sym.active {
+        border-color: var(--neon);
+        box-shadow: 0 0 14px rgba(57, 255, 224, 0.55);
+      }
+      .drum-hint { font-size: 14px; opacity: 0.8; margin: 0; }
+      #game-over .actions {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+      }
+      #game-over .actions.hidden, #game-over .drum-block.hidden { display: none; }
+      #game-over .drum-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+      }
     </style>
   </head>
   <body>
@@ -521,7 +752,7 @@
 
       <button type="button" id="boost" class="hidden" tabindex="-1" aria-label="Ускорение: зажми, чтобы ехать быстрее">×2</button>
 
-      <div id="stick" class="hidden" role="group" aria-label="Стик поворота камеры">
+      <div id="stick" class="hidden" role="group" aria-label="Стик поворота камеры; быстрый тап — сброс камеры">
         <svg class="glyph" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M50 10l-6 7h12zM50 90l-6-7h12zM10 50l7-6v12zM90 50l-7-6v12z" />
         </svg>
@@ -584,17 +815,37 @@
           </div>
         </div>
 
-        <div class="record">Рекорд: <span id="high-score">0</span></div>
+        <div class="board-wrap">
+          <p class="board-title">Лучшие</p>
+          <ol id="menu-board" class="board"></ol>
+        </div>
 
         <button type="button" id="tap-to-play" class="tap-to-play">Тапни, чтобы играть</button>
       </div>
 
       <div id="game-over" class="screen hidden">
-        <h2>Игра окончена</h2>
-        <p>Счёт: <span id="final-score">0</span></p>
-        <p>Рекорд: <span id="final-high-score">0</span></p>
-        <button type="button" id="play-again" class="tap-to-play">Ещё раз</button>
-        <button type="button" id="to-menu" class="secondary">В меню</button>
+        <h2 class="neon-title" aria-label="GAME OVER">
+          <span class="word" data-text="GAME" aria-hidden="true">GAME</span>
+          <span class="word" data-text="OVER" aria-hidden="true">OVER</span>
+        </h2>
+        <div class="neon-rule"></div>
+        <div class="run-stats">
+          <span>Счёт <b id="final-score">0</b></span>
+          <span>Время <b id="final-time">0:00</b></span>
+        </div>
+        <div class="board-wrap">
+          <p class="board-title">Лучшие</p>
+          <ol id="game-over-board" class="board"></ol>
+        </div>
+        <div id="drum-block" class="drum-block hidden">
+          <p class="drum-hint">Ты в лучших! Выбери три символа</p>
+          <div id="drum" class="drum" role="group" aria-label="Три символа для таблицы"></div>
+          <button type="button" id="drum-ok" class="tap-to-play">Готово</button>
+        </div>
+        <div id="game-over-actions" class="actions">
+          <button type="button" id="play-again" class="tap-to-play">Ещё раз</button>
+          <button type="button" id="to-menu" class="secondary">В меню</button>
+        </div>
       </div>
 
       <div id="pause" class="screen overlay hidden">

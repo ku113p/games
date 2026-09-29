@@ -3,12 +3,15 @@
 // и наклоном двумя пальцами не путается. Стик задаёт СКОРОСТЬ поворота, а не позицию: держишь вбок —
 // камера едет, отпустил — ручка вернулась в центр, камера осталась где была (сброс — только явный).
 // Наружу отдаёт отклонение в осях -1..1 (после мёртвой зоны и кривой) — main опрашивает его каждый кадр.
+// Быстрый тап по стику (короткое касание, палец не выходил за мёртвую зону) — сброс камеры: см. isStickTap.
 
 export interface StickTuning {
   /** Мёртвая зона: доля радиуса, внутри которой отклонения нет (дрожание пальца камеру не двигает). */
   deadZone: number
   /** Степень кривой отклика: 1 — линейно, > 1 — у центра тоньше, у края быстрее. */
   curve: number
+  /** Тап: касание не дольше этого (мс) и без выхода за мёртвую зону — это сброс камеры, а не поворот. */
+  tapMaxMs: number
 }
 
 /** Отклонение стика по оси: x — вправо, y — вниз (как на экране), каждое в -1..1. Мутируется на месте. */
@@ -45,6 +48,15 @@ export function stickDeflection(
   out.y = (dy / len) * mag
 }
 
+/**
+ * Было ли касание тапом (→ сброс камеры). Тап — И короткое, И без единого отклонения:
+ * если стик хоть раз вышел за мёртвую зону (`maxTravel` — доля радиуса, максимум за касание), то это поворот,
+ * даже если палец вернулся в центр до отпускания. Так попытка чуть подвернуть камеру не сбросит её случайно.
+ */
+export function isStickTap(durationMs: number, maxTravel: number, t: StickTuning): boolean {
+  return durationMs >= 0 && durationMs <= t.tapMaxMs && maxTravel <= t.deadZone
+}
+
 /** Поворот за кадр (рад): отклонение × максимальная скорость × dt. Знак — как у перетаскивания (вправо/вниз — плюс). */
 export function stickStep(deflection: number, maxRadPerSec: number, dtMs: number): number {
   return (deflection * maxRadPerSec * dtMs) / 1000
@@ -58,12 +70,15 @@ export interface Stick {
   detach(): void
 }
 
-export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning): Stick {
+export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning, onTap: () => void): Stick {
   const state: StickState = { x: 0, y: 0 }
   let pointerId: number | null = null
   let cx = 0
   let cy = 0
   let radius = 1
+  // Для распознавания тапа: когда началось касание и как далеко от центра ушёл палец (доля радиуса, до зажима).
+  let downAt = 0
+  let maxTravel = 0
 
   function moveKnob(dx: number, dy: number): void {
     knob.style.transform = `translate(${dx}px, ${dy}px)`
@@ -78,6 +93,8 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
       dx = (dx / len) * radius
       dy = (dy / len) * radius
     }
+    const travel = radius > 0 ? len / radius : 0
+    if (travel > maxTravel) maxTravel = travel
     stickDeflection(dx, dy, radius, t, state)
     moveKnob(dx, dy)
   }
@@ -107,6 +124,8 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
     radius = (r.width - knob.offsetWidth) / 2 // ручка не выходит за край основания
     if (radius < 1) radius = r.width / 2
     pointerId = e.pointerId
+    downAt = e.timeStamp
+    maxTravel = 0
     try {
       base.setPointerCapture(e.pointerId)
     } catch {
@@ -123,7 +142,24 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
 
   function onEnd(e: PointerEvent): void {
     if (e.pointerId !== pointerId) return
+    // Тапом считается только настоящее отпускание: cancel, потеря захвата, blur и пауза — не сброс.
+    const tap = e.type === 'pointerup' && isStickTap(e.timeStamp - downAt, maxTravel, t)
     release()
+    if (tap) {
+      flash()
+      onTap()
+    }
+  }
+
+  // Короткая вспышка стика: сброс сработал (кнопка-прицел может уже стоять «тусклой», если камера и так в исходном виде).
+  function flash(): void {
+    base.classList.remove('flash')
+    void base.offsetWidth // перезапуск анимации при повторном тапе
+    base.classList.add('flash')
+  }
+
+  function onFlashEnd(): void {
+    base.classList.remove('flash')
   }
 
   function onContextMenu(e: Event): void {
@@ -142,6 +178,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
     if (document.hidden) release()
   }
 
+  base.addEventListener('animationend', onFlashEnd)
   base.addEventListener('pointerdown', onDown)
   base.addEventListener('pointermove', onMove)
   base.addEventListener('pointerup', onEnd)
@@ -156,6 +193,7 @@ export function attachStick(base: HTMLElement, knob: HTMLElement, t: StickTuning
     state,
     release,
     detach(): void {
+      base.removeEventListener('animationend', onFlashEnd)
       base.removeEventListener('pointerdown', onDown)
       base.removeEventListener('pointermove', onMove)
       base.removeEventListener('pointerup', onEnd)

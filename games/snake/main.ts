@@ -4,7 +4,7 @@
 import { createGame, type Config } from './core/rules'
 import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
 import type { AxisDir, GameState, ScreenDir } from './core/state'
-import { gameMode, isAlive, score } from './core/queries'
+import { elapsedMs, gameMode, isAlive, score } from './core/queries'
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
 import { attachPad, type Pad } from './input/pad'
@@ -21,12 +21,25 @@ import {
 } from './input/gestures'
 import { attachInput, type InputHandlers, type InputScheme } from './input/index'
 import { createAudio, type SoundConfig } from './view/audio'
+import { createDrum, renderBoard } from './view/leaderboard-view'
+import {
+  insertEntry,
+  migrateLegacy,
+  parseTable,
+  formatDuration,
+  renameEntry,
+  sanitizeName,
+  type LeaderboardConfig,
+  type ScoreEntry,
+} from './scores/leaderboard'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
 
 const config = configJson as Config
 
-const HIGH_SCORE_KEY = 'snake:highScore'
+const HIGH_SCORE_KEY = 'snake:highScore' // старый одиночный рекорд: читается только для переноса в таблицу
+const LEADERBOARD_KEY = 'snake:leaderboard'
+const INITIALS_KEY = 'snake:initials'
 const HAS_PLAYED_BEFORE_KEY = 'snake:hasPlayedBefore'
 const PAD_SIDE_KEY = 'snake:padSide'
 const MUSIC_ON_KEY = 'snake:musicOn'
@@ -47,8 +60,13 @@ const hud = required<HTMLElement>('hud')
 const hudScore = required<HTMLElement>('score')
 const gameOverScreen = required<HTMLElement>('game-over')
 const finalScoreEl = required<HTMLElement>('final-score')
-const finalHighScoreEl = required<HTMLElement>('final-high-score')
-const highScoreEl = required<HTMLElement>('high-score')
+const finalTimeEl = required<HTMLElement>('final-time')
+const gameOverBoardEl = required<HTMLElement>('game-over-board')
+const menuBoardEl = required<HTMLElement>('menu-board')
+const drumBlockEl = required<HTMLElement>('drum-block')
+const drumEl = required<HTMLElement>('drum')
+const drumOkBtn = required<HTMLButtonElement>('drum-ok')
+const gameOverActionsEl = required<HTMLElement>('game-over-actions')
 const tapToPlayBtn = required<HTMLButtonElement>('tap-to-play')
 const playAgainBtn = required<HTMLButtonElement>('play-again')
 const pauseScreen = required<HTMLElement>('pause')
@@ -86,16 +104,58 @@ function storageSet(key: string, value: string): void {
   }
 }
 
-function readHighScore(): number {
-  const raw = storageGet(HIGH_SCORE_KEY)
-  if (raw === null) return 0
-  const n = Number.parseInt(raw, 10)
-  return Number.isFinite(n) ? n : 0
+// --- таблица лучших (топ-N): чистая логика в scores/leaderboard.ts, здесь только хранение и показ ---
+
+const lbCfg = configJson.leaderboard as LeaderboardConfig
+
+function saveTable(t: readonly ScoreEntry[]): void {
+  storageSet(LEADERBOARD_KEY, JSON.stringify(t))
 }
 
-function writeHighScore(value: number): void {
-  storageSet(HIGH_SCORE_KEY, String(value))
+// Первый запуск новой версии: таблицы ещё нет, а старый одиночный рекорд есть — он становится одной записью.
+function loadTable(): ScoreEntry[] {
+  const parsed = parseTable(storageGet(LEADERBOARD_KEY), lbCfg)
+  if (parsed !== null) return parsed
+  const migrated = migrateLegacy(storageGet(HIGH_SCORE_KEY), lbCfg)
+  if (migrated.length > 0) saveTable(migrated)
+  return migrated
 }
+
+let table: ScoreEntry[] = loadTable()
+// Последние выбранные символы подставляются в барабан по умолчанию.
+let initials = sanitizeName(storageGet(INITIALS_KEY), lbCfg)
+
+function renderBoards(highlight: number): void {
+  renderBoard(menuBoardEl, table, lbCfg.size, -1)
+  renderBoard(gameOverBoardEl, table, lbCfg.size, highlight)
+}
+
+renderBoards(-1)
+
+const drum = createDrum(drumEl, lbCfg)
+// Индекс записи текущей партии, пока барабан открыт; иначе -1.
+let pendingIndex = -1
+
+/** Партия закончилась: если счёт попал в таблицу, запись ставится сразу с запомненными символами. Индекс или -1. */
+function commitRun(finalScore: number, durationMs: number): number {
+  const entry: ScoreEntry = { score: finalScore, name: initials, durationMs, date: Date.now() }
+  const r = insertEntry(table, entry, lbCfg)
+  if (r.index >= 0) {
+    table = r.table
+    saveTable(table)
+  }
+  return r.index
+}
+
+function closeDrum(): void {
+  pendingIndex = -1
+  drum.hide()
+  drumBlockEl.classList.add('hidden')
+  gameOverActionsEl.classList.remove('hidden')
+  renderBoards(-1)
+}
+
+drumOkBtn.addEventListener('click', closeDrum)
 
 // Читает флаг «это вообще первая партия игрока», НЕ гася его.
 // Гасится он только когда переезд камеры реально случился (см. consumeFirstGameEver):
@@ -108,9 +168,6 @@ function readIsFirstGameEver(): boolean {
 function consumeFirstGameEver(): void {
   storageSet(HAS_PLAYED_BEFORE_KEY, '1')
 }
-
-let highScore = readHighScore()
-highScoreEl.textContent = String(highScore)
 
 // --- звук: разблокируется только по первому касанию (AGENTS.md, раздел 5) ---
 
@@ -313,23 +370,38 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
       hideBoostAndPause()
       hidePauseScreens()
       const finalScore = score(s.state)
+      const durationMs = elapsedMs(s.state)
       finalScoreEl.textContent = String(finalScore)
-      commitScore(finalScore)
-      finalHighScoreEl.textContent = String(highScore)
+      finalTimeEl.textContent = formatDuration(durationMs)
+      // Экран проигрыша и звук смерти запускаются в одном обработчике: анимация надписи и удар звука стартуют вместе.
+      pendingIndex = commitRun(finalScore, durationMs)
+      renderBoards(pendingIndex)
+      if (pendingIndex >= 0) {
+        // Попал в таблицу: барабан вместо кнопок, пока игрок не нажмёт «Готово». Запись уже сохранена, каждый поворот барабана её обновляет.
+        gameOverActionsEl.classList.add('hidden')
+        drumBlockEl.classList.remove('hidden')
+        drum.show(
+          initials,
+          (name) => {
+            if (pendingIndex < 0) return
+            initials = name
+            storageSet(INITIALS_KEY, name)
+            table = renameEntry(table, pendingIndex, name)
+            saveTable(table)
+            renderBoards(pendingIndex)
+          },
+          closeDrum,
+        )
+      } else {
+        closeDrum()
+      }
+      audio.play('death')
       hud.classList.add('hidden')
       gameOverScreen.classList.remove('hidden')
       break
     }
     default:
       break
-  }
-}
-
-// Партия закончилась (смерть или выход с паузы): счёт может побить рекорд.
-function commitScore(finalScore: number): void {
-  if (finalScore > highScore) {
-    highScore = finalScore
-    writeHighScore(highScore)
   }
 }
 
@@ -393,7 +465,7 @@ camResetBtn.addEventListener('click', resetCamera)
 
 // Стик поворота камеры: отклонение задаёт скорость. Числа — в config.json (input.stick); размер уходит в CSS.
 const stickCfg = configJson.input.stick
-const stickTuning = { deadZone: stickCfg.deadZone, curve: stickCfg.curve }
+const stickTuning = { deadZone: stickCfg.deadZone, curve: stickCfg.curve, tapMaxMs: stickCfg.tapMaxMs }
 stickEl.style.setProperty(
   '--stick',
   `clamp(${stickCfg.sizeMinPx}px, ${stickCfg.sizeVmin}vmin, ${stickCfg.sizeMaxPx}px)`,
@@ -427,6 +499,7 @@ function dockBoost(inCross: boolean): void {
   if (boostEl.parentElement !== target) target.appendChild(boostEl)
   boostEl.classList.toggle('in-cross', inCross)
   camResetBtn.classList.toggle('above-pad', inCross)
+  stickEl.classList.toggle('beside-pad', inCross) // стик встаёт на одну горизонталь с крестовиной
 }
 
 function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
@@ -470,7 +543,7 @@ function startSession(size: number, scheme: InputScheme): void {
     onBoost: (on) => (on ? boost.press('btn') : boost.release('btn')),
   })
 
-  const stick = attachStick(stickEl, stickKnobEl, stickTuning)
+  const stick = attachStick(stickEl, stickKnobEl, stickTuning, resetCamera)
   const s: Session = {
     state,
     view,
@@ -548,11 +621,11 @@ function startSession(size: number, scheme: InputScheme): void {
 }
 
 function returnToMenu(): void {
-  // Выход с паузы посреди партии: набранный счёт идёт в рекорд, как при смерти.
-  if (session !== null && isAlive(session.state)) commitScore(score(session.state))
+  // Выход с паузы посреди партии: набранный счёт идёт в таблицу с запомненными символами, как при смерти (без барабана).
+  if (session !== null && isAlive(session.state)) commitRun(score(session.state), elapsedMs(session.state))
   gameOverScreen.classList.add('hidden')
   hud.classList.add('hidden')
-  highScoreEl.textContent = String(highScore)
+  closeDrum()
   menuScreen.classList.remove('hidden')
   endSession()
 }
