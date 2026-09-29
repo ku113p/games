@@ -15,8 +15,8 @@ dist/
 .npmrc
 .yarnrc
 .yarnrc.yml
-.idea/
-.vscode/
+.idea
+.vscode
 .env
 .env.*
 
