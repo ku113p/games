@@ -61,7 +61,15 @@
     "doubleTapMs": 240,
     "swipeMinPx": 24,
     "tiltRadPerPx": 0.005,
-    "twoFingerLockPx": 10
+    "twoFingerLockPx": 10,
+    "stick": {
+      "sizeVmin": 24,
+      "sizeMinPx": 88,
+      "sizeMaxPx": 112,
+      "deadZone": 0.2,
+      "curve": 1.5,
+      "maxRadPerSec": 1.2
+    }
   },
   "sound": {
     "music": {

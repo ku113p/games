@@ -8,10 +8,10 @@ import { gameMode, isAlive, score } from './core/queries'
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
 import { attachPad, type Pad } from './input/pad'
+import { attachStick, stickStep, type Stick } from './input/stick'
 import { attachBoostButton, type BoostButton } from './input/boost'
 import {
   accumulateTilt,
-  boostSide,
   clampZoom,
   createBoostHold,
   parsePadSide,
@@ -60,6 +60,8 @@ const padEl = required<HTMLElement>('pad')
 const boostEl = required<HTMLElement>('boost')
 const pauseBtn = required<HTMLButtonElement>('pause-btn')
 const camResetBtn = required<HTMLButtonElement>('cam-reset')
+const stickEl = required<HTMLElement>('stick')
+const stickKnobEl = required<HTMLElement>('stick-knob')
 const pauseToMenuBtn = required<HTMLButtonElement>('pause-to-menu')
 const padSideOptions = required<HTMLElement>('pad-side-options')
 const sizeOptions = required<HTMLElement>('size-options')
@@ -245,6 +247,8 @@ interface Session {
   pad: Pad | null
   /** Кнопка ускорения (обе схемы). */
   boostBtn: BoostButton
+  /** Стик поворота камеры (обе схемы). */
+  stick: Stick
   /** Источники ускорения (палец на кнопке, Shift/Space): включено, пока держит хотя бы один. */
   boost: BoostHold
   /** Текущая фаза камеры; зеркалит GameState.mode по событию modeChanged. */
@@ -297,11 +301,13 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
       if (s.explainTransition && ev.mode === 'free') {
         demoExplainerOpen = true
         demoScreen.classList.remove('hidden')
+        s.stick.release()
         s.boost.releaseAll() // экран объяснения закрывает кнопки: не оставляем ускорение залипшим
       }
       break
     case 'died': {
       s.boost.releaseAll()
+      s.stick.release()
       s.pad?.clearQueued()
       padEl.classList.add('hidden')
       hideBoostAndPause()
@@ -347,17 +353,21 @@ function hideBoostAndPause(): void {
   boostEl.classList.add('hidden')
   pauseBtn.classList.add('hidden')
   camResetBtn.classList.add('hidden')
+  stickEl.classList.add('hidden')
 }
 
 function showBoostAndPause(): void {
-  // Кнопка ускорения — напротив пульта (другой большой палец); в 'swipes' пульта нет, сторона та же по выбору.
-  // Кнопка сброса камеры стоит над ускорением, на той же стороне.
-  const right = boostSide(padSide) === 'right'
-  boostEl.classList.toggle('right', right)
+  // Ускорение и сброс камеры — на стороне пульта (по умолчанию справа). В 'taps' «×2» лежит в центре
+  // крестовины, сброс над пультом; в 'swipes' пульта нет, «×2» стоит в углу этой стороны, сброс над ней.
+  const right = padSide === 'right'
+  boostEl.classList.toggle('side-right', right)
   camResetBtn.classList.toggle('right', right)
   boostEl.classList.remove('hidden')
   pauseBtn.classList.remove('hidden')
   camResetBtn.classList.remove('hidden')
+  // Стик — на стороне, противоположной пульту/«×2», чтобы не делить угол с ними.
+  stickEl.classList.toggle('side-right', !right)
+  stickEl.classList.remove('hidden')
 }
 
 // --- камера игрока: наклон и зум держатся до явного сброса ---------------
@@ -381,6 +391,21 @@ function resetCamera(): void {
 
 camResetBtn.addEventListener('click', resetCamera)
 
+// Стик поворота камеры: отклонение задаёт скорость. Числа — в config.json (input.stick); размер уходит в CSS.
+const stickCfg = configJson.input.stick
+const stickTuning = { deadZone: stickCfg.deadZone, curve: stickCfg.curve }
+stickEl.style.setProperty(
+  '--stick',
+  `clamp(${stickCfg.sizeMinPx}px, ${stickCfg.sizeVmin}vmin, ${stickCfg.sizeMaxPx}px)`,
+)
+
+// Горячий путь (каждый кадр): только арифметика на месте, без объектов. Пределы те же, что у наклона двумя пальцами.
+function applyStick(x: number, y: number, dtMs: number): void {
+  userCamera.yaw = accumulateTilt(userCamera.yaw, stickStep(x, stickCfg.maxRadPerSec, dtMs), 1, TILT_LIMIT_RAD)
+  userCamera.pitch = accumulateTilt(userCamera.pitch, stickStep(y, stickCfg.maxRadPerSec, dtMs), 1, TILT_LIMIT_RAD)
+  syncCamResetButton()
+}
+
 function endSession(): void {
   hidePauseScreens()
   padEl.classList.add('hidden')
@@ -392,7 +417,20 @@ function endSession(): void {
   session = null
 }
 
+const padCrossEl = required<HTMLElement>('pad-cross')
+const boostHomeEl = boostEl.parentElement ?? document.body
+
+// «×2» переезжает в центр крестовины (taps) или обратно в угол (swipes). Переносим только при смене места:
+// повторная вставка на том же месте сорвала бы удерживаемое касание.
+function dockBoost(inCross: boolean): void {
+  const target = inCross ? padCrossEl : boostHomeEl
+  if (boostEl.parentElement !== target) target.appendChild(boostEl)
+  boostEl.classList.toggle('in-cross', inCross)
+  camResetBtn.classList.toggle('above-pad', inCross)
+}
+
 function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
+  dockBoost(scheme === 'taps')
   if (scheme !== 'taps') {
     padEl.classList.add('hidden')
     return
@@ -432,6 +470,7 @@ function startSession(size: number, scheme: InputScheme): void {
     onBoost: (on) => (on ? boost.press('btn') : boost.release('btn')),
   })
 
+  const stick = attachStick(stickEl, stickKnobEl, stickTuning)
   const s: Session = {
     state,
     view,
@@ -440,6 +479,7 @@ function startSession(size: number, scheme: InputScheme): void {
     },
     pad: null,
     boostBtn,
+    stick,
     boost,
     mode: gameMode(state),
     explainTransition: isFirstGameEver,
@@ -483,11 +523,13 @@ function startSession(size: number, scheme: InputScheme): void {
       pad.detach()
       detachCanvasInput()
       boostBtn.detach()
+      stick.detach()
     }
   } else {
     s.detachInput = () => {
       detachCanvasInput()
       boostBtn.detach()
+      stick.detach()
     }
   }
   session = s
@@ -540,6 +582,7 @@ function pauseNow(): void {
   pausedByVisibility = true
   // Ускорение на паузе выключается всегда: после «Продолжить» игрок сам зажмёт заново.
   s.boost.releaseAll()
+  s.stick.release()
   // Поверх экрана демо второй экран не нужен: после его закрытия игра продолжится сама.
   if (!demoExplainerOpen) pauseScreen.classList.remove('hidden')
 }
@@ -592,7 +635,11 @@ function frame(now: number): void {
   lastFrameTime = now
 
   if (pausedByVisibility) return
-  if (!demoExplainerOpen) dispatchEvents(s, tick(s.state, config, dtMs))
+  if (!demoExplainerOpen) {
+    dispatchEvents(s, tick(s.state, config, dtMs))
+    const st = s.stick.state
+    if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)
+  }
   // На паузе демо render идёт дальше: камера доигрывает доворот за экраном объяснения.
   s.view.render(s.state, dtMs)
 }

@@ -214,7 +214,7 @@
         min-width: 120px;
       }
 
-      /* Схема «Тапы»: компактный пульт в нижнем углу (по умолчанию справа, в меню можно слева).
+      /* Схема «Тапы»: компактный пульт в нижнем углу (по умолчанию справа, в меню можно слева; в «Свайпах» пульта нет).
          Кнопка не меньше 44 px (на телефоне ~15vmin), поля — безопасные зоны выреза и домашней полоски.
          Мини-карта живёт слева сверху, поле по центру — пульт их не закрывает. */
       #pad {
@@ -306,8 +306,8 @@
         letter-spacing: 0.02em;
       }
 
-      /* Кнопка ускорения (обе схемы): зажать — змейка идёт быстрее. Внизу, напротив пульта:
-         жмётся другим большим пальцем. Не меньше 44 px, поля — безопасные зоны. */
+      /* Кнопка ускорения (обе схемы): зажать — змейка идёт быстрее. В «Свайпах» — внизу
+         в углу стороны пульта, в «Тапах» — в центре крестовины (см. ниже). Не меньше 44 px, поля — безопасные зоны. */
       #boost {
         --boost: clamp(64px, 20vmin, 96px);
         position: absolute;
@@ -331,9 +331,30 @@
         user-select: none;
         transition: background 60ms, box-shadow 60ms;
       }
-      #boost.right {
+      #boost.side-right {
         left: auto;
         right: max(12px, env(safe-area-inset-right));
+      }
+      /* Схема «Тапы»: «×2» лежит в пустой центральной ячейке крестовины пульта (main.ts переносит её в .cross).
+         Ячейка = кнопка пульта (≥ 48 px), зазор 4 px до стрелок — как между самими стрелками. */
+      #pad #boost.in-cross {
+        position: static;
+        grid-area: 2 / 2;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 47, 176, 0.55);
+        color: rgba(255, 47, 176, 0.9);
+        font-size: calc(var(--btn) * 0.34);
+      }
+      #pad #boost.in-cross:active {
+        background: rgba(255, 47, 176, 0.3);
+      }
+      #pad #boost.in-cross.boosting {
+        border-color: var(--accent);
+        color: var(--bg);
+        background: var(--accent);
+        box-shadow: 0 0 22px var(--accent);
       }
       #boost.hidden {
         display: none;
@@ -347,6 +368,58 @@
         color: var(--bg);
         background: var(--accent);
         box-shadow: 0 0 22px var(--accent);
+      }
+
+      /* Стик поворота камеры (обе схемы): маленький, внизу у края, противоположного пульту/«×2» (по умолчанию слева).
+         Самовозвращающийся: держишь — камера едет, отпустил — ручка в центре, камера остаётся. Размер ставит main из config.json. */
+      #stick {
+        --stick: 92px;
+        position: absolute;
+        z-index: 4;
+        bottom: max(12px, env(safe-area-inset-bottom));
+        left: max(12px, env(safe-area-inset-left));
+        width: var(--stick);
+        height: var(--stick);
+        border-radius: 50%;
+        background: rgba(5, 6, 10, 0.45);
+        border: 1px solid rgba(57, 255, 224, 0.45);
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        opacity: 0.8;
+        transition: opacity 120ms;
+      }
+      #stick.side-right {
+        left: auto;
+        right: max(12px, env(safe-area-inset-right));
+      }
+      #stick.active {
+        opacity: 1;
+        border-color: var(--neon);
+      }
+      #stick.hidden {
+        display: none;
+      }
+      #stick .knob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44%;
+        height: 44%;
+        margin: -22% 0 0 -22%;
+        border-radius: 50%;
+        background: rgba(57, 255, 224, 0.35);
+        border: 1px solid var(--neon);
+        pointer-events: none;
+      }
+      #stick .glyph {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        color: rgba(57, 255, 224, 0.4);
+        pointer-events: none;
       }
 
       /* Ручная пауза: правый верхний угол — подальше от больших пальцев внизу (не нажать случайно),
@@ -375,8 +448,8 @@
         display: none;
       }
 
-      /* Сброс камеры (наклон и зум). Над кнопкой ускорения, на той же стороне и по её центру: низ экрана
-         под большие пальцы, пульт с другой стороны, счёт/карты/пауза сверху не тронуты. Выше оверлеев
+      /* Сброс камеры (наклон и зум). Над кнопкой ускорения (в «Тапах» — над пультом), на той же стороне: низ экрана
+         под большие пальцы, счёт/карты/пауза сверху не тронуты. Выше оверлеев
          (z-index), чтобы жаться и на паузе. Тускнеет, пока камера в исходном виде. */
       #cam-reset {
         --boost: clamp(64px, 20vmin, 96px);
@@ -406,6 +479,16 @@
         left: auto;
         right: calc(max(12px, env(safe-area-inset-right)) + (var(--boost) - var(--size)) / 2);
       }
+      /* Схема «Тапы»: сброс над пультом (над колонкой третьей оси, у края экрана), высота пульта = 3 кнопки + 2 зазора. */
+      #cam-reset.above-pad {
+        --btn: clamp(48px, 15vmin, 72px);
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--btn) * 3 + 8px + 10px);
+        left: calc(max(12px, env(safe-area-inset-left)) + (var(--btn) - var(--size)) / 2);
+      }
+      #cam-reset.above-pad.right {
+        left: auto;
+        right: calc(max(12px, env(safe-area-inset-right)) + (var(--btn) - var(--size)) / 2);
+      }
       #cam-reset.idle {
         opacity: 0.45;
       }
@@ -424,7 +507,7 @@
       <canvas id="game-canvas"></canvas>
 
       <div id="pad" class="hidden" role="group" aria-label="Пульт управления">
-        <div class="cross">
+        <div class="cross" id="pad-cross">
           <button type="button" class="up" data-pad="up" tabindex="-1" aria-label="Вверх">▲</button>
           <button type="button" class="left" data-pad="left" tabindex="-1" aria-label="Влево">◀</button>
           <button type="button" class="right" data-pad="right" tabindex="-1" aria-label="Вправо">▶</button>
@@ -437,6 +520,13 @@
       </div>
 
       <button type="button" id="boost" class="hidden" tabindex="-1" aria-label="Ускорение: зажми, чтобы ехать быстрее">×2</button>
+
+      <div id="stick" class="hidden" role="group" aria-label="Стик поворота камеры">
+        <svg class="glyph" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M50 10l-6 7h12zM50 90l-6-7h12zM10 50l7-6v12zM90 50l-7-6v12z" />
+        </svg>
+        <div class="knob" id="stick-knob"></div>
+      </div>
 
       <button type="button" id="pause-btn" class="hidden" tabindex="-1" aria-label="Пауза">❚❚</button>
 
