@@ -38,7 +38,7 @@ const SAME_ORIENTATION_DOT = 1 - 1e-6
 // Сглаживание следования free-камеры за головой. ВЫКЛЮЧЕНО по решению дизайнера:
 // поза берётся прямо из состояния (жёсткая привязка к вектору хода). Чтобы вернуть
 // инерцию, достаточно поставить FOLLOW_SMOOTHING_ENABLED = true.
-const FOLLOW_SMOOTHING_ENABLED = false
+const FOLLOW_SMOOTHING_ENABLED = true
 const FOLLOW_SMOOTH_MS = 130 // постоянная времени экспоненциального догона (если включено)
 const FLIGHT_FOV_KICK_DEG = 22 // на сколько градусов шире FOV в середине полёта
 const FLIGHT_SWING_FRAC = 0.35 // боковая дуга полёта, доля размера куба
@@ -93,6 +93,11 @@ export class CameraRig {
   // Сглаженное состояние free-камеры и цели.
   private fPos = new Vector3()
   private fAim = new Vector3()
+  /** Голова, сглаженная тем же догоном, что и поза. Центр орбиты наклона:
+   *  если брать сырую клетку головы, она прыгает мгновенно, а поза отстаёт —
+   *  камера вращается вокруг рассинхронизированной точки и теряет вектор. */
+  private fHead = new Vector3()
+  private headT = new Vector3()
   private fUp = new Vector3(0, 1, 0)
   private posT = new Vector3()
   private aimT = new Vector3()
@@ -187,11 +192,11 @@ export class CameraRig {
     } else {
       this.updatePlane(dtMs, s)
     }
-    this.applyTilt(dtMs, s)
+    this.applyTilt(dtMs)
   }
 
   /** Добавка поверх базовой позы: орбита вокруг pivot осями самой камеры. */
-  private applyTilt(dtMs: number, s: GameState): void {
+  private applyTilt(dtMs: number): void {
     this.tiltIdleMs += dtMs
     if (this.tiltIdleMs > TILT_HOLD_MS) {
       const r = Math.exp(-dtMs / TILT_RETURN_MS)
@@ -203,8 +208,8 @@ export class CameraRig {
     this.tiltPitch += (this.tiltPitchT - this.tiltPitch) * k
     if (Math.abs(this.tiltYaw) < TILT_EPS && Math.abs(this.tiltPitch) < TILT_EPS) return
 
-    const h = head(s)
-    this.tiltPivot.set(h.x, h.y, h.z).lerp(this.center, 1 - this.freeAmount)
+    // Центр орбиты берётся из того же сглаженного источника, что и поза камеры.
+    this.tiltPivot.copy(this.fHead).lerp(this.center, 1 - this.freeAmount)
     const cq = this.camera.quaternion
     this.tiltAxis.set(0, 1, 0).applyQuaternion(cq)
     this.tiltQ.setFromAxisAngle(this.tiltAxis, this.tiltYaw)
@@ -298,6 +303,7 @@ export class CameraRig {
       .addScaledVector(this.upT, this.settings.followHeight)
     this.aimT.set(h.x, h.y, h.z).addScaledVector(this.fwdT, this.settings.lookAheadDistance)
       .addScaledVector(this.upT, -this.settings.lookDownOffset)
+    this.headT.set(h.x, h.y, h.z)
   }
 
   private updateFree(dtMs: number, s: GameState): void {
@@ -307,10 +313,12 @@ export class CameraRig {
       this.fPos.lerp(this.posT, k)
       this.fAim.lerp(this.aimT, k)
       this.fUp.lerp(this.upT, k).normalize()
+      this.fHead.lerp(this.headT, k)
     } else {
       this.fPos.copy(this.posT)
       this.fAim.copy(this.aimT)
       this.fUp.copy(this.upT)
+      this.fHead.copy(this.headT)
     }
     this.freeAmount = 1
     this.placeFree()
