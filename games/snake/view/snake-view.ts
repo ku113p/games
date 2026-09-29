@@ -31,9 +31,9 @@ import {
   SNAKE_BODY_COLOR,
   SNAKE_TAIL_COLOR,
   SNAKE_HEAD_COLOR,
-  SNAKE_HEAD_BOOST,
   SNAKE_STRIPE_DIM,
   SNAKE_BODY_GLOW_BOOST,
+  HEAD_IDLE_BOOST,
   HEAD_GOAL_COLOR,
   HEAD_GOAL_BOOST,
   HEAD_DANGER_COLOR_FAR,
@@ -48,15 +48,14 @@ const SEGMENT_SCALE = 0.86
 const SLIDE_FRACTION = 0.4
 // Толщина балок каркаса (клеток). Голова той же формы, что и тело: отличается цветом/яркостью.
 const SEGMENT_BEAM = 0.1
-const HEAD_PULSE = 0.06
-const HEAD_PULSE_PERIOD_MS = 600
-// Пульс головы в опасности: чем ближе удар, тем чаще и сильнее (urgency 0..1 линейно между значениями).
-const DANGER_PERIOD_FAR_MS = 560
-const DANGER_PERIOD_NEAR_MS = 220
-const DANGER_PULSE_FAR = 0.09
-const DANGER_PULSE_NEAR = 0.2
-// Яркость мигает вместе с размером лишь в опасности (доля от базовой яркости).
-const DANGER_FLICKER = 0.25
+// Мягкое «дыхание» головы (размер и яркость), только если нет prefers-reduced-motion.
+// Безопасность: одно дыхание = один цикл синуса, максимальная частота 1000/1100 ≈ 0.9 Гц (< 3 вспышек/с),
+// без скачков: только гладкая синусоида малой амплитуды. Цвет опасности меняется плавным переходом, не миганием.
+const HEAD_PULSE = 0.05
+const HEAD_PULSE_PERIOD_MS = 1600
+const DANGER_PERIOD_MS = 1100
+const DANGER_PULSE = 0.06
+const DANGER_BREATH = 0.08
 
 /** Числа сигналов головы (config.headSignal): горизонт опасности в ходах и время перехода цвета. */
 export interface HeadSignalConfig {
@@ -100,7 +99,9 @@ export class SnakeView {
   private goal = false
   private goalAmount = 0
   private dangerAmount = 0
-  private urgency = 0
+  private nearAmount = 0
+  private readonly reducedMotion: MediaQueryList | null =
+    typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null
   private lastElapsed = -1
   private readonly headColor = new Color()
   private readonly tint = new Color()
@@ -180,7 +181,7 @@ export class SnakeView {
 
     const headGeometry = beamGeometry(cubeEdgeSegments(SEGMENT_SCALE / 2), SEGMENT_BEAM)
     this.headMaterial = new MeshBasicMaterial({
-      color: SNAKE_HEAD_COLOR.clone().multiplyScalar(SNAKE_HEAD_BOOST),
+      color: SNAKE_HEAD_COLOR.clone().multiplyScalar(HEAD_IDLE_BOOST),
     })
     this.headMesh = new Mesh(headGeometry, this.headMaterial)
     this.headMesh.frustumCulled = false
@@ -250,8 +251,6 @@ export class SnakeView {
       const horizon = this.signalCfg.dangerHorizon
       this.crashIn = stepsToCrash(s, horizon)
       this.goal = this.crashIn === 0 && appleOnCourse(s)
-      // Срочность: удар на следующем ходу = 1, на последнем ходу горизонта = 1/horizon.
-      if (this.crashIn > 0) this.urgency = (horizon - this.crashIn + 1) / horizon
     }
 
     const now = elapsedMs(s)
@@ -263,24 +262,22 @@ export class SnakeView {
     this.dangerAmount = danger ? Math.min(1, this.dangerAmount + rise) : Math.max(0, this.dangerAmount - fall)
     const goalTarget = this.goal && !danger
     this.goalAmount = goalTarget ? Math.min(1, this.goalAmount + rise) : Math.max(0, this.goalAmount - fall)
-    if (this.dangerAmount === 0 && !danger) this.urgency = 0
+    // Оттенок опасности: за 2 хода оранжевый, за 1 ход красный (плавный переход между ними).
+    this.nearAmount = this.crashIn === 1 ? Math.min(1, this.nearAmount + rise) : Math.max(0, this.nearAmount - fall)
 
-    const hot = this.urgency
-    const period = MathUtils.lerp(DANGER_PERIOD_FAR_MS, DANGER_PERIOD_NEAR_MS, hot)
-    const dangerPhase = ((now % period) / period) * Math.PI * 2
-    const dangerWave = Math.sin(dangerPhase)
-    const idlePhase = ((now % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2
-    const idleWave = Math.sin(idlePhase)
-    const pulse = MathUtils.lerp(HEAD_PULSE * idleWave, MathUtils.lerp(DANGER_PULSE_FAR, DANGER_PULSE_NEAR, hot) * dangerWave, this.dangerAmount)
+    // Дыхание: гладкая синусоида, при prefers-reduced-motion нет вовсе.
+    const calm = this.reducedMotion !== null && this.reducedMotion.matches
+    const idleWave = calm ? 0 : Math.sin(((now % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2)
+    const dangerWave = calm ? 0 : Math.sin(((now % DANGER_PERIOD_MS) / DANGER_PERIOD_MS) * Math.PI * 2)
+    const pulse = MathUtils.lerp(HEAD_PULSE * idleWave, DANGER_PULSE * dangerWave, this.dangerAmount)
     this.headMesh.scale.setScalar(1 + pulse)
 
-    const c = this.headColor.copy(SNAKE_HEAD_COLOR).multiplyScalar(SNAKE_HEAD_BOOST)
+    const c = this.headColor.copy(SNAKE_HEAD_COLOR).multiplyScalar(HEAD_IDLE_BOOST)
     if (this.goalAmount > 0) {
       c.lerp(this.tint.copy(HEAD_GOAL_COLOR).multiplyScalar(HEAD_GOAL_BOOST), this.goalAmount)
     }
     if (this.dangerAmount > 0) {
-      const flicker = 1 + DANGER_FLICKER * hot * dangerWave
-      this.tint.copy(HEAD_DANGER_COLOR_FAR).lerp(HEAD_DANGER_COLOR_NEAR, MathUtils.clamp(hot * 2 - 1, 0, 1)).multiplyScalar(flicker)
+      this.tint.copy(HEAD_DANGER_COLOR_FAR).lerp(HEAD_DANGER_COLOR_NEAR, this.nearAmount).multiplyScalar(1 + DANGER_BREATH * dangerWave)
       c.lerp(this.tint, this.dangerAmount)
     }
     this.headMaterial.color.copy(c)
