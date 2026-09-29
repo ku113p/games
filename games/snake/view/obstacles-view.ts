@@ -49,6 +49,8 @@ const OBSTACLE_SCALE = 0.98
 // жаловался на тонкие и рвущиеся грани. Мировая ширина в клетках — чтобы вблизи ребро было объёмнее.
 const OBSTACLE_EDGE_MIN_PX = 2.2
 const OBSTACLE_EDGE_WORLD_W = 0.04
+// Сдвиг ленты к камере по глубине, в её мировых ширинах: 0 — без сдвига (рёбра выедаются гранями).
+const OBSTACLE_EDGE_DEPTH_K = 3
 const COMMON = /* glsl */ `
 uniform float uHalf;
 uniform vec3 uHead;
@@ -68,6 +70,7 @@ attribute float aAxis;
 uniform vec2 uRes;
 uniform float uMinPx;
 uniform float uWorldW;
+uniform float uDepthK;
 ${COMMON}
 void main() {
   vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
@@ -95,7 +98,15 @@ void main() {
   vec2 sc = atB ? sb : sa;
   float wpx = max(uMinPx, uWorldW * projectionMatrix[1][1] * half_.y / c.w);
   vec2 sp = sc + d * ((atB ? 0.5 : -0.5) * wpx) + nrm * (position.y * 0.5 * wpx);
-  gl_Position = vec4(sp / half_ * c.w, c.z, c.w);
+  // Ребро лежит на стыке граней, а лента шире линии: её половина оказывается «внутри» куба или за
+  // гранью, которая на вогнутом изломе или при скользящем угле ближе к камере по глубине, и depth-тест
+  // выедает ленту. polygonOffset считается от наклона полигона граней и ленте по ширине не помогает,
+  // поэтому лента сдвигается к камере на вид-пространственную глубину, пропорциональную её ширине
+  // в мире (uDepthK ширин): вдали ширина в мире больше, и запас растёт вместе с ней.
+  float bias = uDepthK * wpx * c.w / (half_.y * projectionMatrix[1][1]);
+  float wv = max(c.w - bias, 0.02);
+  float zc = max((c.z + projectionMatrix[2][2] * bias) / wv, -1.0) * c.w;
+  gl_Position = vec4(sp / half_ * c.w, zc, c.w);
   vec4 mvPosition = viewMatrix * vec4(atB ? wb : wa, 1.0);
   #include <fog_vertex>
 }
@@ -277,6 +288,7 @@ export class ObstaclesView {
       uRes: { value: this.res },
       uMinPx: { value: OBSTACLE_EDGE_MIN_PX },
       uWorldW: { value: OBSTACLE_EDGE_WORLD_W },
+      uDepthK: { value: OBSTACLE_EDGE_DEPTH_K },
     }
     this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide })
     const lines = new Mesh(geometry as BufferGeometry, this.material)
