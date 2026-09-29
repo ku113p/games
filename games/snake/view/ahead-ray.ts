@@ -10,7 +10,7 @@
 // (см. appleTargeted). Боковые лучи преграды не подсвечивают: четыре
 // подсветки разом дали бы рябь.
 //
-// Фаза plane: боковые только в плоскости экрана (±right, ±up из cameraFrame),
+// Фаза plane: боковые только в плоскости экрана (±right, ±up из viewFrame),
 // глубина не показывается — первая игра должна выглядеть плоской змейкой.
 // Фаза free: heading = -depth, боковые = ±right, ±up (то же, что четыре свайпа).
 // Разворот назад не рисуется никогда (направление вдоль оси движения отсеяно).
@@ -21,7 +21,7 @@
 
 import { BoxGeometry, Color, Matrix4, MeshBasicMaterial, type Scene } from 'three'
 import type { GameState } from '../core/state'
-import { applePos, cameraFrame, cubeSize, elapsedMs, forEachSnakeSegment, gameMode, head, snakeLength } from '../core/queries'
+import { applePos, viewFrame, cubeSize, elapsedMs, forEachSnakeSegment, gameMode, head, snakeLength } from '../core/queries'
 import { InstancedPool } from './pool'
 import { RAY_HIT_FILL_BRIGHTNESS, RAY_DANGER_COLOR, RAY_MAIN_BRIGHTNESS, RAY_SIDE_BRIGHTNESS } from './palette'
 
@@ -104,7 +104,7 @@ export class AheadRay {
     const h = head(s)
     this.refreshBody(s, size, h.x, h.y, h.z)
 
-    const frame = cameraFrame(s)
+    const frame = viewFrame(s)
     const free = gameMode(s) === 'free'
     if (free) {
       dx = -frame.depth.x

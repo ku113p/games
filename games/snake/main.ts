@@ -6,9 +6,19 @@ import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from
 import type { AxisDir, GameState, ScreenDir } from './core/state'
 import { gameMode, isAlive, score } from './core/queries'
 import { createView, type View } from './view/index'
+import { resetUserCamera, userCamera } from './view/camera-rig'
 import { attachPad, type Pad } from './input/pad'
 import { attachBoostButton, type BoostButton } from './input/boost'
-import { boostSide, createBoostHold, parsePadSide, type BoostHold, type PadSide } from './input/gestures'
+import {
+  accumulateTilt,
+  boostSide,
+  clampZoom,
+  createBoostHold,
+  parsePadSide,
+  TILT_LIMIT_RAD,
+  type BoostHold,
+  type PadSide,
+} from './input/gestures'
 import { attachInput, type InputHandlers, type InputScheme } from './input/index'
 import { createAudio, type SoundConfig } from './view/audio'
 import musicUrl from './assets/music/cyber-runner.mp3'
@@ -49,6 +59,8 @@ const toMenuBtn = required<HTMLButtonElement>('to-menu')
 const padEl = required<HTMLElement>('pad')
 const boostEl = required<HTMLElement>('boost')
 const pauseBtn = required<HTMLButtonElement>('pause-btn')
+const camResetBtn = required<HTMLButtonElement>('cam-reset')
+const pauseToMenuBtn = required<HTMLButtonElement>('pause-to-menu')
 const padSideOptions = required<HTMLElement>('pad-side-options')
 const sizeOptions = required<HTMLElement>('size-options')
 const schemeOptions = required<HTMLElement>('scheme-options')
@@ -296,10 +308,7 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
       hidePauseScreens()
       const finalScore = score(s.state)
       finalScoreEl.textContent = String(finalScore)
-      if (finalScore > highScore) {
-        highScore = finalScore
-        writeHighScore(highScore)
-      }
+      commitScore(finalScore)
       finalHighScoreEl.textContent = String(highScore)
       hud.classList.add('hidden')
       gameOverScreen.classList.remove('hidden')
@@ -307,6 +316,14 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
     }
     default:
       break
+  }
+}
+
+// Партия закончилась (смерть или выход с паузы): счёт может побить рекорд.
+function commitScore(finalScore: number): void {
+  if (finalScore > highScore) {
+    highScore = finalScore
+    writeHighScore(highScore)
   }
 }
 
@@ -329,14 +346,40 @@ function dispatchEvents(s: Session, events: GameEvent[]): void {
 function hideBoostAndPause(): void {
   boostEl.classList.add('hidden')
   pauseBtn.classList.add('hidden')
+  camResetBtn.classList.add('hidden')
 }
 
 function showBoostAndPause(): void {
   // Кнопка ускорения — напротив пульта (другой большой палец); в 'swipes' пульта нет, сторона та же по выбору.
-  boostEl.classList.toggle('right', boostSide(padSide) === 'right')
+  // Кнопка сброса камеры стоит над ускорением, на той же стороне.
+  const right = boostSide(padSide) === 'right'
+  boostEl.classList.toggle('right', right)
+  camResetBtn.classList.toggle('right', right)
   boostEl.classList.remove('hidden')
   pauseBtn.classList.remove('hidden')
+  camResetBtn.classList.remove('hidden')
 }
+
+// --- камера игрока: наклон и зум держатся до явного сброса ---------------
+
+const ZOOM_MIN = configJson.camera.zoomMin
+const ZOOM_MAX = configJson.camera.zoomMax
+
+// Кнопка сброса тускнеет, пока камера в исходном виде: видно, что жать нечего.
+function syncCamResetButton(): void {
+  const idle = userCamera.yaw === 0 && userCamera.pitch === 0 && userCamera.zoom === 1
+  camResetBtn.classList.toggle('idle', idle)
+}
+
+// Единая точка сброса наклона и зума: кнопка на экране, клавиша R и старт партии. Работает и на паузе:
+// цель обнуляется сразу (кнопка стоит выше оверлея паузы), картинка догонит её после «Продолжить»
+// (на ручной паузе кадры не рисуются, на экране демо-поворота — рисуются).
+function resetCamera(): void {
+  resetUserCamera()
+  syncCamResetButton()
+}
+
+camResetBtn.addEventListener('click', resetCamera)
 
 function endSession(): void {
   hidePauseScreens()
@@ -364,6 +407,10 @@ function startSession(size: number, scheme: InputScheme): void {
   endSession()
   lastSize = size
   lastScheme = scheme
+
+  // Наклон и зум прошлой партии не переезжают в новую: иначе можно начать игру в неиграбельном ракурсе
+  // и не понять почему. Сбрасываем на старте (а не по выходу) — так кнопка «Ещё раз» тоже чистая.
+  resetCamera()
 
   const isFirstGameEver = readIsFirstGameEver()
   // В первой игре ядро стартует в 'plane' и переезжает на demo.afterSteps ходу,
@@ -414,9 +461,18 @@ function startSession(size: number, scheme: InputScheme): void {
       if (isPaused()) resumeFromPause()
       else pauseNow()
     },
-    onCameraTilt(yaw: number, pitch: number) {
-      s.view.setCameraTilt(yaw, pitch)
+    onCameraTiltBy(dYaw: number, dPitch: number) {
+      if (isPaused()) return
+      userCamera.yaw = accumulateTilt(userCamera.yaw, dYaw, 1, TILT_LIMIT_RAD)
+      userCamera.pitch = accumulateTilt(userCamera.pitch, dPitch, 1, TILT_LIMIT_RAD)
+      syncCamResetButton()
     },
+    onCameraZoomBy(factor: number) {
+      if (isPaused()) return
+      userCamera.zoom = clampZoom(userCamera.zoom * factor, ZOOM_MIN, ZOOM_MAX)
+      syncCamResetButton()
+    },
+    onCameraReset: resetCamera,
   }
 
   const detachCanvasInput = attachInput(canvas, scheme, config, handlers)
@@ -450,6 +506,8 @@ function startSession(size: number, scheme: InputScheme): void {
 }
 
 function returnToMenu(): void {
+  // Выход с паузы посреди партии: набранный счёт идёт в рекорд, как при смерти.
+  if (session !== null && isAlive(session.state)) commitScore(score(session.state))
   gameOverScreen.classList.add('hidden')
   hud.classList.add('hidden')
   highScoreEl.textContent = String(highScore)
@@ -465,6 +523,7 @@ tapToPlayBtn.addEventListener('click', () => {
 // «Ещё раз» — новая партия с теми же размером и схемой, без возврата в меню.
 playAgainBtn.addEventListener('click', () => startSession(lastSize, lastScheme))
 toMenuBtn.addEventListener('click', returnToMenu)
+pauseToMenuBtn.addEventListener('click', returnToMenu)
 
 // --- пауза: сворачивание вкладки и экран демо-поворота -------------------
 

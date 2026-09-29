@@ -28,12 +28,17 @@
     "microPauseMs": 90,
     "glitchMs": 180,
     "distanceFactor": 1.6,
-    "followDistance": 4.5,
-    "followHeight": 2.5,
+    "followDistance": 6,
+    "followHeight": 3.6,
     "lateralOffset": 0.7,
     "lookAheadDistance": 10,
     "lookDownOffset": 1.5,
-    "modeSwitchMs": 1400
+    "modeSwitchMs": 1400,
+    "zoomMin": 0.5,
+    "zoomMax": 2,
+    "zoomWheelPerPx": 0.0012,
+    "zoomPinchGain": 1,
+    "zoomFollowMs": 120
   },
   "hints": {
     "latticeAt": "corners",
@@ -55,7 +60,8 @@
   "input": {
     "doubleTapMs": 240,
     "swipeMinPx": 24,
-    "tiltRadPerPx": 0.005
+    "tiltRadPerPx": 0.005,
+    "twoFingerLockPx": 10
   },
   "sound": {
     "music": {

@@ -47,7 +47,7 @@ import {
   type WebGLRenderer,
 } from 'three'
 import type { GameState } from '../core/state'
-import { applePos, cameraFrame, cubeSize, forEachObstacle, forEachSnakeSegment, head, snakeLength } from '../core/queries'
+import { applePos, viewFrame, cubeSize, forEachObstacle, forEachSnakeSegment, head, snakeLength } from '../core/queries'
 import { clampToWindow, isInWindow, levelFraction, touchesHighWall, touchesLowWall, windowLength, windowStart } from './map-window'
 import {
   APPLE_COLOR,
@@ -448,7 +448,9 @@ export class MiniMap {
     const size = cubeSize(s)
     const hd = head(s)
     const ap = applePos(s)
-    const f = cameraFrame(s)
+    // viewFrame: стрелка головы на карте должна разворачиваться сразу по вводу,
+    // вместе с камерой и подсказками, а не на следующем такте.
+    const f = viewFrame(s)
 
     // Слои: пересборка только при смене головы/размера/партии/длины (то есть раз в шаг).
     const key = hd.x + size * (hd.y + size * hd.z)

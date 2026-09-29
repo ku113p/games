@@ -1,6 +1,7 @@
 // core/queries.ts — только чтение состояния. Чистый TS, без Three.js.
 // Вызывается из view/ каждый кадр (рендер и препятствия через InstancedMesh) — без аллокаций.
 
+import { rotateFrameOf } from './rules'
 import { effectiveStepMs, type GameState, type Mode, type Vec3, type Frame } from './state'
 
 export function head(s: GameState): Vec3 {
@@ -86,4 +87,54 @@ export function isBoosting(s: GameState): boolean {
 /** Идёт ли текущий шаг в ускоренном темпе (ДЕЙСТВУЮЩЕЕ состояние; переключается на границе шага). */
 export function isBoostActive(s: GameState): boolean {
   return s.boosting
+}
+
+/**
+ * Куда змейка повёрнута ПРЯМО СЕЙЧАС в глазах игрока: направление, которое она возьмёт на ближайшем такте
+ * (буфер pendingTurn: свайп, кнопка пульта, ось), а если ввода нет — текущий heading. Только чтение,
+ * без копии. Голова, луч и подсказки берут направление отсюда, а не из геометрии тела: тело до такта
+ * не двигается, и по разнице «голова минус шея» ввод был бы виден только на следующем шаге.
+ * Правила ядра (столкновения, шаг) этим запросом не пользуются — там истина s.heading.
+ */
+export function intendedHeading(s: GameState): Readonly<Vec3> {
+  return s.pendingTurn ?? s.heading
+}
+
+// Переиспользуемый кадр под viewFrame: запрос вызывается каждый кадр, без аллокаций.
+const VIEW_FRAME: Frame = {
+  right: { x: 0, y: 0, z: 0 },
+  up: { x: 0, y: 0, z: 0 },
+  depth: { x: 0, y: 0, z: 0 },
+}
+const VIEW_AXIS: Vec3 = { x: 0, y: 0, z: 0 }
+
+function copyVec(to: Vec3, from: Vec3): void {
+  to.x = from.x
+  to.y = from.y
+  to.z = from.z
+}
+
+/**
+ * Кадр камеры в глазах игрока: cameraFrame плюс уже введённый, но ещё не исполненный поворот.
+ * В 'free' камера смотрит вдоль heading (depth = -heading), поэтому поворот (свайп) доворачивает кадр
+ * на то же +90° вокруг heading × pendingTurn, что сделает такт (rules.reorientFrameFree) — но сразу,
+ * не дожидаясь шага. На такте кадр ядра станет ровно этим же, повторного скачка нет.
+ * В 'plane' камера от heading не зависит, а доворот оси (turnAxis) ядро делает в момент команды —
+ * там кадр и так актуален. Возвращает общий переиспользуемый объект (не хранить между кадрами, не менять);
+ * без ввода в очереди — сам s.frame.
+ */
+export function viewFrame(s: GameState): Frame {
+  const pending = s.pendingTurn
+  if (s.mode !== 'free' || pending === null) return s.frame
+  const h = s.heading
+  VIEW_AXIS.x = h.y * pending.z - h.z * pending.y
+  VIEW_AXIS.y = h.z * pending.x - h.x * pending.z
+  VIEW_AXIS.z = h.x * pending.y - h.y * pending.x
+  // Поворот «прямо» или на 180° оси не задаёт (ввод такое не пропускает); кадр остаётся как есть.
+  if (VIEW_AXIS.x === 0 && VIEW_AXIS.y === 0 && VIEW_AXIS.z === 0) return s.frame
+  copyVec(VIEW_FRAME.right, s.frame.right)
+  copyVec(VIEW_FRAME.up, s.frame.up)
+  copyVec(VIEW_FRAME.depth, s.frame.depth)
+  rotateFrameOf(VIEW_FRAME, VIEW_AXIS)
+  return VIEW_FRAME
 }

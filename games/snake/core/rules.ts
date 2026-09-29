@@ -205,9 +205,14 @@ function rotateVecInPlace(v: Vec3, axis: Vec3): void {
  * на месте — без новых объектов.
  */
 export function rotateFrame(s: GameState, axis: Vec3): void {
-  rotateVecInPlace(s.frame.right, axis)
-  rotateVecInPlace(s.frame.up, axis)
-  rotateVecInPlace(s.frame.depth, axis)
+  rotateFrameOf(s.frame, axis)
+}
+
+/** То же, что rotateFrame, но над произвольным Frame (для запросов, которые считают вид на копии). */
+export function rotateFrameOf(frame: Frame, axis: Vec3): void {
+  rotateVecInPlace(frame.right, axis)
+  rotateVecInPlace(frame.up, axis)
+  rotateVecInPlace(frame.depth, axis)
 }
 
 /**

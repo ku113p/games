@@ -13,6 +13,11 @@ import {
   swipeDirection,
   TILT_LIMIT_RAD,
   tiltPointersNeeded,
+  clampZoom,
+  pinchZoomFactor,
+  twoFingerMode,
+  wheelZoomFactor,
+  zoomTuning,
 } from './gestures'
 
 describe('swipeDirection', () => {
@@ -230,5 +235,71 @@ describe('createBoostHold', () => {
     hold.releaseAll()
     hold.press('a')
     expect(log).toEqual([true, false, true])
+  })
+})
+
+describe('зум камеры: колесо и щипок', () => {
+  test('колесо: вниз — дальше (>1), вверх — ближе (<1), ноль — без изменений', () => {
+    expect(wheelZoomFactor(100, 0, 0.0012)).toBeGreaterThan(1)
+    expect(wheelZoomFactor(-100, 0, 0.0012)).toBeLessThan(1)
+    expect(wheelZoomFactor(0, 0, 0.0012)).toBe(1)
+  })
+
+  test('колесо: логарифмическое — шаг вниз и такой же вверх взаимно уничтожаются', () => {
+    expect(wheelZoomFactor(100, 0, 0.0012) * wheelZoomFactor(-100, 0, 0.0012)).toBeCloseTo(1, 12)
+  })
+
+  test('колесо: строки и страницы приводятся к пикселям (deltaMode 1 и 2)', () => {
+    expect(wheelZoomFactor(3, 1, 0.001)).toBeCloseTo(Math.exp(3 * 16 * 0.001), 12)
+    expect(wheelZoomFactor(1, 2, 0.001)).toBeCloseTo(Math.exp(400 * 0.001), 12)
+  })
+
+  test('щипок: разводят пальцы — ближе, сводят — дальше, вдвое шире — вдвое ближе (gain 1)', () => {
+    expect(pinchZoomFactor(100, 200, 1)).toBeCloseTo(0.5, 12)
+    expect(pinchZoomFactor(200, 100, 1)).toBeCloseTo(2, 12)
+    expect(pinchZoomFactor(100, 100, 1)).toBe(1)
+  })
+
+  test('щипок: gain усиливает или гасит; нулевые расстояния безопасны', () => {
+    expect(pinchZoomFactor(100, 200, 2)).toBeCloseTo(0.25, 12)
+    expect(pinchZoomFactor(0, 50, 1)).toBe(1)
+    expect(pinchZoomFactor(50, 0, 1)).toBe(1)
+  })
+
+  test('clampZoom зажимает в пределы конфига', () => {
+    expect(clampZoom(0.1, 0.5, 2)).toBe(0.5)
+    expect(clampZoom(9, 0.5, 2)).toBe(2)
+    expect(clampZoom(1.3, 0.5, 2)).toBe(1.3)
+  })
+
+  test('zoomTuning читает числа из конфига, а без них даёт запасные', () => {
+    const t = zoomTuning({ camera: { zoomWheelPerPx: 0.5, zoomPinchGain: 2 }, input: { twoFingerLockPx: 7 } })
+    expect(t).toEqual({ wheelPerPx: 0.5, pinchGain: 2, lockPx: 7 })
+    const d = zoomTuning({ camera: {}, input: {} })
+    expect(d.wheelPerPx).toBeGreaterThan(0)
+    expect(d.pinchGain).toBeGreaterThan(0)
+    expect(d.lockPx).toBeGreaterThan(0)
+  })
+})
+
+describe('twoFingerMode: два пальца — наклон или зум', () => {
+  const LOCK = 10
+  test('пока ничего не набежало — ждём', () => {
+    expect(twoFingerMode(0, 0, LOCK)).toBe('pending')
+    expect(twoFingerMode(9, 3, LOCK)).toBe('pending')
+  })
+  test('пальцы поехали вместе (центр сдвинулся, раскрытие нет) — наклон', () => {
+    expect(twoFingerMode(30, 2, LOCK)).toBe('tilt')
+  })
+  test('щипок (раскрытие изменилось, центр почти на месте) — зум', () => {
+    expect(twoFingerMode(2, 30, LOCK)).toBe('zoom')
+  })
+  test('щипок с дрожащим центром и наклон с дрожащим раскрытием не путаются', () => {
+    expect(twoFingerMode(8, 25, LOCK)).toBe('zoom')
+    expect(twoFingerMode(25, 8, LOCK)).toBe('tilt')
+  })
+  test('сдвинулся только один палец: сдвиг центра и раскрытие равны — неоднозначно, ждём второй палец', () => {
+    expect(twoFingerMode(12, 12, LOCK)).toBe('pending')
+    expect(twoFingerMode(12, 13, LOCK)).toBe('pending')
   })
 })

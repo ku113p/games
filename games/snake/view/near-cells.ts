@@ -24,7 +24,7 @@
 
 import { BufferAttribute, BufferGeometry, Color, Points, ShaderMaterial, type Scene } from 'three'
 import type { GameState } from '../core/state'
-import { cameraFrame, head } from '../core/queries'
+import { viewFrame, head } from '../core/queries'
 import { HeadTrace, HitKind, type SolidTest } from './head-trace'
 import { NEAR_FAR_ALPHA, NEAR_FAR_SIZE, NEAR_BLOCKED_BRIGHTNESS, NEAR_FORWARD_BRIGHTNESS, NEAR_SIDE_BRIGHTNESS, RAY_DANGER_COLOR } from './palette'
 
@@ -194,7 +194,7 @@ export class NearCells {
    */
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest): void {
     const h = head(s)
-    const frame = cameraFrame(s)
+    const frame = viewFrame(s)
     this.n = 0
     this.putPair(s, h.x, h.y, h.z, dx, dy, dz, 0, isSolid)
     for (let a = 0; a < 3; a++) {

@@ -9,12 +9,15 @@
 // состояние сбрасывается и по lostpointercapture / pointercancel.
 import type { Config } from '../core/rules'
 import {
-  accumulateTilt,
   isDoubleTap,
+  pinchZoomFactor,
   pointerRole,
   swipeDirection,
-  TILT_LIMIT_RAD,
   tiltPointersNeeded,
+  twoFingerMode,
+  wheelZoomFactor,
+  zoomTuning,
+  type TwoFingerMode,
 } from './gestures'
 import type { InputHandlers, InputScheme } from './index'
 
@@ -26,17 +29,25 @@ export function attachTouch(
 ): () => void {
   let activePointerId: number | null = null
 
-  // Наклон камеры: ПК — тянуть мышью с правой кнопкой (левая остаётся за свайпами/тапами),
-  // телефон — тянуть двумя пальцами. Позиции всех прижатых указателей нужны для центроида.
+  // Камера от игрока. ПК: наклон — тянуть мышью с правой кнопкой (левая остаётся за свайпами/тапами),
+  // зум — колесо. Телефон: два пальца, и они означают ЛИБО наклон (пальцы едут вместе), ЛИБО зум (щипок).
+  // Что именно — решается один раз за жест по тому, что набежало первым (twoFingerMode), дальше не пересматривается.
+  // Наружу уходят приращения (onCameraTiltBy / onCameraZoomBy): накопленное значение и его пределы держит main,
+  // поэтому наклон и зум остаются на месте после жеста, а сбросить их может только явный сброс.
   const down = new Map<number, { x: number; y: number }>()
   let tilting = false
   let tiltIsMouse = false
-  let tiltYaw = 0
-  let tiltPitch = 0
+  let fingerMode: TwoFingerMode = 'tilt'
+  let baseCx = 0
+  let baseCy = 0
+  let baseSpread = 0
   let prevCx = 0
   let prevCy = 0
+  let prevSpread = 0
   const tiltRadPerPx = config.input.tiltRadPerPx
+  const tuning = zoomTuning(config)
 
+  // Центр и раскрытие (средняя дистанция пальцев от центра) всех прижатых указателей.
   function centroid(): void {
     let sx = 0
     let sy = 0
@@ -47,6 +58,9 @@ export function attachTouch(
     const n = down.size || 1
     prevCx = sx / n
     prevCy = sy / n
+    let sd = 0
+    for (const p of down.values()) sd += Math.hypot(p.x - prevCx, p.y - prevCy)
+    prevSpread = sd / n
   }
 
   function startTilt(isMouse: boolean): void {
@@ -55,22 +69,31 @@ export function attachTouch(
     clearPendingTap()
     tilting = true
     tiltIsMouse = isMouse
-    tiltYaw = 0
-    tiltPitch = 0
+    fingerMode = isMouse ? 'tilt' : 'pending'
     centroid()
+    rebase()
   }
 
+  // Точка отсчёта жеста двух пальцев (для порога): сдвиг и раскрытие считаются от неё.
+  function rebase(): void {
+    baseCx = prevCx
+    baseCy = prevCy
+    baseSpread = prevSpread
+  }
+
+  // Жест закончился: НИЧЕГО не возвращаем, наклон и зум остаются как есть до явного сброса.
   function endTilt(): void {
-    if (!tilting) return
     tilting = false
-    tiltYaw = 0
-    tiltPitch = 0
-    h.onCameraTilt?.(0, 0) // вид сам плавно вернёт камеру
   }
 
   function forgetPointer(id: number): void {
     if (!down.delete(id)) return
-    if (tilting && down.size < tiltPointersNeeded(tiltIsMouse)) endTilt()
+    if (!tilting) return
+    if (down.size < tiltPointersNeeded(tiltIsMouse)) endTilt()
+    else {
+      centroid() // ушёл один из трёх пальцев: без скачка
+      rebase()
+    }
   }
   let startX = 0
   let startY = 0
@@ -127,7 +150,11 @@ export function attachTouch(
       } catch {
         // Указатель уже исчез — pointerup/lostpointercapture всё сбросят.
       }
-      if (tilting) centroid() // третий палец: без скачка
+      if (tilting) {
+        // третий палец: без скачка
+        centroid()
+        rebase()
+      }
       else startTilt(e.pointerType === 'mouse')
       return
     }
@@ -155,10 +182,20 @@ export function attachTouch(
       if (p === undefined) return
       const px = prevCx
       const py = prevCy
+      const ps = prevSpread
       centroid()
-      tiltYaw = accumulateTilt(tiltYaw, prevCx - px, tiltRadPerPx, TILT_LIMIT_RAD)
-      tiltPitch = accumulateTilt(tiltPitch, prevCy - py, tiltRadPerPx, TILT_LIMIT_RAD)
-      h.onCameraTilt?.(tiltYaw, tiltPitch)
+      const dx = prevCx - px
+      const dy = prevCy - py
+      if (fingerMode === 'pending') {
+        fingerMode = twoFingerMode(
+          Math.hypot(prevCx - baseCx, prevCy - baseCy),
+          Math.abs(prevSpread - baseSpread),
+          tuning.lockPx,
+        )
+        return // до решения ничего не шлём: набежавшие пиксели уходят в «мёртвую зону» жеста
+      }
+      if (fingerMode === 'tilt') h.onCameraTiltBy?.(dx * tiltRadPerPx, dy * tiltRadPerPx)
+      else h.onCameraZoomBy?.(pinchZoomFactor(ps, prevSpread, tuning.pinchGain))
       return
     }
     if (e.pointerId !== activePointerId) return
@@ -203,7 +240,15 @@ export function attachTouch(
     e.preventDefault()
   }
 
+  // Колесо мыши — зум. Слушатель НЕ пассивный: иначе preventDefault не сработает и страница поедет.
+  function onWheel(e: WheelEvent): void {
+    e.preventDefault()
+    if (e.deltaY === 0) return
+    h.onCameraZoomBy?.(wheelZoomFactor(e.deltaY, e.deltaMode, tuning.wheelPerPx))
+  }
+
   el.addEventListener('pointerdown', onPointerDown)
+  el.addEventListener('wheel', onWheel, { passive: false })
   el.addEventListener('pointermove', onPointerMove)
   el.addEventListener('pointerup', onPointerUp)
   el.addEventListener('pointercancel', onPointerCancel)
@@ -212,6 +257,7 @@ export function attachTouch(
 
   return () => {
     el.removeEventListener('pointerdown', onPointerDown)
+    el.removeEventListener('wheel', onWheel)
     el.removeEventListener('pointermove', onPointerMove)
     el.removeEventListener('pointerup', onPointerUp)
     el.removeEventListener('pointercancel', onPointerCancel)

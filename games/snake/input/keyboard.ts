@@ -1,4 +1,5 @@
-// Клавиатура ПК: стрелки/WASD — поворот в плоскости, Q/E — третья ось, Shift/Space (зажать) — ускорение.
+// Клавиатура ПК: стрелки/WASD — поворот в плоскости, Q/E — третья ось, Shift/Space (зажать) — ускорение,
+// R — сброс камеры (наклон и зум).
 // Работает в обеих схемах управления (swipes и taps).
 // Читаем e.code (физическая клавиша), а не e.key: в русской раскладке WASD
 // приходит как ц/ф/ы/в, и e.key ломал бы управление.
@@ -40,6 +41,13 @@ export function attachKeyboard(h: InputHandlers): () => void {
     if (e.code === 'Escape') {
       e.preventDefault()
       if (!e.repeat) h.onPause?.()
+      return
+    }
+    // R (Reset) — сброс камеры. Без модификаторов: Ctrl+R — перезагрузка страницы, не наше.
+    if (e.code === 'KeyR') {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      e.preventDefault()
+      if (!e.repeat) h.onCameraReset?.()
       return
     }
     if (isBoostCode(e.code)) {

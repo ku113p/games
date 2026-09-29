@@ -146,3 +146,71 @@ export function createBoostHold(onChange: (on: boolean) => void): BoostHold {
     isOn: () => on,
   }
 }
+
+// --- Зум камеры (колесо мыши, щипок) и разбор двух пальцев -----------------
+
+/** Запасные значения, пока в config.camera / config.input нет полей зума (см. tuning ниже). */
+const DEFAULT_WHEEL_PER_PX = 0.0012
+const DEFAULT_PINCH_GAIN = 1
+const DEFAULT_TWO_FINGER_LOCK_PX = 10
+// deltaMode колеса: 0 — пиксели, 1 — строки, 2 — страницы. Строку/страницу приводим к пикселям.
+const WHEEL_LINE_PX = 16
+const WHEEL_PAGE_PX = 400
+
+export interface ZoomTuning {
+  /** Логарифмическая чувствительность колеса: множитель дистанции = exp(deltaPx * wheelPerPx). */
+  wheelPerPx: number
+  /** Степень щипка: множитель = (расстояние_было / расстояние_стало) ^ pinchGain. */
+  pinchGain: number
+  /** Сколько пикселей должно набежать (сведение-разведение или сдвиг центра), чтобы жест двух пальцев определился. */
+  lockPx: number
+}
+
+/** Числа лежат в config.camera (зум) и config.input (порог), в типе Config их может не быть — читаем мягко. */
+export function zoomTuning(config: {
+  camera: object
+  input: object
+}): ZoomTuning {
+  const cam = config.camera as { zoomWheelPerPx?: number; zoomPinchGain?: number }
+  const inp = config.input as { twoFingerLockPx?: number }
+  return {
+    wheelPerPx: cam.zoomWheelPerPx ?? DEFAULT_WHEEL_PER_PX,
+    pinchGain: cam.zoomPinchGain ?? DEFAULT_PINCH_GAIN,
+    lockPx: inp.twoFingerLockPx ?? DEFAULT_TWO_FINGER_LOCK_PX,
+  }
+}
+
+/** Колесо → множитель дистанции камеры. Вниз (deltaY > 0) — дальше (>1), вверх — ближе (<1). */
+export function wheelZoomFactor(deltaY: number, deltaMode: number, wheelPerPx: number): number {
+  const px = deltaMode === 1 ? deltaY * WHEEL_LINE_PX : deltaMode === 2 ? deltaY * WHEEL_PAGE_PX : deltaY
+  return Math.exp(px * wheelPerPx)
+}
+
+/** Щипок → множитель дистанции камеры: пальцы разводят (spread растёт) — камера ближе (<1). */
+export function pinchZoomFactor(prevSpread: number, spread: number, gain: number): number {
+  if (prevSpread <= 0 || spread <= 0) return 1
+  return Math.pow(prevSpread / spread, gain)
+}
+
+/** Зажим зума (множитель дистанции) в пределы из конфига. */
+export function clampZoom(zoom: number, min: number, max: number): number {
+  return zoom < min ? min : zoom > max ? max : zoom
+}
+
+/** Что делают два пальца на холсте: пока не набежал порог — 'pending', потом навсегда до отпускания — одно из двух. */
+export type TwoFingerMode = 'pending' | 'tilt' | 'zoom'
+
+/**
+ * Разводит наклон и зум. moved — на сколько сместился центр пальцев с начала жеста (px, по модулю),
+ * spread — на сколько изменилось раскрытие пальцев (px, по модулю). Считаем от начала жеста, а не
+ * накопленным путём: дрожь центра при щипке (или дрожь раскрытия при наклоне) не копится в перевес.
+ * Порог lockPx — «мёртвая зона» жеста. Pointer-события приходят по одному на палец, поэтому
+ * когда сдвинулся лишь один палец, moved и spread равны (оба d/2) — такая неоднозначность
+ * (разница меньше четверти порога) остаётся 'pending' до движения второго пальца.
+ * Решение потом не пересматривается: иначе дрожь одного жеста срывала бы другой.
+ */
+export function twoFingerMode(moved: number, spread: number, lockPx: number): TwoFingerMode {
+  if (moved < lockPx && spread < lockPx) return 'pending'
+  if (Math.abs(spread - moved) < lockPx / 4) return 'pending'
+  return spread > moved ? 'zoom' : 'tilt'
+}

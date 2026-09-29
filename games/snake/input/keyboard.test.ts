@@ -27,7 +27,7 @@ describe('keyAction (по e.code, не зависит от раскладки)',
 
 describe('attachKeyboard: ускорение Shift/Space', () => {
   type L = (e: unknown) => void
-  function setup() {
+  function setup(extra: object = {}) {
     const win = new Map<string, L>()
     const doc = new Map<string, L>()
     const g = globalThis as unknown as Record<string, unknown>
@@ -44,7 +44,7 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     }
     g['document'] = doc_
     const log: boolean[] = []
-    const detach = attachKeyboard({ onTurn() {}, onAxis() {}, onBoost: (on) => log.push(on) })
+    const detach = attachKeyboard({ onTurn() {}, onAxis() {}, onBoost: (on) => log.push(on), ...extra })
     const key = (code: string, extra: object = {}) => ({ code, preventDefault() {}, repeat: false, ...extra })
     return {
       log, win, doc, doc_, detach, key,
@@ -97,5 +97,44 @@ describe('attachKeyboard: ускорение Shift/Space', () => {
     t.win.get('keydown')?.(t.key('ShiftLeft', { ctrlKey: true }))
     expect(t.log).toEqual([])
     t.restore()
+  })
+})
+
+describe('attachKeyboard: R — сброс камеры', () => {
+  test('R вызывает onCameraReset один раз, автоповтор и модификаторы не считаются', () => {
+    let resets = 0
+    let prevented = 0
+    type L = (e: unknown) => void
+    const win = new Map<string, L>()
+    const g = globalThis as unknown as Record<string, unknown>
+    const prevW = g['window']
+    const prevD = g['document']
+    g['window'] = { addEventListener: (t: string, f: L) => void win.set(t, f), removeEventListener() {} }
+    g['document'] = { hidden: false, addEventListener() {}, removeEventListener() {} }
+    const detach = attachKeyboard({ onTurn() {}, onAxis() {}, onCameraReset: () => resets++ })
+    const key = (extra: object = {}) => ({ code: 'KeyR', repeat: false, preventDefault: () => prevented++, ...extra })
+    win.get('keydown')?.(key())
+    win.get('keydown')?.(key({ repeat: true }))
+    win.get('keydown')?.(key({ ctrlKey: true })) // Ctrl+R — перезагрузка страницы, не наше
+    expect(resets).toBe(1)
+    expect(prevented).toBe(2) // R (и повтор R) глушим, Ctrl+R не трогаем
+    detach()
+    g['window'] = prevW
+    g['document'] = prevD
+  })
+
+  test('без обработчика onCameraReset R ничего не ломает', () => {
+    type L = (e: unknown) => void
+    const win = new Map<string, L>()
+    const g = globalThis as unknown as Record<string, unknown>
+    const prevW = g['window']
+    const prevD = g['document']
+    g['window'] = { addEventListener: (t: string, f: L) => void win.set(t, f), removeEventListener() {} }
+    g['document'] = { hidden: false, addEventListener() {}, removeEventListener() {} }
+    const detach = attachKeyboard({ onTurn() {}, onAxis() {} })
+    expect(() => win.get('keydown')?.({ code: 'KeyR', repeat: false, preventDefault() {} })).not.toThrow()
+    detach()
+    g['window'] = prevW
+    g['document'] = prevD
   })
 })

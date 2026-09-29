@@ -23,7 +23,7 @@ import {
   type Scene,
 } from 'three'
 import type { GameState } from '../core/state'
-import { snakeLength, forEachSnakeSegment, elapsedMs, stepProgress } from '../core/queries'
+import { snakeLength, forEachSnakeSegment, elapsedMs, intendedHeading, stepProgress } from '../core/queries'
 import { InstancedPool } from './pool'
 import { beamGeometry, cubeEdgeSegments } from './outline'
 import {
@@ -64,9 +64,12 @@ export class SnakeView {
   private headMesh: Mesh
   private headMaterial: MeshBasicMaterial
   private headDir = new Vector3(1, 0, 0)
-  private tmpDir = new Vector3()
 
-  /** Единичное направление движения (голова - шея), обновляется в update(). */
+  /**
+   * Единичное направление головы, обновляется в update(): то, куда змейка повёрнута сейчас, включая уже
+   * введённый, но ещё не исполненный поворот (core/queries intendedHeading). Из геометрии тела
+   * (голова минус шея) направление не выводится: тело до такта стоит, и ввод был бы виден только на шаге.
+   */
   get direction(): Vector3 {
     return this.headDir
   }
@@ -74,10 +77,6 @@ export class SnakeView {
   private headX = 0
   private headY = 0
   private headZ = 0
-  private neckX = 0
-  private neckY = 0
-  private neckZ = 0
-  private hasNeck = false
 
   // Параметры текущего кадра для колбэка.
   private camX = 0
@@ -112,13 +111,7 @@ export class SnakeView {
       this.headX = x
       this.headY = y
       this.headZ = z
-      this.hasNeck = length > 1
       return
-    }
-    if (i === 1) {
-      this.neckX = x
-      this.neckY = y
-      this.neckZ = z
     }
     let k = 1
     if (this.fadeAmount > 0) {
@@ -186,11 +179,9 @@ export class SnakeView {
     for (let i = 0; i < length; i++) this.place(i, length, glide)
     this.pool.markDirty()
 
-    // Направление движения (голова - шея); голова той же формы, что тело.
-    if (this.hasNeck) {
-      this.tmpDir.set(this.headX - this.neckX, this.headY - this.neckY, this.headZ - this.neckZ)
-      if (this.tmpDir.lengthSq() > 0.5) this.headDir.copy(this.tmpDir).normalize()
-    }
+    // Направление головы берётся из ядра и меняется мгновенно по вводу, без сглаживания: змейка тактовая.
+    const dir = intendedHeading(s)
+    this.headDir.set(dir.x, dir.y, dir.z)
     const phase = ((elapsedMs(s) % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2
     this.headMesh.scale.setScalar(1 + HEAD_PULSE * Math.sin(phase))
     this.headMesh.position.set(this.headX, this.headY, this.headZ)

@@ -15,7 +15,7 @@
 import type { Scene } from 'three'
 import type { GameState } from '../core/state'
 import type { Config } from '../core/rules'
-import { cameraFrame, cubeSize, gameMode, head } from '../core/queries'
+import { viewFrame, cubeSize, gameMode, head } from '../core/queries'
 import { AheadRay } from './ahead-ray'
 import { AheadDots } from './ahead-dots'
 import { NearCells } from './near-cells'
@@ -55,7 +55,7 @@ class LayeredHint implements DirectionHint {
 
   /** Кадр: без новых объектов. */
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest, freeAmount: number): void {
-    const frame = cameraFrame(s)
+    const frame = viewFrame(s)
     if (gameMode(s) === 'free') {
       dx = -frame.depth.x
       dy = -frame.depth.y

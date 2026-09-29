@@ -18,7 +18,7 @@ import { WebGLRenderer, Scene, Color, NoToneMapping, MathUtils } from 'three'
 import type { GameState } from '../core/state'
 import type { GameEvent } from '../core/commands'
 import type { Config } from '../core/rules'
-import { cameraFrame, cubeSize, head } from '../core/queries'
+import { viewFrame, cubeSize, head } from '../core/queries'
 import { BACKGROUND_COLOR, createFog } from './palette'
 import { CameraRig } from './camera-rig'
 import { PostFx } from './postprocessing'
@@ -177,7 +177,9 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       const cam = cameraRig.camera.position
       snakeView.update(state, cam.x, cam.y, cam.z, cameraRig.freeAmount)
       const h = head(state)
-      const fr = cameraFrame(state)
+      // viewFrame, а не cameraFrame: кадр ядра доворачивается только на такте, и ось
+      // глубины препятствий отставала бы от камеры на шаг после ввода поворота.
+      const fr = viewFrame(state)
       obstaclesView.update(dtMs, cam.x, cam.y, cam.z, h.x, h.y, h.z, fr.depth.x, fr.depth.y, fr.depth.z, cameraRig.freeAmount)
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)

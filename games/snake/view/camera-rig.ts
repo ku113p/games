@@ -1,8 +1,8 @@
 // Камера, две фазы. Поза ВСЕГДА выводится из истины ядра каждый кадр
-// (cameraFrame(s), head(s), фаза из game-mode), а не из числа событий: пропущенное,
+// (viewFrame(s), head(s), фаза из game-mode), а не из числа событий: пропущенное,
 // отменённое или удвоенное событие само себя чинит.
 //
-// plane: ориентация из cameraFrame(s); если кадр изменился — переход «текущая
+// plane: ориентация из viewFrame(s); если кадр изменился — переход «текущая
 //   ориентация -> цель» (микропауза, затем slerp за config.camera.rollMs).
 //   Позиция = центр + depth * distance, смотрит в центр куба.
 // free: камера на followDistance позади головы (вдоль -heading = +depth),
@@ -10,7 +10,7 @@
 //   (frame.up), смотрит в точку на lookAheadDistance впереди головы по ходу и на lookDownOffset ниже линии движения (-up).
 //   Позиция, точка взгляда и up берутся прямо из целей; экспоненциальный догон
 //   (FOLLOW_SMOOTHING_ENABLED) выключен.
-// Привязка к вектору жёсткая: поза считается прямо из cameraFrame(s) и клетки
+// Привязка к вектору жёсткая: поза считается прямо из viewFrame(s) и клетки
 // головы каждый кадр, без догона и инерции. Голова прыгнула на клетку — камера
 // прыгнула ровно на столько же, сохранив положение относительно вектора хода.
 // Наклон игрока — добавка поверх этой позы (орбита вокруг той же головы), сама
@@ -23,7 +23,7 @@
 
 import { PerspectiveCamera, Vector3, Quaternion, Matrix4, MathUtils } from 'three'
 import type { GameState } from '../core/state'
-import { cameraFrame, cubeSize, head } from '../core/queries'
+import { viewFrame, cubeSize, head } from '../core/queries'
 import type { Config } from '../core/rules'
 import { cameraSettings, type CameraSettings } from './camera-config'
 import { viewMode, type ViewMode } from './game-mode'
@@ -48,9 +48,24 @@ const FLIGHT_GLITCH_MID = 0.5 // доля полёта, на которой вт
 // вокруг головы (в plane — вокруг центра куба). Оформительские константы.
 const TILT_MAX = 1 // рад, предел по каждой оси (< 90°: камера не переворачивается)
 const TILT_FOLLOW_MS = 90 // сглаживание к заданному наклону
-const TILT_HOLD_MS = 700 // сколько ждать после последнего setTilt до возврата
-const TILT_RETURN_MS = 450 // постоянная времени возврата к нулю
 const TILT_EPS = 1e-4
+const ZOOM_EPS = 1e-4
+const ZOOM_FOLLOW_FALLBACK_MS = 120 // если в config.camera нет zoomFollowMs
+
+/**
+ * Камера, как её выставил игрок: наклон (рад, ±TILT_MAX), зум — множитель дистанции от головы
+ * (1 — ровно тот вид, что настроен в config.camera; < 1 ближе, > 1 дальше). Держится до явного сброса
+ * (resetUserCamera), сам не возвращается. Общий объект модуля, а не поле View: пишет main.ts из ввода,
+ * читает риг каждый кадр (без аллокаций); риг создаётся заново на каждую партию, а этот объект main сбрасывает
+ * на старте партии. Пределы зума (config.camera.zoomMin/zoomMax) зажимает тот, кто пишет.
+ */
+export const userCamera = { yaw: 0, pitch: 0, zoom: 1 }
+
+export function resetUserCamera(): void {
+  userCamera.yaw = 0
+  userCamera.pitch = 0
+  userCamera.zoom = 1
+}
 
 type Phase = 'idle' | 'pause' | 'rolling'
 
@@ -105,11 +120,11 @@ export class CameraRig {
   private fwdT = new Vector3()
   private tmpV = new Vector3()
 
-  private tiltYawT = 0
-  private tiltPitchT = 0
   private tiltYaw = 0
   private tiltPitch = 0
-  private tiltIdleMs = 0
+  private zoom = 1
+  private zoomFollowMs: number
+  private zoomMax: number
   private tiltPivot = new Vector3()
   private tiltAxis = new Vector3()
   private tiltQ = new Quaternion()
@@ -121,6 +136,9 @@ export class CameraRig {
   constructor(config: Config) {
     this.cameraConfig = config.camera
     this.settings = cameraSettings(config)
+    const zc = config.camera as { zoomFollowMs?: number; zoomMax?: number }
+    this.zoomFollowMs = zc.zoomFollowMs ?? ZOOM_FOLLOW_FALLBACK_MS
+    this.zoomMax = Math.max(1, zc.zoomMax ?? 1)
     this.camera = new PerspectiveCamera(CAMERA_FOV_DEG, this.aspect, CAMERA_NEAR, 1000)
   }
 
@@ -169,11 +187,10 @@ export class CameraRig {
     return value
   }
 
-  /** Задать наклон камеры (рад, ±1). Не удерживается: без новых вызовов плавно возвращается к нулю. */
+  /** Задать наклон камеры (рад, ±1). Держится, пока не сбросят (userCamera). Оставлено для совместимости с View. */
   setTilt(yaw: number, pitch: number): void {
-    this.tiltYawT = MathUtils.clamp(yaw, -TILT_MAX, TILT_MAX)
-    this.tiltPitchT = MathUtils.clamp(pitch, -TILT_MAX, TILT_MAX)
-    this.tiltIdleMs = 0
+    userCamera.yaw = MathUtils.clamp(yaw, -TILT_MAX, TILT_MAX)
+    userCamera.pitch = MathUtils.clamp(pitch, -TILT_MAX, TILT_MAX)
   }
 
   /** Кадр: без аллокаций. */
@@ -192,33 +209,39 @@ export class CameraRig {
     } else {
       this.updatePlane(dtMs, s)
     }
-    this.applyTilt(dtMs)
+    this.applyUserCamera(dtMs)
   }
 
-  /** Добавка поверх базовой позы: орбита вокруг pivot осями самой камеры. */
-  private applyTilt(dtMs: number): void {
-    this.tiltIdleMs += dtMs
-    if (this.tiltIdleMs > TILT_HOLD_MS) {
-      const r = Math.exp(-dtMs / TILT_RETURN_MS)
-      this.tiltYawT *= r
-      this.tiltPitchT *= r
-    }
-    const k = 1 - Math.exp(-dtMs / TILT_FOLLOW_MS)
-    this.tiltYaw += (this.tiltYawT - this.tiltYaw) * k
-    this.tiltPitch += (this.tiltPitchT - this.tiltPitch) * k
-    if (Math.abs(this.tiltYaw) < TILT_EPS && Math.abs(this.tiltPitch) < TILT_EPS) return
+  /**
+   * Добавка поверх базовой позы: орбита вокруг pivot осями самой камеры (наклон) и масштаб расстояния
+   * от pivot (зум). И то и другое догоняет userCamera экспоненциально, как и поза камеры.
+   */
+  private applyUserCamera(dtMs: number): void {
+    const kTilt = 1 - Math.exp(-dtMs / TILT_FOLLOW_MS)
+    this.tiltYaw += (userCamera.yaw - this.tiltYaw) * kTilt
+    this.tiltPitch += (userCamera.pitch - this.tiltPitch) * kTilt
+    const kZoom = 1 - Math.exp(-dtMs / Math.max(1, this.zoomFollowMs))
+    this.zoom += (userCamera.zoom - this.zoom) * kZoom
+    const tilted = Math.abs(this.tiltYaw) >= TILT_EPS || Math.abs(this.tiltPitch) >= TILT_EPS
+    const zoomed = Math.abs(this.zoom - 1) >= ZOOM_EPS
+    if (!tilted && !zoomed) return
 
     // Центр орбиты берётся из того же сглаженного источника, что и поза камеры.
     this.tiltPivot.copy(this.fHead).lerp(this.center, 1 - this.freeAmount)
-    const cq = this.camera.quaternion
-    this.tiltAxis.set(0, 1, 0).applyQuaternion(cq)
-    this.tiltQ.setFromAxisAngle(this.tiltAxis, this.tiltYaw)
-    this.tiltAxis.set(1, 0, 0).applyQuaternion(cq)
-    this.tiltQ2.setFromAxisAngle(this.tiltAxis, this.tiltPitch)
-    this.tiltQ.multiply(this.tiltQ2)
-    this.tmpV.copy(this.camera.position).sub(this.tiltPivot).applyQuaternion(this.tiltQ)
+    this.tmpV.copy(this.camera.position).sub(this.tiltPivot)
+    if (tilted) {
+      const cq = this.camera.quaternion
+      this.tiltAxis.set(0, 1, 0).applyQuaternion(cq)
+      this.tiltQ.setFromAxisAngle(this.tiltAxis, this.tiltYaw)
+      this.tiltAxis.set(1, 0, 0).applyQuaternion(cq)
+      this.tiltQ2.setFromAxisAngle(this.tiltAxis, this.tiltPitch)
+      this.tiltQ.multiply(this.tiltQ2)
+      this.tmpV.applyQuaternion(this.tiltQ)
+      cq.premultiply(this.tiltQ)
+    }
+    // Зум множит базовое расстояние (а не заменяет): единица — ровно тот вид, что задан в конфиге.
+    if (zoomed) this.tmpV.multiplyScalar(this.zoom)
     this.camera.position.copy(this.tiltPivot).add(this.tmpV)
-    cq.premultiply(this.tiltQ)
   }
 
   // ---- plane ----
@@ -270,7 +293,7 @@ export class CameraRig {
   }
 
   private readTarget(s: GameState, out: Quaternion): void {
-    const f = cameraFrame(s)
+    const f = viewFrame(s)
     this.tmpRight.set(f.right.x, f.right.y, f.right.z)
     this.tmpUp.set(f.up.x, f.up.y, f.up.z)
     this.tmpDepth.set(f.depth.x, f.depth.y, f.depth.z)
@@ -288,7 +311,7 @@ export class CameraRig {
 
   /** Цели free-камеры из истины: голова, depth (= -heading) и up кадра. */
   private computeFreeTargets(s: GameState): void {
-    const f = cameraFrame(s)
+    const f = viewFrame(s)
     const h = head(s)
     this.fwdT.set(-f.depth.x, -f.depth.y, -f.depth.z)
     this.upT.set(f.up.x, f.up.y, f.up.z)
@@ -410,7 +433,7 @@ export class CameraRig {
     this.size = cubeSize(s)
     const c = (this.size - 1) / 2
     this.center.set(c, c, c)
-    this.camera.far = this.size * CAMERA_FAR_PADDING + this.distanceFor(this.size)
+    this.camera.far = this.size * CAMERA_FAR_PADDING + this.distanceFor(this.size) * this.zoomMax // зум отодвигает камеру
     this.camera.near = CAMERA_NEAR
     this.camera.updateProjectionMatrix()
   }

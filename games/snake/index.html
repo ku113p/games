@@ -374,6 +374,49 @@
       #pause-btn.hidden {
         display: none;
       }
+
+      /* Сброс камеры (наклон и зум). Над кнопкой ускорения, на той же стороне и по её центру: низ экрана
+         под большие пальцы, пульт с другой стороны, счёт/карты/пауза сверху не тронуты. Выше оверлеев
+         (z-index), чтобы жаться и на паузе. Тускнеет, пока камера в исходном виде. */
+      #cam-reset {
+        --boost: clamp(64px, 20vmin, 96px);
+        --size: 48px;
+        position: absolute;
+        z-index: 5;
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--boost) + 10px);
+        left: calc(max(12px, env(safe-area-inset-left)) + (var(--boost) - var(--size)) / 2);
+        width: var(--size);
+        height: var(--size);
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(5, 6, 10, 0.6);
+        border: 1px solid var(--neon);
+        color: var(--neon);
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        transition: opacity 150ms;
+      }
+      #cam-reset.right {
+        left: auto;
+        right: calc(max(12px, env(safe-area-inset-right)) + (var(--boost) - var(--size)) / 2);
+      }
+      #cam-reset.idle {
+        opacity: 0.45;
+      }
+      #cam-reset.hidden {
+        display: none;
+      }
+      #cam-reset svg {
+        width: 24px;
+        height: 24px;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -396,6 +439,13 @@
       <button type="button" id="boost" class="hidden" tabindex="-1" aria-label="Ускорение: зажми, чтобы ехать быстрее">×2</button>
 
       <button type="button" id="pause-btn" class="hidden" tabindex="-1" aria-label="Пауза">❚❚</button>
+
+      <button type="button" id="cam-reset" class="hidden idle" tabindex="-1" aria-label="Сбросить камеру (клавиша R)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+        </svg>
+      </button>
 
       <div id="hud" class="hidden">
         <div class="score-pill">Счёт: <span id="score">0</span></div>
@@ -467,6 +517,7 @@
           <button type="button" data-fog aria-pressed="true">Туман: вкл</button>
         </div>
         <button type="button" id="resume" class="tap-to-play">Продолжить</button>
+        <button type="button" id="pause-to-menu" class="secondary">Выйти в меню</button>
       </div>
 
       <div id="demo-explainer" class="screen overlay hidden">
