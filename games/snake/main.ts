@@ -21,6 +21,7 @@ const HAS_PLAYED_BEFORE_KEY = 'snake:hasPlayedBefore'
 const PAD_SIDE_KEY = 'snake:padSide'
 const MUSIC_ON_KEY = 'snake:musicOn'
 const SFX_ON_KEY = 'snake:sfxOn'
+const CROSS_ON_KEY = 'snake:crossOn'
 
 // --- DOM ---------------------------------------------------------------
 
@@ -112,6 +113,11 @@ const audio = createAudio(soundConfig, musicUrl, {
   sfxOn: readFlag(SFX_ON_KEY, soundConfig?.defaults.sfxOn ?? true),
 })
 
+// Крест (две плиты + подсветка плоскости, view/cross-planes.ts): один тумблер на всё.
+// Секции cross в config.json может не быть — тогда включён.
+const crossConfig = (configJson as unknown as { cross?: { defaultOn: boolean } }).cross
+let crossOn = readFlag(CROSS_ON_KEY, crossConfig?.defaultOn ?? true)
+
 // Идемпотентно: зовётся из «Tap to play» и из любой кнопки меню (они нажимаются ДО этого экрана).
 function unlockAudio(): void {
   audio.unlock()
@@ -147,11 +153,28 @@ document.addEventListener('click', (e) => {
     audio.setSfxOn(!audio.sfxOn)
     storageSet(SFX_ON_KEY, audio.sfxOn ? '1' : '0')
     syncSoundToggles()
+  } else if ((btn as HTMLElement).dataset['cross'] !== undefined) {
+    crossOn = !crossOn
+    storageSet(CROSS_ON_KEY, crossOn ? '1' : '0')
+    syncCrossToggles()
+    session?.view.setCrossOn(crossOn)
   }
   audio.play('click')
 })
 
 syncSoundToggles()
+
+const crossToggleButtons = document.querySelectorAll<HTMLButtonElement>('button[data-cross]')
+
+function syncCrossToggles(): void {
+  for (const btn of crossToggleButtons) {
+    btn.textContent = `Плоскости: ${crossOn ? 'вкл' : 'выкл'}`
+    btn.classList.toggle('selected', crossOn)
+    btn.setAttribute('aria-pressed', String(crossOn))
+  }
+}
+
+syncCrossToggles()
 
 // --- меню: выбор размера куба и схемы управления ------------------------
 
@@ -350,6 +373,7 @@ function startSession(size: number, scheme: InputScheme): void {
   const seed = Math.floor(Math.random() * 0x7fffffff)
   const state = createGame(config, size, seed, isFirstGameEver)
   const view = createView(canvas, config, state)
+  view.setCrossOn(crossOn)
 
   // Ускорение включено, пока держит хоть один источник: палец на кнопке или Shift/Space.
   // Любое отпускание (палец ушёл, cancel, blur, пауза, смерть, detach) приходит сюда же как on=false.

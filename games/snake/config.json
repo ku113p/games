@@ -48,6 +48,9 @@
   "minimap": {
     "windowCells": 20
   },
+  "cross": {
+    "defaultOn": true
+  },
   "input": {
     "doubleTapMs": 240,
     "swipeMinPx": 24,

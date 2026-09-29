@@ -59,10 +59,16 @@ uniform float uFogFar;
 uniform float uFloor;
 uniform float uHalf;
 uniform vec3 uHead;
+uniform float uPlaneLift;   // подсветка кубов в плоскостях креста (cross-planes.ts): 0 — нет
 varying float vFade;
-float fadeAt(vec3 world) {
+// cell — клетка, которой принадлежит вершина (у ребра — округлённый центр): решает, лежит ли
+// куб в плоскости креста головы (та же клетка по Y или по Z). Такой куб туманится слабее на uPlaneLift.
+float fadeAt(vec3 world, vec3 cell) {
   float t = clamp((distance(world, uHead) - uFogFull) / (uFogFar - uFogFull), 0.0, 1.0);
-  return uFloor + (1.0 - uFloor) * (1.0 - t) * (1.0 - t);
+  float f = uFloor + (1.0 - uFloor) * (1.0 - t) * (1.0 - t);
+  vec3 r = abs(floor(cell + 0.5) - uHead);
+  float inPlane = max(step(r.y, 0.5), step(r.z, 0.5));
+  return f + (1.0 - f) * uPlaneLift * inPlane;
 }
 `
 
@@ -74,7 +80,7 @@ ${COMMON}
 void main() {
   vec3 p = aAxis < 0.5 ? position : (aAxis < 1.5 ? position.yxz : position.zyx);
   vec3 world = p + aCenter;
-  vFade = fadeAt(world);
+  vFade = fadeAt(world, aCenter);
   gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
 }
 `
@@ -151,7 +157,7 @@ void main() {
   float r1 = reachOf(wu > 0.0 ? mod(code, 3.0) : mod(floor(code / 3.0), 3.0));
   float r2 = reachOf(wv > 0.0 ? mod(floor(code / 9.0), 3.0) : floor(code / 27.0));
   vec3 world = aCell + uHalf * s * e0 + wu * r1 * e1 + wv * r2 * e2;
-  vFade = fadeAt(world);
+  vFade = fadeAt(world, aCell);
   vShade = (a < 0.5 ? uShade.x : (a < 1.5 ? uShade.y : uShade.z)) * (s > 0.0 ? 1.0 : uNegShade);
   vAlpha = mix(1.0, uGhostAlpha, g);
   gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
@@ -202,6 +208,7 @@ export class ObstaclesView {
   private readonly frameUniforms = {
     uDepthAxis: { value: this.uDepthAxis },
     uFree: { value: 1 },
+    uPlaneLift: { value: 0 },
   }
 
   /** Сколько граней и рёбер в оболочке последней сборки (для замеров). */
@@ -237,6 +244,7 @@ export class ObstaclesView {
       uFloor: { value: OBSTACLE_FOG_FLOOR },
       uHead: { value: this.uHead },
       uHalf: { value: half },
+      uPlaneLift: this.frameUniforms.uPlaneLift,
     }
 
     // Контур: инстанс на ребро, база — отрезок вдоль x длиной OBSTACLE_SCALE.
@@ -425,6 +433,11 @@ export class ObstaclesView {
       }
     }
     if (changed) this.ghostTex.needsUpdate = true
+  }
+
+  /** Сила подсветки кубов в плоскостях креста, 0..1 (доля туманного пути, которую куб «возвращает»). Кадр, без аллокаций. */
+  setPlaneLift(k: number): void {
+    this.frameUniforms.uPlaneLift.value = k
   }
 
   /** Есть ли препятствие в клетке (набор собирается на 'started'). Без аллокаций. */

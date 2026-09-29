@@ -18,7 +18,7 @@ import { WebGLRenderer, Scene, Color, NoToneMapping } from 'three'
 import type { GameState } from '../core/state'
 import type { GameEvent } from '../core/commands'
 import type { Config } from '../core/rules'
-import { cameraFrame, cubeSize, head } from '../core/queries'
+import { applePos, cameraFrame, cubeSize, head } from '../core/queries'
 import { BACKGROUND_COLOR } from './palette'
 import { CameraRig } from './camera-rig'
 import { PostFx } from './postprocessing'
@@ -30,6 +30,7 @@ import { CompassView, COMPASS_ENABLED } from './compass-view'
 import { createDirectionHint } from './direction-hint'
 import { WallGrid } from './wall-grid'
 import { MiniMap } from './minimap'
+import { CrossPlanes, CROSS_LIFT_APPLE, CROSS_LIFT_OBSTACLE, inCrossPlane } from './cross-planes'
 
 export interface View {
   resize(width: number, height: number): void
@@ -37,6 +38,8 @@ export interface View {
   render(s: GameState, dtMs: number): void
   /** Наклон камеры от игрока, рад, оба в пределах ±1; сам возвращается к нулю. */
   setCameraTilt(yaw: number, pitch: number): void
+  /** Тумблер креста из меню: две плиты и подсветка того, что лежит в их плоскости. */
+  setCrossOn(on: boolean): void
   dispose(): void
 }
 
@@ -81,6 +84,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   const snakeView = new SnakeView(scene)
   const obstaclesView = new ObstaclesView(scene)
   const appleView = new AppleView(scene)
+  const cross = new CrossPlanes(scene)
   const compass = COMPASS_ENABLED ? new CompassView(scene) : null
   const aheadRay = createDirectionHint(scene, config)
 
@@ -112,6 +116,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   function syncStructural(state: GameState): void {
     cubeFrame.setSize(cubeSize(state))
     wallGrid.setSize(cubeSize(state))
+    cross.setSize(cubeSize(state))
     miniMap.setSize(cubeSize(state))
     miniMap.invalidate()
     obstaclesView.rebuild(state)
@@ -136,6 +141,10 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
 
     setCameraTilt(yaw: number, pitch: number): void {
       cameraRig.setTilt(yaw, pitch)
+    },
+
+    setCrossOn(on: boolean): void {
+      cross.setOn(on)
     },
 
     handle(event: GameEvent, state: GameState): void {
@@ -172,6 +181,10 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       obstaclesView.update(dtMs, cam.x, cam.y, cam.z, h.x, h.y, h.z, fr.depth.x, fr.depth.y, fr.depth.z, cameraRig.freeAmount)
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)
+      cross.update(h.x, h.y, h.z, cameraRig.freeAmount)
+      const ap = applePos(state)
+      obstaclesView.setPlaneLift(CROSS_LIFT_OBSTACLE * cross.strength)
+      appleView.setPlaneLift(inCrossPlane(ap.y, ap.z, h.y, h.z) ? CROSS_LIFT_APPLE * cross.strength : 0)
       appleView.update(state, aheadRay.appleTargeted)
       compass?.update(state, cameraRig.camera, dtMs, cameraRig.freeAmount)
       cubeFrame.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, h.x, h.y, h.z)
@@ -190,6 +203,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       snakeView.dispose()
       obstaclesView.dispose()
       appleView.dispose()
+      cross.dispose()
       compass?.dispose()
       aheadRay.dispose()
     },
