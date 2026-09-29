@@ -61,9 +61,17 @@ export const GRID_MAJOR_ALPHA = 0.3
 export const MINIMAP_BG_COLOR = new Color(0x02030a)
 export const MINIMAP_BG_ALPHA = 0.4
 export const MINIMAP_BORDER_COLOR = new Color(0x1fb6ff)
-export const MINIMAP_BORDER_ALPHA = 0.5
+// Тихий край окна просмотра (мир за ним продолжается) — заметно тусклее стены.
+export const MINIMAP_BORDER_ALPHA = 0.22
+// Настоящая стена арены на карте: сплошная толстая линия по той стороне окна, где оно упёрлось.
+export const MINIMAP_WALL_COLOR = new Color(0x6fe3ff)
+export const MINIMAP_WALL_ALPHA = 0.95
+// Подписи осей карт («XZ» сверху, «XY» сбоку).
+export const MINIMAP_LABEL_ALPHA = 0.6
 export const MINIMAP_HEAD_ALPHA = 0.9
 export const MINIMAP_APPLE_ALPHA = 0.85
+// Яблоко вне среза (проекция) и вне окна (стрелка у края) тише «яблока здесь», но заметны.
+export const MINIMAP_APPLE_RING_ALPHA = 0.95
 
 // Лучи направления. Яркость (линейная) ниже порога bloom 0.8 с запасом:
 // пять лучей вместо одного не должны добавить гало.

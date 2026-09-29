@@ -1,0 +1,10 @@
+Track:        Cyber Runner Music  (cyber-runner.mp3)
+Author:       Luis Zuno — "ansimuz"
+Source page:  https://opengameart.org/content/cyber-runner-music
+License:      CC0 1.0 Universal (Public Domain Dedication)
+License text: https://creativecommons.org/publicdomain/zero/1.0/
+Attribution:  not required by the license (optional: "Music: Cyber Runner by Luis Zuno (ansimuz) — CC0").
+
+Changes:      the original cyber_runner.ogg (48 kHz stereo, 98 s) was re-encoded for this game
+              to mono, 24 kHz, MP3 48 kbps (ffmpeg -ac 1 -ar 24000 -c:a libmp3lame -b:a 48k).
+              Content is otherwise unmodified.

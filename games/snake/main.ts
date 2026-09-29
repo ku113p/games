@@ -10,6 +10,8 @@ import { attachPad, type Pad } from './input/pad'
 import { attachBoostButton, type BoostButton } from './input/boost'
 import { boostSide, createBoostHold, parsePadSide, type BoostHold, type PadSide } from './input/gestures'
 import { attachInput, type InputHandlers, type InputScheme } from './input/index'
+import { createAudio, type SoundConfig } from './view/audio'
+import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
 
 const config = configJson as Config
@@ -17,6 +19,8 @@ const config = configJson as Config
 const HIGH_SCORE_KEY = 'snake:highScore'
 const HAS_PLAYED_BEFORE_KEY = 'snake:hasPlayedBefore'
 const PAD_SIDE_KEY = 'snake:padSide'
+const MUSIC_ON_KEY = 'snake:musicOn'
+const SFX_ON_KEY = 'snake:sfxOn'
 
 // --- DOM ---------------------------------------------------------------
 
@@ -95,18 +99,59 @@ highScoreEl.textContent = String(highScore)
 
 // --- звук: разблокируется только по первому касанию (AGENTS.md, раздел 5) ---
 
-let audioCtx: AudioContext | null = null
+// Секции sound в config.json может ещё не быть — тогда звук молча выключен (см. view/audio.ts).
+const soundConfig = (configJson as unknown as { sound?: SoundConfig }).sound
 
+function readFlag(key: string, fallback: boolean): boolean {
+  const raw = storageGet(key)
+  return raw === null ? fallback : raw === '1'
+}
+
+const audio = createAudio(soundConfig, musicUrl, {
+  musicOn: readFlag(MUSIC_ON_KEY, soundConfig?.defaults.musicOn ?? true),
+  sfxOn: readFlag(SFX_ON_KEY, soundConfig?.defaults.sfxOn ?? true),
+})
+
+// Идемпотентно: зовётся из «Tap to play» и из любой кнопки меню (они нажимаются ДО этого экрана).
 function unlockAudio(): void {
-  if (audioCtx !== null) return
-  const Ctor: typeof AudioContext | undefined =
-    window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (Ctor === undefined) return
-  audioCtx = new Ctor()
-  if (audioCtx.state === 'suspended') {
-    void audioCtx.resume()
+  audio.unlock()
+}
+
+const soundToggleButtons = document.querySelectorAll<HTMLButtonElement>('button[data-snd]')
+
+function syncSoundToggles(): void {
+  for (const btn of soundToggleButtons) {
+    const isMusic = btn.dataset['snd'] === 'music'
+    const on = isMusic ? audio.musicOn : audio.sfxOn
+    btn.textContent = `${isMusic ? 'Музыка' : 'Звуки'}: ${on ? 'вкл' : 'выкл'}`
+    btn.classList.toggle('selected', on)
+    btn.setAttribute('aria-pressed', String(on))
   }
 }
+
+// Один делегат на все кнопки экранов (меню, пауза, конец игры, объяснение): разблокировка + щелчок.
+// Кнопки игровых органов (пульт, ускорение, пауза) сюда не входят — это не меню.
+// Срабатывает после обработчика самой кнопки, поэтому выключение звуков не щёлкает напоследок.
+document.addEventListener('click', (e) => {
+  const target = e.target
+  if (!(target instanceof Element)) return
+  const btn = target.closest('.screen button')
+  if (btn === null) return
+  unlockAudio()
+  const snd = (btn as HTMLElement).dataset['snd']
+  if (snd === 'music') {
+    audio.setMusicOn(!audio.musicOn)
+    storageSet(MUSIC_ON_KEY, audio.musicOn ? '1' : '0')
+    syncSoundToggles()
+  } else if (snd === 'sfx') {
+    audio.setSfxOn(!audio.sfxOn)
+    storageSet(SFX_ON_KEY, audio.sfxOn ? '1' : '0')
+    syncSoundToggles()
+  }
+  audio.play('click')
+})
+
+syncSoundToggles()
 
 // --- меню: выбор размера куба и схемы управления ------------------------
 
@@ -196,7 +241,11 @@ function syncViewSize(view: View): void {
 
 function handleGameEvent(ev: GameEvent, s: Session): void {
   switch (ev.type) {
+    case 'started':
+      audio.newRound()
+      break
     case 'ate':
+      audio.play('eat')
       hudScore.textContent = String(ev.score)
       break
     case 'moved':
@@ -417,8 +466,11 @@ function pauseNow(): void {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     lastFrameTime = null
+    // iOS усыпляет контекст при сворачивании и после звонка; игра при этом стоит на паузе до «Продолжить».
+    audio.resume()
     return
   }
+  audio.suspend() // фоновая вкладка не должна играть музыку
   pauseNow()
 })
 

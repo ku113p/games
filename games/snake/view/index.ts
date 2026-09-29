@@ -77,7 +77,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   const cameraRig = new CameraRig(config)
   const cubeFrame = new CubeFrame(scene)
   const wallGrid = new WallGrid(scene)
-  const miniMap = new MiniMap()
+  const miniMap = new MiniMap(config.minimap.windowCells)
   const snakeView = new SnakeView(scene)
   const obstaclesView = new ObstaclesView(scene)
   const appleView = new AppleView(scene)

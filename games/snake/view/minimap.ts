@@ -1,100 +1,103 @@
-// Мини-карта в углу: второй проход рендера ортографической камерой в
+// Две мини-карты в углу: второй проход рендера ортографической камерой в
 // scissor-область канваса (не DOM). Приглушённая подсказка боковым зрением.
 //
-// Что показывает (только в фазе free, в plane скрыта: там игра «обычная змейка»):
-//  - квадрат — вид сверху, привязанный к МИРУ, а не к камере. Плоскость карты —
-//    перпендикулярна мировой оси, ближайшей к frame.up (рыскание оставляет up на
-//    месте, значит карта при поворотах влево/вправо не двигается; тангаж меняет up
-//    и карта переезжает на новую плоскость). Оси карты по порядку x,y,z без нормали:
-//    нормаль y -> (x вправо, z вверх); нормаль x -> (y, z); нормаль z -> (x, y).
-//    Знак up не важен (оси всегда положительные). При смене плоскости карта
-//    проявляется заново за FADE_MS, а не мигает;
-//  - голова (треугольник, остриё по ходу змейки в осях карты) и яблоко (ромб);
-//  - препятствия — тихие квадратики-клетки ФОНОМ, СТРОГО своя плоскость: только
-//    клетки на одной высоте с головой (вдоль «вверх» экрана), остальные уровни
-//    отброшены. Так видно, куда нельзя двигаться на своём уровне. Тело змейки — тем же
-//    правилом (сегменты своей плоскости), но зелёно-голубым градиентом как в игре,
-//    ярче препятствий и тише головы; голова остаётся самой заметной меткой. Набор
-//    пересобирается только когда сменились голова, камера, размер или длина (раз в
-//    шаг), а не каждый кадр; один InstancedMesh, один draw call;
-//  - справа полоска — вертикальный срез: высота (вверх = вверх на экране) по
-//    вертикали, положение вдоль хода по горизонтали. Срез — плоскость up x ход
-//    через голову: клетки с тем же «вправо», что у головы, и смещением вдоль хода
-//    в окне STRIP_BEHIND назад .. STRIP_AHEAD вперёд. Он отвечает на вопрос «что
-//    надо мной и подо мной» (колонка над головой ярче). Полоска остаётся
-//    относительной по ходу (вертикаль = up, стабильна при рыскании; горизонталь =
-//    «назад..вперёд» — по смыслу срез вдоль хода, ему нужен именно ход), а не только «где я по
-//    высоте»; на нём метки головы и яблока (яблоко — тик высоты на всю ширину) и сегменты
-//    тела в окне (иначе полоска показывала бы свободной клетку, где лежит собственное тело).
+// Только в фазе free, в plane скрыты: там игра «обычная змейка».
+//
+// Обе карты квадратные, показывают окно windowCells x windowCells клеток (config.minimap)
+// и ЖЁСТКО привязаны к осям мира: при поворотах змейки они не переориентируются.
+//  - «сверху» (подпись XZ): X по горизонтали, Z по вертикали; срез на высоте головы (Y);
+//  - «сбоку» (подпись XY): X по горизонтали, Y по вертикали (вверх мира = вверх экрана);
+//    срез на текущем Z головы.
+// Движение по Y двигает метку только сбоку, по Z — только сверху, по X — на обеих.
+//
+// Окно скроллится вслед за головой и упирается в границы арены (см. map-window.ts):
+// у стены окно стоит и метка ходит внутри, в середине большой арены метка в центре, а
+// «мир» проезжает под ней. Скролл дискретный: окно сдвигается на клетку вместе с ходом.
+// Арена не больше окна — окно равно арене.
+//
+// Рамка карты — край ОКНА, а не стена. Настоящая стена арены рисуется яркой сплошной
+// линией по той стороне окна, где оно упёрлось в границу; тихая тонкая рамка — просто
+// край обзора, мир за ним продолжается.
+//
+// Что рисуется: препятствия — тихие квадратики СТРОГО своего среза (только клетки на
+// уровне головы), тело змейки — тем же правилом зелёно-голубым градиентом как в игре,
+// голова — самая заметная метка: остриё по ходу в осях карты, а если змейка идёт
+// перпендикулярно карте (вдоль нормали среза) — круглая точка. Яблоко видно всегда:
+//  - ромб — яблоко прямо здесь, на уровне головы (в срезе);
+//  - пустой ромб-контур — яблоко в окне, но на другом уровне (проекция);
+//  - треугольник-стрелка у края окна — яблоко вне окна, стрелка указывает, куда идти.
+// Наборы клеток пересобираются раз в шаг (смена головы/длины/размера), а не каждый кадр;
+// препятствия и тело — по одному InstancedMesh на обе карты.
 // Состояние читается через core/queries. В кадре объектов не создаётся.
 
 import {
   BufferGeometry,
+  CircleGeometry,
+  Color,
   Float32BufferAttribute,
+  InstancedMesh,
   LineBasicMaterial,
   LineLoop,
+  LineSegments,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   OrthographicCamera,
   PlaneGeometry,
+  RingGeometry,
   Scene,
-  Color,
-  InstancedMesh,
-  Matrix4,
   type WebGLRenderer,
 } from 'three'
 import type { GameState } from '../core/state'
 import { applePos, cameraFrame, cubeSize, forEachObstacle, forEachSnakeSegment, head, snakeLength } from '../core/queries'
+import { clampToWindow, isInWindow, touchesHighWall, touchesLowWall, windowLength, windowStart } from './map-window'
 import {
   APPLE_COLOR,
   MINIMAP_APPLE_ALPHA,
+  MINIMAP_APPLE_RING_ALPHA,
   MINIMAP_BG_ALPHA,
   MINIMAP_BG_COLOR,
   MINIMAP_BODY_ALPHA,
   MINIMAP_BORDER_ALPHA,
   MINIMAP_BORDER_COLOR,
   MINIMAP_HEAD_ALPHA,
+  MINIMAP_LABEL_ALPHA,
   MINIMAP_OBSTACLE_ALPHA,
   MINIMAP_OBSTACLE_COLOR,
+  MINIMAP_WALL_ALPHA,
+  MINIMAP_WALL_COLOR,
   SNAKE_BODY_COLOR,
   SNAKE_HEAD_COLOR,
   SNAKE_TAIL_COLOR,
 } from './palette'
 
-// Оформительские константы, не числа баланса. Размеры экранные, в CSS-пикселях.
-const WIDTH_FRACTION = 0.22
-const WIDTH_MIN_PX = 84
-const WIDTH_MAX_PX = 200
-const HEIGHT_MAX_FRACTION = 0.3
-// Верхний левый угол: низ экрана занят тап-зонами, верх по центру — счёт.
+// Оформительские константы, не числа баланса. Экранные размеры — в CSS-пикселях.
+// Обе карты вместе: доля ширины экрана, границы и потолок по высоте (верх экрана, портрет:
+// нижняя половина занята управлением).
+const WIDTH_FRACTION = 0.42
+const WIDTH_MIN_PX = 160
+const WIDTH_MAX_PX = 340
+const HEIGHT_MAX_FRACTION = 0.2
+// Верхний левый угол: низ экрана занят тап-зонами, верх по центру — счёт, справа — пауза.
 // Отступ сверху с запасом под вырез/статус-бар (канвас не знает safe-area).
 const MARGIN_LEFT_PX = 12
 const MARGIN_TOP_PX = 48
-// Геометрия карты в долях размера куба.
-const PAD = 0.06
-const GAP = 0.05
-const STRIP_W = 0.07
-const MARKER = 0.06 // размер метки; не меньше MARKER_MIN клеток
-const MARKER_MIN = 1.4
-const TICK_H = 0.03
-const TICK_H_MIN = 0.6
-// Препятствия карты: только уровень головы. Потолок инстансов — защита буфера на
-// плотных кубах 100³, лишние молча отбрасываются.
-const OBSTACLE_CELL = 0.9 // размер квадратика в клетках
-const OBSTACLE_CAPACITY = 16384
-// Вертикальный срез: окно вдоль хода (клетки) и яркость по смещению вдоль хода.
-// Ширина полоски не меньше окна, иначе клетки не различить.
-const STRIP_BEHIND = 1
-const STRIP_AHEAD = 4
-const STRIP_BRIGHTNESS = [1, 0.7, 0.5, 0.35, 0.25]
-const STRIP_CAPACITY = 2048
-// Тело змейки на карте и полоске: потолок инстансов, лишние сегменты молча отбрасываются.
-const BODY_CAPACITY = 4096
-const BODY_STRIP_CAPACITY = 1024
-// Ниже этого веса фазы free карта не рисуется вовсе.
+// Геометрия в клетках. Размер клетки на экране выходит из ширины панели.
+const GAP = 2.4 // промежуток между картами
+const WALL_THICK = 0.7 // толщина линии настоящей стены (вне окна, в рамке)
+const EDGE_PAD = 0.4 // запас за стеной до края камеры
+const MARKER = 1.8 // размер метки головы
+const APPLE_R = 1.35 // «радиус» ромба яблока
+const RING_INNER = 0.55 // внутренний радиус контура ромба (доля внешнего)
+const ARROW = 2.2 // размер стрелки яблока вне окна
+const OBSTACLE_CELL = 0.9 // размер квадратика препятствия/тела в клетках
+const LABEL_H = 1.8 // высота буквы подписи оси
+const LABEL_W = 1.2
+const LABEL_GAP = 0.5
+// Ниже этого веса фазы free карты не рисуются вовсе.
 const MIN_AMOUNT = 0.02
-// Проявление карты после смены плоскости (мс, стеночные часы: чисто оформление).
-const FADE_MS = 220
+// Полосы для стен: 4 стороны x 2 карты.
+const WALL_BARS = 8
 
 interface Layer {
   material: MeshBasicMaterial | LineBasicMaterial
@@ -108,102 +111,86 @@ export class MiniMap {
   private geometries: BufferGeometry[] = []
   private disposables: { dispose(): void }[] = []
 
-  private bg: Mesh
-  private border: LineLoop
-  private stripBorder: LineLoop
-  private headMark: Mesh
-  private appleMark: Mesh
+  private bgTop: Mesh
+  private bgSide: Mesh
+  private borderTop: LineLoop
+  private borderSide: LineLoop
+  private walls: InstancedMesh
+  private labels: LineSegments
   private obstacles: InstancedMesh
-  private obstacleMatrix = new Matrix4()
-  private obstacleColor = new Color()
+  private body: InstancedMesh
   private obstacleCount = 0
-  private strip: InstancedMesh
-  private stripCount = 0
-  private bodyMap: InstancedMesh
-  private bodyStrip: InstancedMesh
-  private bodyMapCount = 0
-  private bodyStripCount = 0
+  private bodyCount = 0
   private bodyDenom = 1
   private bodyLen = -1
-  private bodyColor = new Color()
-  private stripCenterX = 0
   private obstacleKey = -1
-  private axisA = 0 // мировая ось карты «вправо»
-  private axisB = 2 // мировая ось карты «вверх»
-  private planeNormal = -1
-  private fadeStart = 0
   private obstaclesDirty = true
-  private headTick: Mesh
-  private appleTick: Mesh
+  private tmpMatrix = new Matrix4()
+  private tmpColor = new Color()
 
+  // Метки: по две карты (0 — сверху, 1 — сбоку).
+  private headTri: Mesh[] = []
+  private headDot: Mesh[] = []
+  private appleHere: Mesh[] = []
+  private appleRing: Mesh[] = []
+  private appleArrow: Mesh[] = []
+
+  // Раскладка (холодный путь, setSize).
+  private windowCells: number
   private size = -1
+  private len = 1 // сторона окна в клетках
+  private sideX0 = 0 // сдвиг правой карты по X
+  // Окно текущего шага (начала по осям мира).
+  private sx = 0
+  private sy = 0
+  private sz = 0
+  private hy = 0
+  private hz = 0
+
   private screenW = 1
   private screenH = 1
   private panelW = 0
   private panelH = 0
 
-  constructor() {
+  constructor(windowCells: number) {
+    this.windowCells = Math.max(1, Math.floor(windowCells))
+    const cap = 2 * this.windowCells * this.windowCells // срез каждой карты не больше окна
     const quad = new PlaneGeometry(1, 1)
-    this.geometries.push(quad)
     const tri = new BufferGeometry()
     tri.setAttribute('position', new Float32BufferAttribute([0, 0.6, 0, -0.45, -0.4, 0, 0.45, -0.4, 0], 3))
-    this.geometries.push(tri)
     const outline = new BufferGeometry()
     outline.setAttribute('position', new Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3))
-    this.geometries.push(outline)
+    const diamond = new CircleGeometry(1, 4)
+    const ring = new RingGeometry(RING_INNER, 1, 4, 1)
+    const dot = new CircleGeometry(0.5, 12)
+    this.geometries.push(quad, tri, outline, diamond, ring, dot)
 
-    this.bg = this.mesh(quad, MINIMAP_BG_COLOR, MINIMAP_BG_ALPHA, 0)
-    this.border = this.loop(outline, MINIMAP_BORDER_COLOR, MINIMAP_BORDER_ALPHA, 1)
-    this.stripBorder = this.loop(outline, MINIMAP_BORDER_COLOR, MINIMAP_BORDER_ALPHA, 1)
-    {
-      const m = new MeshBasicMaterial({
-        color: MINIMAP_OBSTACLE_COLOR,
-        transparent: true,
-        opacity: MINIMAP_OBSTACLE_ALPHA,
-        depthTest: false,
-        depthWrite: false,
-      })
-      this.disposables.push(m)
-      this.layers.push({ material: m, base: MINIMAP_OBSTACLE_ALPHA })
-      this.obstacles = new InstancedMesh(quad, m, OBSTACLE_CAPACITY)
-      this.obstacles.count = 0
-      this.obstacles.renderOrder = 1
-      this.obstacles.frustumCulled = false
-      // Цвета инстансов создаём заранее (иначе буфер появится в кадре).
-      this.obstacles.setColorAt(0, this.obstacleColor.setRGB(1, 1, 1))
-      this.scene.add(this.obstacles)
-      this.strip = new InstancedMesh(quad, m, STRIP_CAPACITY)
-      this.strip.count = 0
-      this.strip.renderOrder = 1
-      this.strip.frustumCulled = false
-      this.strip.setColorAt(0, this.obstacleColor.setRGB(1, 1, 1))
-      this.scene.add(this.strip)
+    this.bgTop = this.mesh(quad, MINIMAP_BG_COLOR, MINIMAP_BG_ALPHA, 0)
+    this.bgSide = this.mesh(quad, MINIMAP_BG_COLOR, MINIMAP_BG_ALPHA, 0)
+    this.borderTop = this.loop(outline, MINIMAP_BORDER_COLOR, MINIMAP_BORDER_ALPHA, 1)
+    this.borderSide = this.loop(outline, MINIMAP_BORDER_COLOR, MINIMAP_BORDER_ALPHA, 1)
+
+    this.walls = this.instanced(quad, MINIMAP_WALL_COLOR, MINIMAP_WALL_ALPHA, WALL_BARS, 5)
+    this.obstacles = this.instanced(quad, MINIMAP_OBSTACLE_COLOR, MINIMAP_OBSTACLE_ALPHA, cap, 1)
+    // Цвет инстансов препятствий — белый (цвет даёт материал); заполняем заранее, один раз.
+    for (let i = 0; i < cap; i++) this.obstacles.setColorAt(i, this.tmpColor.setRGB(1, 1, 1))
+    this.body = this.instanced(quad, new Color(1, 1, 1), MINIMAP_BODY_ALPHA, cap, 2)
+    this.body.setColorAt(0, this.tmpColor.setRGB(1, 1, 1))
+
+    for (let m = 0; m < 2; m++) {
+      this.appleRing.push(this.mesh(ring, APPLE_COLOR, MINIMAP_APPLE_RING_ALPHA, 3))
+      this.appleHere.push(this.mesh(diamond, APPLE_COLOR, MINIMAP_APPLE_ALPHA, 3))
+      this.appleArrow.push(this.mesh(tri, APPLE_COLOR, MINIMAP_APPLE_RING_ALPHA, 4))
+      this.headDot.push(this.mesh(dot, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 5))
+      this.headTri.push(this.mesh(tri, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 6))
     }
-    {
-      // Тело: один материал на карту и полоску, цвет градиента — на инстанс.
-      const m = new MeshBasicMaterial({
-        transparent: true,
-        opacity: MINIMAP_BODY_ALPHA,
-        depthTest: false,
-        depthWrite: false,
-      })
-      this.disposables.push(m)
-      this.layers.push({ material: m, base: MINIMAP_BODY_ALPHA })
-      this.bodyMap = new InstancedMesh(quad, m, BODY_CAPACITY)
-      this.bodyStrip = new InstancedMesh(quad, m, BODY_STRIP_CAPACITY)
-      for (const im of [this.bodyMap, this.bodyStrip]) {
-        im.count = 0
-        im.renderOrder = 2
-        im.frustumCulled = false
-        im.setColorAt(0, this.bodyColor.setRGB(1, 1, 1))
-        this.scene.add(im)
-      }
-    }
-    this.headTick = this.mesh(quad, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 2)
-    this.appleTick = this.mesh(quad, APPLE_COLOR, MINIMAP_APPLE_ALPHA, 2)
-    this.appleMark = this.mesh(quad, APPLE_COLOR, MINIMAP_APPLE_ALPHA, 3)
-    this.appleMark.rotation.z = Math.PI / 4
-    this.headMark = this.mesh(tri, SNAKE_HEAD_COLOR, MINIMAP_HEAD_ALPHA, 4)
+    const lm = new LineBasicMaterial({ color: MINIMAP_BORDER_COLOR, transparent: true, opacity: MINIMAP_LABEL_ALPHA, depthTest: false, depthWrite: false })
+    this.disposables.push(lm)
+    this.layers.push({ material: lm, base: MINIMAP_LABEL_ALPHA })
+    this.labels = new LineSegments(new BufferGeometry(), lm)
+    this.labels.renderOrder = 1
+    this.labels.frustumCulled = false
+    this.scene.add(this.labels)
   }
 
   private mesh(g: BufferGeometry, color: Color, alpha: number, order: number): Mesh {
@@ -215,6 +202,18 @@ export class MiniMap {
     mesh.frustumCulled = false
     this.scene.add(mesh)
     return mesh
+  }
+
+  private instanced(g: BufferGeometry, color: Color, alpha: number, capacity: number, order: number): InstancedMesh {
+    const m = new MeshBasicMaterial({ color, transparent: true, opacity: alpha, depthTest: false, depthWrite: false })
+    this.disposables.push(m)
+    this.layers.push({ material: m, base: alpha })
+    const im = new InstancedMesh(g, m, capacity)
+    im.count = 0
+    im.renderOrder = order
+    im.frustumCulled = false
+    this.scene.add(im)
+    return im
   }
 
   private loop(g: BufferGeometry, color: Color, alpha: number, order: number): LineLoop {
@@ -233,161 +232,207 @@ export class MiniMap {
     this.obstaclesDirty = true
   }
 
-  // Колбэк создан один раз; параметры кадра лежат в полях.
-  private frameHx = 0
-  private frameHy = 0
-  private frameHz = 0
-  private fr = new Float32Array(9)
-  private readonly writeObstacle = (x: number, y: number, z: number): void => {
-    const fr = this.fr
-    const dx = x - this.frameHx
-    const dy = y - this.frameHy
-    const dz = z - this.frameHz
-    // Высота относительно головы (вдоль «вверх» экрана).
-    const lvl = dx * fr[3]! + dy * fr[4]! + dz * fr[5]!
-    if (Math.abs(lvl) < 0.5) {
-      // Своя плоскость: позиция на карте — относительно центра куба, как у головы и яблока.
-      if (this.obstacleCount >= OBSTACLE_CAPACITY) return
-      const mx = (this.axisA === 0 ? x : this.axisA === 1 ? y : z) - this.mapCenter
-      const my = (this.axisB === 0 ? x : this.axisB === 1 ? y : z) - this.mapCenter
-      const i = this.obstacleCount++
-      this.obstacleMatrix.makeScale(OBSTACLE_CELL, OBSTACLE_CELL, 1).setPosition(mx, my, 0)
-      this.obstacles.setMatrixAt(i, this.obstacleMatrix)
-      this.obstacles.setColorAt(i, this.obstacleColor.setRGB(1, 1, 1))
-      return
-    }
-    // Вертикальный срез: тот же «вправо», что у головы; смещение вдоль хода в окне.
-    if (Math.abs(dx * fr[0]! + dy * fr[1]! + dz * fr[2]!) >= 0.5) return
-    const fwd = -(dx * fr[6]! + dy * fr[7]! + dz * fr[8]!) // вдоль хода (= -depth)
-    if (fwd < -STRIP_BEHIND - 0.5 || fwd > STRIP_AHEAD + 0.5) return
-    if (this.stripCount >= STRIP_CAPACITY) return
-    const qx = x - this.mapCenter
-    const qy = y - this.mapCenter
-    const qz = z - this.mapCenter
-    const i = this.stripCount++
-    // По горизонтали: клетка окна (голова — в колонке 0), слева направо — назад .. вперёд.
-    const col = Math.round(fwd)
-    const px = this.stripCenterX + (col - (STRIP_AHEAD - STRIP_BEHIND) / 2)
-    this.obstacleMatrix.makeScale(OBSTACLE_CELL, OBSTACLE_CELL, 1).setPosition(px, qx * fr[3]! + qy * fr[4]! + qz * fr[5]!, 0)
-    this.strip.setMatrixAt(i, this.obstacleMatrix)
-    const k = STRIP_BRIGHTNESS[Math.abs(col)] ?? 0
-    this.strip.setColorAt(i, this.obstacleColor.setRGB(k, k, k))
+  // Клетка среза -> позиция в клетках камеры карт. Карта «сверху»: (x, z) при y == hy,
+  // «сбоку» (правее на sideX0): (x, y) при z == hz. Колбэки созданы один раз.
+  private putCell(im: InstancedMesh, i: number, px: number, py: number): void {
+    this.tmpMatrix.makeScale(OBSTACLE_CELL, OBSTACLE_CELL, 1).setPosition(px, py, 0)
+    im.setMatrixAt(i, this.tmpMatrix)
   }
-  private mapCenter = 0
 
-  // Сегмент тела (кроме головы): те же правила, что у препятствий.
+  private readonly writeObstacle = (x: number, y: number, z: number): void => {
+    const len = this.len
+    const dx = x - this.sx
+    if (dx < 0 || dx >= len) return
+    if (y === this.hy) {
+      const dz = z - this.sz
+      if (dz >= 0 && dz < len && this.obstacleCount < this.obstacles.instanceMatrix.count) {
+        this.putCell(this.obstacles, this.obstacleCount++, dx + 0.5, dz + 0.5)
+      }
+    }
+    if (z === this.hz) {
+      const dy = y - this.sy
+      if (dy >= 0 && dy < len && this.obstacleCount < this.obstacles.instanceMatrix.count) {
+        this.putCell(this.obstacles, this.obstacleCount++, this.sideX0 + dx + 0.5, dy + 0.5)
+      }
+    }
+  }
+
+  // Сегмент тела (кроме головы): те же правила среза, что у препятствий.
   private readonly writeBody = (x: number, y: number, z: number, i: number): void => {
     if (i === 0) return
-    const fr = this.fr
-    const dx = x - this.frameHx
-    const dy = y - this.frameHy
-    const dz = z - this.frameHz
-    const lvl = dx * fr[3]! + dy * fr[4]! + dz * fr[5]!
-    this.bodyColor.copy(SNAKE_BODY_COLOR).lerp(SNAKE_TAIL_COLOR, i / this.bodyDenom)
-    if (Math.abs(lvl) < 0.5) {
-      if (this.bodyMapCount >= BODY_CAPACITY) return
-      const mx = (this.axisA === 0 ? x : this.axisA === 1 ? y : z) - this.mapCenter
-      const my = (this.axisB === 0 ? x : this.axisB === 1 ? y : z) - this.mapCenter
-      const k = this.bodyMapCount++
-      this.obstacleMatrix.makeScale(OBSTACLE_CELL, OBSTACLE_CELL, 1).setPosition(mx, my, 0)
-      this.bodyMap.setMatrixAt(k, this.obstacleMatrix)
-      this.bodyMap.setColorAt(k, this.bodyColor)
-      return
+    const len = this.len
+    const dx = x - this.sx
+    if (dx < 0 || dx >= len) return
+    const cap = this.body.instanceMatrix.count
+    this.tmpColor.copy(SNAKE_BODY_COLOR).lerp(SNAKE_TAIL_COLOR, i / this.bodyDenom)
+    if (y === this.hy) {
+      const dz = z - this.sz
+      if (dz >= 0 && dz < len && this.bodyCount < cap) {
+        this.body.setColorAt(this.bodyCount, this.tmpColor)
+        this.putCell(this.body, this.bodyCount++, dx + 0.5, dz + 0.5)
+      }
     }
-    if (Math.abs(dx * fr[0]! + dy * fr[1]! + dz * fr[2]!) >= 0.5) return
-    const fwd = -(dx * fr[6]! + dy * fr[7]! + dz * fr[8]!)
-    if (fwd < -STRIP_BEHIND - 0.5 || fwd > STRIP_AHEAD + 0.5) return
-    if (this.bodyStripCount >= BODY_STRIP_CAPACITY) return
-    const qx = x - this.mapCenter
-    const qy = y - this.mapCenter
-    const qz = z - this.mapCenter
-    const k = this.bodyStripCount++
-    const col = Math.round(fwd)
-    const px = this.stripCenterX + (col - (STRIP_AHEAD - STRIP_BEHIND) / 2)
-    this.obstacleMatrix.makeScale(OBSTACLE_CELL, OBSTACLE_CELL, 1).setPosition(px, qx * fr[3]! + qy * fr[4]! + qz * fr[5]!, 0)
-    this.bodyStrip.setMatrixAt(k, this.obstacleMatrix)
-    this.bodyStrip.setColorAt(k, this.bodyColor.multiplyScalar(STRIP_BRIGHTNESS[Math.abs(col)] ?? 0))
+    if (z === this.hz) {
+      const dy = y - this.sy
+      if (dy >= 0 && dy < len && this.bodyCount < cap) {
+        this.body.setColorAt(this.bodyCount, this.tmpColor)
+        this.putCell(this.body, this.bodyCount++, this.sideX0 + dx + 0.5, dy + 0.5)
+      }
+    }
   }
 
-  /** Ось карты по frame.up: без аллокаций. Смена плоскости запускает проявление. */
-  private updatePlane(f: ReturnType<typeof cameraFrame>): void {
-    const ax = Math.abs(f.up.x), ay = Math.abs(f.up.y), az = Math.abs(f.up.z)
-    const n = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2
-    if (n === this.planeNormal) return
-    if (this.planeNormal >= 0) this.fadeStart = performance.now()
-    this.planeNormal = n
-    this.axisA = n === 0 ? 1 : 0
-    this.axisB = n === 2 ? 1 : 2
+  /** Полоса настоящей стены: центр и размеры в клетках камеры. */
+  private putWall(i: number, cx: number, cy: number, w: number, h: number): number {
+    this.tmpMatrix.makeScale(w, h, 1).setPosition(cx, cy, 0)
+    this.walls.setMatrixAt(i, this.tmpMatrix)
+    return i + 1
   }
 
-  /** Пересборка слоя препятствий вокруг головы; вызывается только при смене головы/камеры. */
-  private refreshObstacles(s: GameState, hx: number, hy: number, hz: number, f: ReturnType<typeof cameraFrame>): void {
-    const fr = this.fr
-    fr[0] = f.right.x; fr[1] = f.right.y; fr[2] = f.right.z
-    fr[3] = f.up.x; fr[4] = f.up.y; fr[5] = f.up.z
-    fr[6] = f.depth.x; fr[7] = f.depth.y; fr[8] = f.depth.z
-    this.updatePlane(f)
-    this.frameHx = hx
-    this.frameHy = hy
-    this.frameHz = hz
-    this.mapCenter = (cubeSize(s) - 1) / 2
+  /** Стены одной карты: полоса только там, где окно упёрлось в границу арены. */
+  private putMapWalls(n: number, ox: number, sH: number, sV: number): number {
+    const len = this.len
+    const t = WALL_THICK
+    if (touchesLowWall(sH)) n = this.putWall(n, ox - t / 2, len / 2, t, len + 2 * t)
+    if (touchesHighWall(sH, len, this.size)) n = this.putWall(n, ox + len + t / 2, len / 2, t, len + 2 * t)
+    if (touchesLowWall(sV)) n = this.putWall(n, ox + len / 2, -t / 2, len + 2 * t, t)
+    if (touchesHighWall(sV, len, this.size)) n = this.putWall(n, ox + len / 2, len + t / 2, len + 2 * t, t)
+    return n
+  }
+
+  /** Пересборка слоёв под окно вокруг головы; раз в шаг, не каждый кадр. */
+  private refresh(s: GameState, hx: number, hy: number, hz: number): void {
+    const size = cubeSize(s)
+    this.len = windowLength(size, this.windowCells)
+    this.hy = hy
+    this.hz = hz
+    this.sx = windowStart(hx, size, this.windowCells)
+    this.sy = windowStart(hy, size, this.windowCells)
+    this.sz = windowStart(hz, size, this.windowCells)
+
     this.obstacleCount = 0
-    this.stripCount = 0
     forEachObstacle(s, this.writeObstacle)
     this.obstacles.count = this.obstacleCount
     this.obstacles.instanceMatrix.needsUpdate = true
-    if (this.obstacles.instanceColor) this.obstacles.instanceColor.needsUpdate = true
-    this.strip.count = this.stripCount
-    this.strip.instanceMatrix.needsUpdate = true
-    if (this.strip.instanceColor) this.strip.instanceColor.needsUpdate = true
 
-    this.bodyMapCount = 0
-    this.bodyStripCount = 0
+    this.bodyCount = 0
     this.bodyLen = snakeLength(s)
     this.bodyDenom = Math.max(1, this.bodyLen - 1)
     forEachSnakeSegment(s, this.writeBody)
-    this.bodyMap.count = this.bodyMapCount
-    this.bodyMap.instanceMatrix.needsUpdate = true
-    if (this.bodyMap.instanceColor) this.bodyMap.instanceColor.needsUpdate = true
-    this.bodyStrip.count = this.bodyStripCount
-    this.bodyStrip.instanceMatrix.needsUpdate = true
-    if (this.bodyStrip.instanceColor) this.bodyStrip.instanceColor.needsUpdate = true
+    this.body.count = this.bodyCount
+    this.body.instanceMatrix.needsUpdate = true
+    if (this.body.instanceColor) this.body.instanceColor.needsUpdate = true
+
+    let n = this.putMapWalls(0, 0, this.sx, this.sz)
+    n = this.putMapWalls(n, this.sideX0, this.sx, this.sy)
+    this.walls.count = n
+    this.walls.instanceMatrix.needsUpdate = true
   }
 
-  /** Холодный путь: размер куба сменился — раскладка карты в клетках. */
+  /** Метки яблока на одной карте: здесь / в окне другим уровнем / вне окна. */
+  private placeApple(m: number, ox: number, va: number, vb: number, sa: number, sb: number, inSlice: boolean): void {
+    const len = this.len
+    const here = this.appleHere[m]!
+    const ring = this.appleRing[m]!
+    const arrow = this.appleArrow[m]!
+    const inside = isInWindow(va, sa, len) && isInWindow(vb, sb, len)
+    const px = ox + clampToWindow(va, sa, len) + 0.5
+    const py = clampToWindow(vb, sb, len) + 0.5
+    here.visible = inside && inSlice
+    ring.visible = inside && !inSlice
+    arrow.visible = !inside
+    if (inside) {
+      const target = inSlice ? here : ring
+      target.position.set(px, py, 0)
+    } else {
+      arrow.position.set(px, py, 0)
+      // Стрелка смотрит от центра окна к яблоку (направление «куда идти»).
+      const c = (len - 1) / 2
+      arrow.rotation.z = Math.atan2(-(va - sa - c), vb - sb - c)
+    }
+  }
+
+  /** Метка головы: остриё по ходу в осях карты; идём вдоль нормали среза — точка. */
+  private placeHead(m: number, px: number, py: number, hmx: number, hmy: number): void {
+    const tri = this.headTri[m]!
+    const dot = this.headDot[m]!
+    const moving = hmx !== 0 || hmy !== 0
+    tri.visible = moving
+    dot.visible = !moving
+    tri.position.set(px, py, 0)
+    dot.position.set(px, py, 0)
+    if (moving) tri.rotation.z = Math.atan2(-hmx, hmy)
+  }
+
+  /** Холодный путь: размер куба сменился — раскладка карт в клетках. */
   setSize(size: number): void {
     if (size === this.size) return
     this.size = size
-    const h = size / 2
-    const pad = size * PAD
-    const gap = size * GAP
-    const sw = Math.max(size * STRIP_W, STRIP_BEHIND + STRIP_AHEAD + 1)
-    const xMin = -h - pad
-    const xMax = h + gap + sw + pad
-    const yMin = -h - pad
-    const yMax = h + pad
-    this.camera.left = xMin
-    this.camera.right = xMax
-    this.camera.bottom = yMin
-    this.camera.top = yMax
+    const len = windowLength(size, this.windowCells)
+    this.len = len
+    this.sideX0 = len + GAP
+    const t = WALL_THICK
+    const labelY = len + t + 0.5
+    this.camera.left = -t - EDGE_PAD
+    this.camera.right = this.sideX0 + len + t + EDGE_PAD
+    this.camera.bottom = -t - EDGE_PAD
+    this.camera.top = labelY + LABEL_H + EDGE_PAD
     this.camera.updateProjectionMatrix()
-    this.bg.position.set((xMin + xMax) / 2, 0, 0)
-    this.bg.scale.set(xMax - xMin, yMax - yMin, 1)
-    this.border.scale.set(size, size, 1)
-    this.stripBorder.position.set(h + gap + sw / 2, 0, 0)
-    this.stripBorder.scale.set(sw, size, 1)
-    const m = Math.max(MARKER_MIN, size * MARKER)
-    this.headMark.scale.set(m, m, 1)
-    this.appleMark.scale.set(m * 0.75, m * 0.75, 1)
-    const tick = Math.max(TICK_H_MIN, size * TICK_H)
-    this.headTick.scale.set(1, tick, 1) // метка головы — одна клетка окна, чтобы не закрывать срез
-    this.appleTick.scale.set(sw, tick, 1)
-    this.stripCenterX = h + gap + sw / 2
-    this.appleTick.position.x = this.stripCenterX
-    // Колонка головы (смещение 0) в окне: левый край + STRIP_BEHIND + 0.5.
-    this.headTick.position.x = this.stripCenterX - sw / 2 + STRIP_BEHIND + 0.5
+
+    this.bgTop.position.set(len / 2, len / 2, 0)
+    this.bgTop.scale.set(len + 2 * t, len + 2 * t, 1)
+    this.bgSide.position.set(this.sideX0 + len / 2, len / 2, 0)
+    this.bgSide.scale.set(len + 2 * t, len + 2 * t, 1)
+    this.borderTop.position.set(len / 2, len / 2, 0)
+    this.borderTop.scale.set(len, len, 1)
+    this.borderSide.position.set(this.sideX0 + len / 2, len / 2, 0)
+    this.borderSide.scale.set(len, len, 1)
+
+    for (let m = 0; m < 2; m++) {
+      this.headTri[m]!.scale.set(MARKER, MARKER, 1)
+      this.headDot[m]!.scale.set(MARKER * 0.8, MARKER * 0.8, 1)
+      this.appleHere[m]!.scale.set(APPLE_R, APPLE_R, 1)
+      this.appleRing[m]!.scale.set(APPLE_R, APPLE_R, 1)
+      this.appleArrow[m]!.scale.set(ARROW, ARROW, 1)
+    }
+    this.buildLabels(0, labelY, 'X', 'Z')
+    this.buildLabels(1, labelY, 'X', 'Y')
     this.obstacleKey = -1
     this.layout()
+  }
+
+  // Подписи осей: две буквы отрезками над картой (горизонталь, вертикаль). Холодный путь.
+  private labelSegs: number[] = []
+  private buildLabels(mapIndex: number, y0: number, a: string, b: string): void {
+    if (mapIndex === 0) this.labelSegs.length = 0
+    const x0 = mapIndex === 0 ? 0 : this.sideX0
+    this.pushLetter(a, x0, y0)
+    this.pushLetter(b, x0 + LABEL_W + LABEL_GAP, y0)
+    if (mapIndex === 1) {
+      this.labels.geometry.dispose()
+      const g = new BufferGeometry()
+      g.setAttribute('position', new Float32BufferAttribute(this.labelSegs, 3))
+      this.labels.geometry = g
+    }
+  }
+
+  private pushLetter(ch: string, x0: number, y0: number): void {
+    const w = LABEL_W
+    const h = LABEL_H
+    const seg = (ax: number, ay: number, bx: number, by: number): void => {
+      this.labelSegs.push(x0 + ax * w, y0 + ay * h, 0, x0 + bx * w, y0 + by * h, 0)
+    }
+    if (ch === 'X') {
+      seg(0, 0, 1, 1)
+      seg(0, 1, 1, 0)
+    } else if (ch === 'Z') {
+      seg(0, 1, 1, 1)
+      seg(1, 1, 0, 0)
+      seg(0, 0, 1, 0)
+    } else {
+      seg(0, 1, 0.5, 0.5)
+      seg(1, 1, 0.5, 0.5)
+      seg(0.5, 0.5, 0.5, 0)
+    }
   }
 
   resize(width: number, height: number): void {
@@ -407,48 +452,33 @@ export class MiniMap {
     this.panelH = (w * contentH) / contentW
   }
 
-  /** Кадр, без аллокаций: рисует карту поверх уже готового кадра на экране. */
+  /** Кадр, без аллокаций: рисует карты поверх уже готового кадра на экране. */
   render(renderer: WebGLRenderer, s: GameState, freeAmount: number): void {
     if (freeAmount < MIN_AMOUNT || this.size < 0) return
     const size = cubeSize(s)
-    const c = (size - 1) / 2
-    const f = cameraFrame(s)
     const hd = head(s)
     const ap = applePos(s)
+    const f = cameraFrame(s)
 
-    // Слой препятствий: пересборка только при смене головы/камеры/размера/партии.
-    const key =
-      hd.x + size * (hd.y + size * hd.z) +
-      size * size * size * (
-        (f.right.x + 1) + 3 * (f.right.y + 1) + 9 * (f.right.z + 1) +
-        27 * ((f.up.x + 1) + 3 * (f.up.y + 1) + 9 * (f.up.z + 1)))
+    // Слои: пересборка только при смене головы/размера/партии/длины (то есть раз в шаг).
+    const key = hd.x + size * (hd.y + size * hd.z)
     if (this.obstaclesDirty || key !== this.obstacleKey || snakeLength(s) !== this.bodyLen) {
       this.obstaclesDirty = false
       this.obstacleKey = key
-      this.refreshObstacles(s, hd.x, hd.y, hd.z, f)
+      this.refresh(s, hd.x, hd.y, hd.z)
     }
 
-    // Голова: q = p - центр; карта: x = q·right, y = q·forward (= -q·depth), полоска: q·up.
-    const hx = hd.x - c, hy = hd.y - c, hz = hd.z - c
-    const ax = ap.x - c, ay = ap.y - c, az = ap.z - c
-    const A = this.axisA, B = this.axisB
-    this.headMark.position.set(A === 0 ? hx : A === 1 ? hy : hz, B === 1 ? hy : hz, 0)
-    this.appleMark.position.set(A === 0 ? ax : A === 1 ? ay : az, B === 1 ? ay : az, 0)
-    // Остриё головы по ходу: heading = -depth, проекция на оси карты (heading лежит в плоскости).
-    const dv = f.depth
-    const hmx = -(A === 0 ? dv.x : A === 1 ? dv.y : dv.z)
-    const hmy = -(B === 1 ? dv.y : dv.z)
-    this.headMark.rotation.z = Math.atan2(-hmx, hmy)
-    this.headTick.position.y = hx * f.up.x + hy * f.up.y + hz * f.up.z
-    this.appleTick.position.y = ax * f.up.x + ay * f.up.y + az * f.up.z
+    // Метки в осях мира; ход = -depth (лежит в плоскости кадра), проекция на оси карты.
+    const sx = this.sx, sy = this.sy, sz = this.sz
+    this.placeHead(0, hd.x - sx + 0.5, hd.z - sz + 0.5, -f.depth.x, -f.depth.z)
+    this.placeHead(1, this.sideX0 + hd.x - sx + 0.5, hd.y - sy + 0.5, -f.depth.x, -f.depth.y)
+    this.placeApple(0, 0, ap.x, ap.z, sx, sz, ap.y === hd.y)
+    this.placeApple(1, this.sideX0, ap.x, ap.y, sx, sy, ap.z === hd.z)
 
-    // Прозрачность: вес фазы free * проявление после смены плоскости.
-    let fade = (performance.now() - this.fadeStart) / FADE_MS
-    fade = fade >= 1 ? 1 : fade * fade * (3 - 2 * fade)
-    const k = freeAmount * fade
+    // Прозрачность: вес фазы free.
     for (let i = 0; i < this.layers.length; i++) {
       const l = this.layers[i]!
-      l.material.opacity = l.base * k
+      l.material.opacity = l.base * freeAmount
     }
 
     const h = this.screenH
@@ -467,6 +497,7 @@ export class MiniMap {
 
   dispose(): void {
     for (const g of this.geometries) g.dispose()
+    this.labels.geometry.dispose()
     for (const d of this.disposables) d.dispose()
     this.geometries.length = 0
     this.disposables.length = 0

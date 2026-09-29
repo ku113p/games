@@ -1,11 +1,98 @@
 {
-  "cube": { "sizes": [20, 50, 100], "default": 20 },
-  "snake": { "startLength": 3, "growPerApple": 1 },
-  "speed": { "startStepMs": 1080, "minStepMs": 360, "stepMsPerApple": 24, "boostFactor": 2 },
-  "obstacles": { "density": 0.03, "stickiness": 0.6, "clearRadius": 4, "wallMargin": 1 },
-  "camera": { "rollMs": 260, "microPauseMs": 90, "glitchMs": 180, "distanceFactor": 1.6, "followDistance": 4.5, "followHeight": 2.5, "lateralOffset": 0.7, "lookAheadDistance": 10, "lookDownOffset": 1.5, "modeSwitchMs": 1400 },
-  "hints": { "latticeAt": "corners", "latticeStep": 4 },
-  "demo": { "afterSteps": 5 },
-  "loop": { "maxFrameMs": 100 },
-  "input": { "doubleTapMs": 240, "swipeMinPx": 24, "tiltRadPerPx": 0.005 }
+  "cube": {
+    "sizes": [
+      20,
+      50,
+      100
+    ],
+    "default": 20
+  },
+  "snake": {
+    "startLength": 3,
+    "growPerApple": 1
+  },
+  "speed": {
+    "startStepMs": 1080,
+    "minStepMs": 360,
+    "stepMsPerApple": 24,
+    "boostFactor": 2
+  },
+  "obstacles": {
+    "density": 0.03,
+    "stickiness": 0.6,
+    "clearRadius": 4,
+    "wallMargin": 1
+  },
+  "camera": {
+    "rollMs": 260,
+    "microPauseMs": 90,
+    "glitchMs": 180,
+    "distanceFactor": 1.6,
+    "followDistance": 4.5,
+    "followHeight": 2.5,
+    "lateralOffset": 0.7,
+    "lookAheadDistance": 10,
+    "lookDownOffset": 1.5,
+    "modeSwitchMs": 1400
+  },
+  "hints": {
+    "latticeAt": "corners",
+    "latticeStep": 4
+  },
+  "demo": {
+    "afterSteps": 5
+  },
+  "loop": {
+    "maxFrameMs": 100
+  },
+  "minimap": {
+    "windowCells": 20
+  },
+  "input": {
+    "doubleTapMs": 240,
+    "swipeMinPx": 24,
+    "tiltRadPerPx": 0.005
+  },
+  "sound": {
+    "music": {
+      "volume": 0.35,
+      "loopStartSec": 8,
+      "loopEndSec": 96,
+      "bufferSampleRate": 24000,
+      "fadeMs": 400
+    },
+    "sfx": {
+      "volume": 0.5
+    },
+    "blips": {
+      "eat": {
+        "wave": "sawtooth",
+        "freqFrom": 440,
+        "freqTo": 880,
+        "sweepMs": 90,
+        "attackMs": 2,
+        "decayMs": 120,
+        "gain": 0.6,
+        "combo": true
+      },
+      "click": {
+        "wave": "square",
+        "freqFrom": 600,
+        "freqTo": 900,
+        "sweepMs": 40,
+        "attackMs": 2,
+        "decayMs": 50,
+        "gain": 0.25,
+        "combo": false
+      }
+    },
+    "combo": {
+      "semitonesPerApple": 1,
+      "maxSemitones": 12
+    },
+    "defaults": {
+      "musicOn": true,
+      "sfxOn": true
+    }
+  }
 }
