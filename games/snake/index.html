@@ -937,6 +937,188 @@
           gap: 4px;
         }
       }
+      /* ---- Controls screen (screens/controls-view.ts): a scheme tab, a diagram of the screen with numbered controls beside a short legend, the key list on desktop. ---- */
+      .ctl-body {
+        align-items: stretch;
+        text-align: left;
+      }
+      .ctl-tabs button {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 48px;
+      }
+      .ctl-main {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .ctl-diagram {
+        flex: 0 0 auto;
+        width: clamp(118px, 38vw, 160px);
+        height: auto;
+      }
+      .ctl-legend {
+        flex: 1 1 0;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        font-size: 14px;
+        line-height: 1.3;
+      }
+      .ctl-legend li {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .ctl-badge {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--bg);
+        background: var(--neon);
+      }
+      .ctl-badge.boost {
+        background: var(--accent);
+      }
+      .ctl-text {
+        padding-top: 2px;
+        overflow-wrap: anywhere;
+      }
+      .ctl-note,
+      .ctl-other {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.35;
+        opacity: 0.75;
+      }
+      .ctl-other {
+        color: var(--accent);
+        opacity: 1;
+      }
+      .d-frame { fill: none; stroke: rgba(57, 255, 224, 0.35); stroke-width: 1.5; }
+      .d-ctl { fill: rgba(57, 255, 224, 0.06); stroke: rgba(57, 255, 224, 0.75); stroke-width: 1.5; }
+      .d-line { fill: none; stroke: rgba(57, 255, 224, 0.95); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .d-fill { fill: var(--neon); }
+      .d-ring { fill: none; stroke: var(--neon); stroke-width: 1.5; }
+      .d-ring.dashed { stroke-dasharray: 3 3; }
+      .d-boost { fill: rgba(255, 47, 176, 0.18); stroke: var(--accent); stroke-width: 2; }
+      .d-badge { fill: var(--neon); }
+      .d-badge.boost { fill: var(--accent); }
+      .d-num { fill: var(--bg); font: 700 9px system-ui, sans-serif; }
+      .ctl-keys h3 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 400;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+      .ctl-keylist {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px 14px;
+        align-items: center;
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .ctl-keylist dt,
+      .ctl-keylist dd {
+        margin: 0;
+      }
+      .ctl-caps {
+        display: inline-flex;
+        gap: 4px;
+      }
+      .ctl-or {
+        margin: 0 8px;
+        opacity: 0.5;
+      }
+      .ctl-keys kbd {
+        min-width: 28px;
+        padding: 3px 7px;
+        text-align: center;
+        font: 600 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: var(--neon);
+        border: 1px solid var(--neon-dim);
+        border-radius: 6px;
+        background: rgba(57, 255, 224, 0.06);
+      }
+      .ctl-keys .ctl-note + .ctl-note {
+        margin-top: 4px;
+      }
+      #menu > .open-controls {
+        min-height: 48px;
+      }
+
+      /* ---- One-time boost prompt (screens/boost-hint.ts). Beside the boost button, in the corner strip, never over the button or the field.
+         "Swipes": on the boost's own row, on the side toward the screen centre. "Taps": see below. The boost itself gets a ring while the prompt is up. ---- */
+      #boost-hint {
+        --boost: clamp(64px, 20vmin, 96px);
+        --btn: clamp(48px, 15vmin, 72px);
+        --edge-l: max(12px, env(safe-area-inset-left));
+        --edge-r: max(12px, env(safe-area-inset-right));
+        --edge-b: max(12px, env(safe-area-inset-bottom));
+        --stick-w: clamp(88px, 24vmin, 112px);
+        position: absolute;
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+        padding: 6px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--accent);
+        background: rgba(5, 6, 10, 0.88);
+        box-shadow: 0 0 12px rgba(255, 47, 176, 0.35);
+        color: var(--fg);
+        font-size: 14px;
+        line-height: 1.25;
+        text-align: left;
+        pointer-events: none;
+        animation: hint-in 200ms ease-out;
+      }
+      #boost-hint.hidden {
+        display: none;
+      }
+      /* Swipes: row of the corner boost. Width is what is left between the boost and the stick. */
+      #boost-hint.swipes {
+        bottom: calc(var(--edge-b) + var(--boost) / 2);
+        transform: translateY(50%); /* vertically centred on the boost */
+        max-width: min(220px, calc(100vw - var(--edge-l) - var(--edge-r) - var(--boost) - var(--stick-w) - 20px));
+      }
+      #boost-hint.swipes.side-right { right: calc(var(--edge-r) + var(--boost) + 10px); }
+      #boost-hint.swipes.side-left { left: calc(var(--edge-l) + var(--boost) + 10px); }
+      /* Taps: the boost sits inside the pad's cross and the row above the pad is squeezed against the field on a small phone, so the prompt takes the free
+         spot in the corner opposite the pad: above the camera stick, level with the top of the cross (the cross's empty corner cell is next to it). */
+      #boost-hint.taps {
+        --row: calc(var(--btn) * 3 + 8px);
+        bottom: calc(var(--edge-b) + (var(--row) + var(--stick-w)) / 2 + 2px);
+        padding: 4px 8px;
+        font-size: 13px;
+        line-height: 1.2;
+        max-width: calc(100vw - var(--edge-l) - var(--edge-r) - var(--btn) * 4 - 18px - 10px - 6px);
+      }
+      #boost-hint.taps.side-right { left: var(--edge-l); }
+      #boost-hint.taps.side-left { right: var(--edge-r); }
+      /* The ring around the boost button while the prompt is up: outside its edge, so the button itself stays uncovered. */
+      #boost.hint-ring {
+        box-shadow: 0 0 0 4px rgba(255, 47, 176, 0.35), 0 0 18px rgba(255, 47, 176, 0.5);
+      }
+      @keyframes hint-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boost-hint { animation: none; }
+      }
+
       /* ---- Shop and coins. The coin is a gold dot (one for everything: balance, prices, "+N"), so the currency does not depend on the language. ---- */
       .coin {
         display: inline-block;
@@ -1287,6 +1469,9 @@
 
       <button type="button" id="boost" class="hidden" tabindex="-1" data-i18n-aria="aria.boost">×1.5</button>
 
+      <!-- One-time "hold to boost" prompt (screens/boost-hint.ts). Filled and positioned by main.ts; the text is not markup-translated: it is built per game. -->
+      <div id="boost-hint" class="hidden" role="status" aria-live="polite"></div>
+
       <div id="stick" class="hidden" role="group" data-i18n-aria="aria.stick">
         <svg class="glyph" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M50 10l-6 7h12zM50 90l-6-7h12zM10 50l7-6v12zM90 50l-7-6v12z" />
@@ -1319,6 +1504,8 @@
         <button type="button" id="record-line" class="record-line" data-i18n-aria="aria.records"></button>
 
         <button type="button" id="tap-to-play" class="tap-to-play" data-i18n="tapToPlay"></button>
+
+        <button type="button" id="open-controls" class="secondary open-controls" data-i18n="controls.title"></button>
 
         <div class="menu-footer">
           <button type="button" id="open-settings" class="icon-btn" data-i18n-aria="aria.settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg></button>
@@ -1388,6 +1575,18 @@
         </div>
 
         <button type="button" id="records-done" class="secondary wide" data-i18n="nav.back"></button>
+      </div>
+
+      <!-- Controls: header, scrollable body (screens/controls-view.ts draws the diagram and the legend), "Back" at the bottom. -->
+      <div id="controls" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="controls-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="controls.title"></h2>
+        </header>
+
+        <div id="controls-body" class="sub-body ctl-body"></div>
+
+        <button type="button" id="controls-done" class="secondary wide" data-i18n="nav.back"></button>
       </div>
 
       <!-- Shop: header (back, title, balance in view), scrollable shop view, a big "Play" at the bottom. The shop view is drawn by screens/shop-view.ts. -->

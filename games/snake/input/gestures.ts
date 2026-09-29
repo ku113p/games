@@ -71,7 +71,7 @@ export type PadButton = ScreenDir | AxisDir
 export type PadCommand = { kind: 'turn'; dir: ScreenDir } | { kind: 'axis'; dir: AxisDir }
 export type PadSide = 'right' | 'left'
 
-const PAD_BUTTONS: readonly string[] = ['left', 'right', 'up', 'down', 'into', 'out']
+export const PAD_BUTTONS: readonly string[] = ['left', 'right', 'up', 'down', 'into', 'out']
 
 /** Pad button name (data-pad) -> command. null - unknown button or the third axis is off right now. */
 export function padCommand(button: string | undefined, axisEnabled: boolean): PadCommand | null {
@@ -100,7 +100,7 @@ export function boostSide(padSide: PadSide): PadSide {
   return padSide === 'left' ? 'right' : 'left'
 }
 
-const BOOST_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight', 'Space']
+export const BOOST_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight', 'Space']
 
 /** Physical boost key (e.code, layout-independent). */
 export function isBoostCode(code: string): boolean {

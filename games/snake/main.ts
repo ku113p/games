@@ -47,6 +47,9 @@ import { currentLanguage, initLanguage, onLanguageChange, t } from './i18n/runti
 import { SHOP_STORAGE_KEY, catalog, equippedItem, gameSetup, parse, serialize, type Item, type ShopRoot, type ShopState, type Slot } from './shop'
 import { createWallet, grandfatherArena, hasAffordableNew, isShopUnlocked } from './screens/shop-flow'
 import { createShopView } from './screens/shop-view'
+import { createControlsView, detectInputKinds } from './screens/controls-view'
+import { createBoostHint } from './screens/boost-hint'
+import { boostKeyLabels } from './input/controls-doc'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
 import analyticsCfg from './analytics/config.json'
@@ -87,10 +90,14 @@ const finalTimeEl = required<HTMLElement>('final-time')
 const gameOverBoardEl = required<HTMLElement>('game-over-board')
 const settingsScreen = required<HTMLElement>('settings')
 const recordsScreen = required<HTMLElement>('records')
+const controlsScreen = required<HTMLElement>('controls')
+const controlsBodyEl = required<HTMLElement>('controls-body')
+const openControlsBtn = required<HTMLButtonElement>('open-controls')
+const boostHintEl = required<HTMLElement>('boost-hint')
 const recordsBoardEl = required<HTMLElement>('records-board')
 const recordLineBtn = required<HTMLButtonElement>('record-line')
 const openSettingsBtn = required<HTMLButtonElement>('open-settings')
-const backButtons = ['settings-back', 'settings-done', 'records-back', 'records-done'].map((id) => required<HTMLButtonElement>(id))
+const backButtons = ['settings-back', 'settings-done', 'records-back', 'records-done', 'controls-back', 'controls-done'].map((id) => required<HTMLButtonElement>(id))
 const drumBlockEl = required<HTMLElement>('drum-block')
 const drumEl = required<HTMLElement>('drum')
 const drumOkBtn = required<HTMLButtonElement>('drum-ok')
@@ -517,6 +524,28 @@ function openShop(): void {
   shopView.reset()
 }
 
+// --- the one-time "hold to boost" prompt (screens/boost-hint.ts: the rules and the clock; here only the display) ---
+// Shown once in the player's lifetime, in their first game, next to the boost button; gone the moment they boost.
+// Timings are in config.json (boostHint). On a device with a mouse or trackpad the text names the keys (read from input/controls-doc.ts,
+// i.e. from keyboard.ts and gestures.ts); on a touch-only device it names the button, by the label the button really shows.
+function setBoostHintVisible(on: boolean): void {
+  boostHintEl.classList.toggle('hidden', !on)
+  boostEl.classList.toggle('hint-ring', on)
+  if (!on) return
+  const keyboard = detectInputKinds().keyboard
+  boostHintEl.textContent = keyboard
+    ? t('hint.boost.keys', { keys: boostKeyLabels().join(' / ') })
+    : t('hint.boost.touch', { label: boostEl.textContent ?? '' })
+  boostHintEl.classList.toggle('swipes', lastScheme === 'swipes')
+  boostHintEl.classList.toggle('taps', lastScheme === 'taps')
+  boostHintEl.classList.toggle('side-right', padSide === 'right')
+  boostHintEl.classList.toggle('side-left', padSide === 'left')
+}
+const boostHint = createBoostHint(storage, configJson.boostHint, setBoostHintVisible)
+onLanguageChange(() => {
+  if (boostHint.visible) setBoostHintVisible(true)
+})
+
 // --- screens: what is shown now is decided by screens/screens.ts (pure logic with tests), here only display ---
 // Legal screens: the flashing-lights warning - on every open, the terms - until consent is saved
 // (legal/flow.ts, inside screens). The language is already chosen by now (initLanguage above) and changes on the screens themselves.
@@ -528,6 +557,7 @@ const screenEls: Record<ScreenId, HTMLElement> = {
   settings: settingsScreen,
   records: recordsScreen,
   shop: shopScreen,
+  controls: controlsScreen,
   hud,
   over: gameOverScreen,
   pause: pauseScreen,
@@ -545,6 +575,9 @@ onLanguageChange(updateLegalMore)
 
 let shownLegal: ScreenState['legal'] = null
 function renderScreens(s: ScreenState): void {
+  // The boost prompt lives only in a running game: pause hides it and freezes its clock, the explainer, game over and the menus end it.
+  if (s.base !== 'game' || s.demo) boostHint.end()
+  else boostHint.setHeld(s.paused)
   const visible = visibleScreens(s)
   for (const id of ALL_SCREENS) screenEls[id].classList.toggle('hidden', !visible.has(id))
   // Keyboard and screen reader must not go to the screen underneath the legal one.
@@ -553,6 +586,7 @@ function renderScreens(s: ScreenState): void {
   settingsScreen.inert = covered
   recordsScreen.inert = covered
   shopScreen.inert = covered
+  controlsScreen.inert = covered
   updateLegalMore()
   if (s.legal !== shownLegal) {
     shownLegal = s.legal
@@ -561,12 +595,24 @@ function renderScreens(s: ScreenState): void {
   }
 }
 
+// The controls screen: the diagram follows the selected scheme and pad side; key names come from the input layer.
+const controlsView = createControlsView(controlsBodyEl, {
+  scheme: () => selectedScheme,
+  padSide: () => padSide,
+  kinds: detectInputKinds,
+})
+onLanguageChange(() => controlsView.render())
+
 const screens = createScreens(storage, renderScreens)
 renderScreens(screens.state) // the markup starts with the warning visible: bring it to the pre-first-show state
 
 legalWarningOkBtn.addEventListener('click', () => screens.confirmLegal())
 legalTermsOkBtn.addEventListener('click', () => screens.confirmLegal())
 recordLineBtn.addEventListener('click', () => screens.openRecords())
+openControlsBtn.addEventListener('click', () => {
+  screens.openControls()
+  if (screens.state.base === 'controls') controlsView.reset()
+})
 openSettingsBtn.addEventListener('click', () => screens.openSettings())
 openShopBtn.addEventListener('click', openShop)
 toShopBtn.addEventListener('click', openShop)
@@ -779,6 +825,7 @@ function syncPerfVisibility(): void {
 }
 
 function endSession(): void {
+  boostHint.end()
   padEl.classList.add('hidden')
   hideBoostAndPause()
   if (session === null) return
@@ -855,6 +902,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   // Any release (finger left, cancel, blur, pause, death, detach) arrives here as on=false.
   const boost: BoostHold = createBoostHold((on) => {
     if (benchActive) return // measurement: logic is frozen, boost is not needed
+    if (on) boostHint.boosted() // the player found the button: the prompt is done, for good
     s.boostBtn.setActive(on)
     dispatchEvents(s, setBoost(s.state, on))
   })
@@ -935,6 +983,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   session = s
 
   screens.startGame()
+  boostHint.begin(isFirstGameEver) // after startGame: its screen change has already reset the prompt
   hudScore.textContent = '0'
   showPad(scheme, s.mode)
   showBoostAndPause()
@@ -1165,6 +1214,7 @@ function step(now: number): void {
   if (screens.state.paused) return
   if (!screens.state.demo && !benchActive) {
     dispatchEvents(s, tick(s.state, config, dtMs))
+    if (boostHint.ticking) boostHint.advance(dtMs) // plain arithmetic, no allocation
     const st = s.stick.state
     if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)
   }

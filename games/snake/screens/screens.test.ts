@@ -276,6 +276,89 @@ describe('game', () => {
   })
 })
 
+describe('controls screen', () => {
+  test('menu -> controls -> back', () => {
+    const { screens } = fresh()
+    screens.openControls()
+    expect(seen(screens.state)).toEqual(['controls'])
+    expect(topScreen(screens.state)).toBe('controls')
+    screens.back()
+    expect(seen(screens.state)).toEqual(['menu'])
+  })
+
+  test('from settings, records and the shop the controls do not open directly', () => {
+    const { screens } = fresh()
+    screens.openSettings()
+    screens.openControls()
+    expect(screens.state.base).toBe('settings')
+    screens.back()
+    screens.openRecords()
+    screens.openControls()
+    expect(screens.state.base).toBe('records')
+    screens.back()
+    screens.openShop()
+    screens.openControls()
+    expect(screens.state.base).toBe('shop')
+  })
+
+  test('from the controls, settings, records and the shop do not open directly either', () => {
+    const { screens } = fresh()
+    screens.openControls()
+    screens.openSettings()
+    screens.openRecords()
+    screens.openShop()
+    expect(screens.state.base).toBe('controls')
+  })
+
+  test('in a game, on pause, on the demo and on game over the controls are unavailable', () => {
+    const { screens } = fresh()
+    screens.startGame()
+    screens.openControls()
+    expect(screens.state.base).toBe('game')
+    screens.pause()
+    screens.openControls()
+    expect(screens.state.base).toBe('game')
+    screens.resume()
+    screens.openDemo()
+    screens.openControls()
+    expect(screens.state.base).toBe('game')
+    screens.closeDemo()
+    screens.died()
+    screens.openControls()
+    expect(screens.state.base).toBe('over')
+  })
+
+  test('under the legal screen the controls do not open, after it they do; back does nothing under it', () => {
+    const { screens } = fresh()
+    screens.start()
+    screens.openControls()
+    expect(screens.state.base).toBe('menu')
+    screens.confirmLegal()
+    screens.openControls()
+    expect(seen(screens.state)).toEqual(['controls'])
+  })
+
+  test('a game started from the controls (never offered, but must be safe) hides them; exit to the menu closes them', () => {
+    const { screens } = fresh()
+    screens.openControls()
+    screens.toMenu()
+    expect(screens.state.base).toBe('menu')
+    screens.openControls()
+    screens.startGame()
+    expect(seen(screens.state)).toEqual(['hud'])
+  })
+
+  test('reopening makes no noise; back from the game does not bring the controls back', () => {
+    const { screens, changes } = fresh()
+    screens.openControls()
+    screens.openControls()
+    expect(changes.length).toBe(1)
+    screens.startGame()
+    screens.back()
+    expect(seen(screens.state)).toEqual(['hud'])
+  })
+})
+
 describe('topScreen', () => {
   test('priority: legal > demo > pause > base', () => {
     expect(topScreen({ legal: 'terms', base: 'menu', paused: false, demo: false })).toBe('terms')
@@ -285,6 +368,7 @@ describe('topScreen', () => {
     expect(topScreen({ legal: null, base: 'over', paused: false, demo: false })).toBe('over')
     expect(topScreen({ legal: null, base: 'records', paused: false, demo: false })).toBe('records')
     expect(topScreen({ legal: null, base: 'shop', paused: false, demo: false })).toBe('shop')
+    expect(topScreen({ legal: null, base: 'controls', paused: false, demo: false })).toBe('controls')
     expect(topScreen({ legal: 'warning', base: 'shop', paused: false, demo: false })).toBe('warning')
   })
 })

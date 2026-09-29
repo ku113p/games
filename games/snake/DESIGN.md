@@ -34,15 +34,38 @@ factor (not the purchased one): if it has hit the floor (see "Speed"), a smaller
 it is released when the finger leaves, on focus loss, on a hidden tab, on pause, on death.
 PC: Shift or Space (hold).
 
-**Camera (both schemes).** Tilt - two fingers on the canvas or the right mouse button; zoom - pinch or wheel; tilt and zoom stay
-until reset. Reset - the crosshair button above the boost, a quick tap on the stick, or the R key. On a phone, in the corner opposite the pad, there is
+**Camera (both schemes).** Tilt - two fingers on the canvas or the right (or middle) mouse button; zoom - pinch or wheel; tilt and zoom stay
+until reset. Reset - the crosshair button (above the boost in "Swipes", above the pad in "Taps"), a quick tap on the stick, or the R key. On a phone, in the corner opposite the pad, there is
 the camera stick (it sets the turn speed). Tilt and zoom do not carry over into the next game.
 
 **Pause.** The "❚❚" button in the top right corner, Escape, minimizing the tab. When the tab is minimized the game pauses instead of living through
 the missed time. On pause boost is off, you can change sound, fog and quality, continue or leave to the menu.
 Leaving to the menu in the middle of a game counts what was earned: the score goes to the leaderboard and the coins go to the wallet.
 
-**PC:** arrows/WASD - the plane, Q/E - the third axis, Shift/Space - boost, R - camera reset, Escape - pause.
+**PC:** arrows/WASD - the plane, Q ("deeper", `into`) and E ("closer", `out`) - the third axis, Shift/Space - boost, R - camera reset,
+Escape - pause (and resume). Keys are read by physical position, so WASD works on a Russian layout too; Ctrl/Cmd/Alt combinations are left to the browser.
+Mouse: the right (or middle) button dragged - camera tilt, wheel - zoom, left button - swipes and taps exactly as on a phone.
+
+**Boost hint (one-time).** Nothing on the screen used to say the boost must be *held*, so a player could finish a whole first game without touching it.
+Now, in the player's **first game only**, a small prompt appears next to the boost button: 0.6 s after the start, for 4 s
+(`config.boostHint.showAfterMs` / `visibleMs`, counted in running game time, not wall time). The boost button gets a ring for as long as the prompt is up.
+- **Once in a lifetime.** It is marked as seen (`snake:boostHintSeen`) the moment it first appears, so it never returns: not in the next game, not after a reload, not when the
+  first game is repeated because the snake died before the camera transition. A returning player who has already had the twist never sees it.
+- **It vanishes the moment the player boosts** (button or key), and if they boost before it appears it never appears. Someone who already understood is not lectured.
+- **Only over a running game.** Pause hides it and freezes its clock (resume shows what is left); the demo explainer, game over and the menu end it for good. It is never on the legal screens.
+- **Where:** never over the boost button and never over the pad, stick, camera reset or pause. "Swipes": on the boost's own row, toward the centre of the screen.
+  "Taps": the boost sits inside the pad's cross with no room beside it, so the prompt takes the free spot in the opposite corner, above the camera stick, level with the top of the cross;
+  the ring on the button links the two. Both follow the pad side setting.
+- **Two texts.** A device with a mouse or trackpad (`any-pointer: fine`) is told the keys - "Hold Shift / Space to boost" (the key names come from `input/keyboard.ts` and `input/gestures.ts`,
+  they are not typed in); a touch-only device is told the button - "Hold ×1.5 to boost", with the number the button really shows. A tap is the wrong word on a desktop, and key names are noise on a phone.
+  (Not to be confused with the head signals and other visual "Hints" below.)
+
+**Controls screen.** A "Controls" button on the menu (under Play, in the lower half) opens a screen that explains the controls with a drawing first and words second:
+a diagram of the screen with the pad, boost, stick, camera reset and pause drawn where the game puts them (mirrored for the left-hand pad), numbered, with a one-line legend beside it.
+- **Both schemes.** It opens on the scheme the player has selected; two tabs (Swipes / Taps) let them look at the other one, and a line says so when they do ("Not your current scheme").
+- **Read from the code.** The lines, the key names, the pad buttons and the third-axis rule are taken from `input/` (`controls-doc.ts` reads `keyboard.ts` and `gestures.ts`; tests fail if a key is rebound and the screen is not); only the wording is in the dictionaries.
+- **Device.** The stick and the two-finger gesture appear only on a touch device; the keyboard and mouse list only where there is a mouse or trackpad (first on a desktop, after the diagram on a touch laptop).
+- It is a base screen like Records and Shop: reachable from the menu only, Back/Escape return to the menu, never over a game, pause or the legal screens.
 
 The "hold" scheme is thrown out; the "pull up for ×4" gesture is cancelled in favor of the shop.
 
@@ -170,14 +193,15 @@ A player who chose 50³ or 100³ in the old settings keeps that size equipped fo
 1. **Photosensitivity warning** - on **every** launch. One button. The text is in `LEGAL.md`.
 2. **Terms of use** - only on the very first launch (the consent is remembered). An "Accept" button.
    Both screens have a language switch: a person with a foreign language must be able to change it before them.
-3. **Menu screen** - the title, the best high score in one line (a tap opens the leaderboard), a big play button, a gear,
+3. **Menu screen** - the title, the best high score in one line (a tap opens the leaderboard), a big play button, a "Controls" button, a gear,
    the language, the balance chip (after the first game). One goal within three seconds.
 4. **Settings** - control scheme, pad side, music and sounds, fog, quality. The arena size lives in the shop.
 5. **Records** - the leaderboard.
-6. **Shop** - sections from top to bottom: what changes the game (boost, arena, obstacles, pace), then the coin multiplier,
+6. **Controls** - how to play (see "Controls"): a numbered diagram of the screen, a legend, the key list on desktop. Back returns to the menu.
+7. **Shop** - sections from top to bottom: what changes the game (boost, arena, obstacles, pace), then the coin multiplier,
    then the looks; at the bottom a big "Play".
-7. **Game.** Pause (see "Controls"). In the player's first game, on the camera transition, the explainer screen (see "My twist").
-8. **Game over** - a neon GAME OVER (the inscription is not translated), the score, the time, the coins earned (with the multiplier), the leaderboard.
+8. **Game.** Pause (see "Controls"). In the player's first game, on the camera transition, the explainer screen (see "My twist").
+9. **Game over** - a neon GAME OVER (the inscription is not translated), the score, the time, the coins earned (with the multiplier), the leaderboard.
    If the result made the top 3 - entering three symbols with the drum (see below), then the buttons: "Again" (the same arena and scheme, no menu),
    "To the shop", "To the menu".
 

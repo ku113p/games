@@ -7,7 +7,7 @@ import type { AxisDir, ScreenDir } from '../core/state'
 import { createBoostHold, isBoostCode } from './gestures'
 import type { InputHandlers } from './index'
 
-const PLANE_CODES: Readonly<Record<string, ScreenDir>> = {
+export const PLANE_CODES: Readonly<Record<string, ScreenDir>> = {
   ArrowUp: 'up',
   ArrowDown: 'down',
   ArrowLeft: 'left',
@@ -18,10 +18,14 @@ const PLANE_CODES: Readonly<Record<string, ScreenDir>> = {
   KeyD: 'right',
 }
 
-const AXIS_CODES: Readonly<Record<string, AxisDir>> = {
+export const AXIS_CODES: Readonly<Record<string, AxisDir>> = {
   KeyQ: 'into',
   KeyE: 'out',
 }
+
+/** Physical keys (e.code) of the two single-key commands. The controls screen reads them from here. */
+export const PAUSE_CODE = 'Escape'
+export const CAMERA_RESET_CODE = 'KeyR'
 
 /** Pure parsing function: null - not our key. Kept separate so it can be tested without a DOM. */
 export function keyAction(code: string): { plane: ScreenDir | null; axis: AxisDir | null } | null {
@@ -38,13 +42,13 @@ export function attachKeyboard(h: InputHandlers): () => void {
   function onKeyDown(e: KeyboardEvent): void {
     // Escape - pause and exit to the menu. Checked first: works with modifiers
     // and with boost held, because it is an emergency exit from the game.
-    if (e.code === 'Escape') {
+    if (e.code === PAUSE_CODE) {
       e.preventDefault()
       if (!e.repeat) h.onPause?.()
       return
     }
     // R (Reset) - camera reset. No modifiers: Ctrl+R reloads the page, not ours.
-    if (e.code === 'KeyR') {
+    if (e.code === CAMERA_RESET_CODE) {
       if (e.ctrlKey || e.metaKey || e.altKey) return
       e.preventDefault()
       if (!e.repeat) h.onCameraReset?.()

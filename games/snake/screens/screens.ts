@@ -1,18 +1,18 @@
 // screens/screens.ts — "which screen is shown right now". No DOM: the display and storage are passed in from outside (model: legal/flow.ts).
 // One source of truth instead of a scatter of classList.add/remove in main.ts.
 //
-// Model: the legal screen (lies on top of everything) -> the base screen (menu, settings, records, game, game over)
+// Model: the legal screen (lies on top of everything) -> the base screen (menu, settings, records, shop, controls, game, game over)
 // -> in a game there are two more independent reasons to stand still: pause and the demo turn explainer. The explainer beats pause:
 // while it is open the pause screen is not shown, and after it closes the pause (if there was one) reappears by itself.
 
 import { createLegalFlow, type LegalStep, type LegalStorage } from '../legal/flow'
 
-export type BaseScreen = 'menu' | 'settings' | 'records' | 'shop' | 'game' | 'over'
+export type BaseScreen = 'menu' | 'settings' | 'records' | 'shop' | 'controls' | 'game' | 'over'
 
 /** Everything that can be visible on screen. `hud` is the score and the game's controls. */
-export type ScreenId = 'warning' | 'terms' | 'menu' | 'settings' | 'records' | 'shop' | 'hud' | 'over' | 'pause' | 'demo'
+export type ScreenId = 'warning' | 'terms' | 'menu' | 'settings' | 'records' | 'shop' | 'controls' | 'hud' | 'over' | 'pause' | 'demo'
 
-export const ALL_SCREENS: readonly ScreenId[] = ['warning', 'terms', 'menu', 'settings', 'records', 'shop', 'hud', 'over', 'pause', 'demo']
+export const ALL_SCREENS: readonly ScreenId[] = ['warning', 'terms', 'menu', 'settings', 'records', 'shop', 'controls', 'hud', 'over', 'pause', 'demo']
 
 export interface ScreenState {
   /** The legal screen on top of everything; null once passed (or skipped). */
@@ -64,7 +64,9 @@ export interface Screens {
   openRecords(): void
   /** The shop: from the menu or the game-over screen ("To the shop"). Not under the legal screen, in a game or on pause. */
   openShop(): void
-  /** From settings, records or the shop, back to the menu. */
+  /** The controls screen (how to play): from the menu only. Not under the legal screen, in a game or on pause. */
+  openControls(): void
+  /** From settings, records, the shop or the controls, back to the menu. */
   back(): void
   /** A game started (from the menu, "Again", the benchmark): resets pause and the explainer. */
   startGame(): void
@@ -115,8 +117,11 @@ export function createScreens(storage: LegalStorage, onChange: (s: ScreenState) 
     openShop() {
       if (st.legal === null && (st.base === 'menu' || st.base === 'over')) set({ base: 'shop' })
     },
+    openControls() {
+      if (st.legal === null && st.base === 'menu') set({ base: 'controls' })
+    },
     back() {
-      if (st.legal === null && (st.base === 'settings' || st.base === 'records' || st.base === 'shop')) set({ base: 'menu' })
+      if (st.legal === null && (st.base === 'settings' || st.base === 'records' || st.base === 'shop' || st.base === 'controls')) set({ base: 'menu' })
     },
     startGame() {
       set({ base: 'game', paused: false, demo: false })
