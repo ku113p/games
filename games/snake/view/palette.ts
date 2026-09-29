@@ -95,8 +95,10 @@ export const MINIMAP_BORDER_ALPHA = 0.22
 // Настоящая стена арены на карте: сплошная толстая линия по той стороне окна, где оно упёрлось.
 export const MINIMAP_WALL_COLOR = new Color(0x6fe3ff)
 export const MINIMAP_WALL_ALPHA = 0.95
-// Подписи осей карт («XZ» сверху, «XY» сбоку).
+// Подписи осей («XZ» у карты сверху, «Y» у уровнемера).
 export const MINIMAP_LABEL_ALPHA = 0.6
+// Осевая линия уровнемера (вертикальная полоса «пол — потолок»): тихая, метки поверх.
+export const MINIMAP_LEVEL_TRACK_ALPHA = 0.35
 export const MINIMAP_HEAD_ALPHA = 0.9
 export const MINIMAP_APPLE_ALPHA = 0.85
 // Яблоко вне среза (проекция) и вне окна (стрелка у края) тише «яблока здесь», но заметны.

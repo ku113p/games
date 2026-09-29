@@ -40,3 +40,8 @@ export function touchesLowWall(start: number): boolean {
 export function touchesHighWall(start: number, len: number, size: number): boolean {
   return start + len >= size
 }
+
+/** Уровнемер: центр клетки v по всей высоте арены, доля 0..1 (0 — пол, 1 — потолок). Без окна и скролла. */
+export function levelFraction(v: number, size: number): number {
+  return (v + 0.5) / size
+}

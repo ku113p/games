@@ -3,6 +3,7 @@ import {
   clampToWindow,
   inWindow,
   isInWindow,
+  levelFraction,
   touchesHighWall,
   touchesLowWall,
   windowLength,
@@ -110,5 +111,18 @@ describe('яблоко относительно окна', () => {
     expect(isInWindow(59, 40, 20)).toBe(true)
     expect(isInWindow(60, 40, 20)).toBe(false)
     expect(isInWindow(39, 40, 20)).toBe(false)
+  })
+})
+
+describe('levelFraction (уровнемер)', () => {
+  test('пол и потолок: первая и последняя клетки у краёв, середина посередине', () => {
+    expect(levelFraction(0, 100)).toBeCloseTo(0.005)
+    expect(levelFraction(99, 100)).toBeCloseTo(0.995)
+    expect(levelFraction(49, 100)).toBeCloseTo(0.495)
+    expect(levelFraction(0, 20)).toBeCloseTo(0.025)
+  })
+
+  test('не зависит от окна: монотонно растёт по всей высоте', () => {
+    for (let y = 1; y < 50; y++) expect(levelFraction(y, 50)).toBeGreaterThan(levelFraction(y - 1, 50))
   })
 })
