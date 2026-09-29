@@ -242,10 +242,16 @@ against a wallet with 50³ bought and equipped). The opening is framed for 20³ 
   is untouched and is what every later apple and every later game uses.
 - **The reveal.** When the camera moves, the other layers appear outward from the board's layer over the first `camera.plane.revealShare` of the flight, while the lens widens from the narrow one to the game's own.
 
-**Demo turn (first game):** on step 5 the snake turns by itself along the third axis - into a random free side (not into a wall
-and not into an obstacle); the camera moves behind the head with a glitch and a roll, the game pauses and shows the explainer screen.
-After that the player does the turning. This is the **only** way out of plane mode (the third axis used to be in the controls, but it never left the mode: it only rolled the flat camera). If both sides are blocked
-the demo turn is not spent and is tried again on the next step, so a player cannot be stuck flat.
+**The reveal, a.k.a. the demo turn (first game):** on step 5 the camera moves behind the head with a glitch and a roll, the game pauses and shows the explainer screen.
+**The snake does not change course.** It stands still for that one step and afterwards goes exactly the way it was going; the reveal is a change of viewpoint, not of direction
+(the designer: "the direction must stay the way the snake is actually travelling"; before this, the snake turned by itself into or out of the board, so the heading really changed and,
+on the "out" side, left and right came out mirrored). The frame turns around the snake instead: the camera sits behind the head, and
+- the axis of the flat board that the snake was steering on stays as it was, so **the two buttons that steered the flat snake still do the same thing** (moving right on the board: up/down; moving up: left/right);
+- the other pair, which meant "straight on" / "reverse" and did nothing useful on the flat board, now turns the snake into and out of the board: that is where the third dimension appears under the player's thumb;
+- a turn the player had already queued just before the reveal stays queued and runs on the next step.
+What shows the player that the third dimension exists is the camera flight itself (the other layers appear outward from the board's layer, the lens widens) plus the explainer screen.
+There is nothing random in it and nothing that can block it, so it always fires on step 5 and a player cannot be stuck flat. After that the player does the turning. This is the **only** way out of plane mode
+(the third axis used to be in the controls, but it never left the mode: it only rolled the flat camera).
 
 ## Game feel
 Neon and volume. The camera flight at the twist: a glitch at the start and at the midpoint, the lens widening, the world appearing from the board outward (under "reduced motion" the glitch noise is muted, the flight stays).

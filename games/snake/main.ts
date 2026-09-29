@@ -665,9 +665,30 @@ function isPaused(): boolean {
 // Parameters of the last game - "Again" restarts with them.
 let lastScheme: InputScheme = 'swipes'
 
-// Resizing the canvas buffer clears it, and step() draws nothing while paused. So after anything that resizes the buffer
-// (quality change, window resize, rotation) one frame is drawn by hand. Cold path: not a frame loop, dt = 0, the core is not ticked,
-// so no game time passes and no per-frame work runs while paused.
+// While paused nothing draws (step() returns before render), so the canvas holds only what was last drawn into it. Anything that
+// touches the drawing buffer wipes that: a resize (which clears it), a lost and restored WebGL context, a compositor that drops
+// the surface on rotation. The invariant is therefore not "redraw on event X" but: whatever touched the buffer, the LAST thing that
+// happens is a redraw of the frozen frame. Three pieces hold it:
+//   1. every possible signal (window resize, orientationchange, visualViewport, a ResizeObserver on the canvas, context restored,
+//      pageshow, the tab becoming visible) only calls noteBufferTouched();
+//   2. a cheap poll compares the canvas's CSS size and the device pixel ratio with what the buffer was last sized for, so a change that
+//      came with no event at all is still caught (frozenView.sizePollMs);
+//   3. the redraw itself happens in the frame loop, on the next frame AND once more frozenView.settleMs after the last signal, so a
+//      late second resize (rotation sends several) always finds a redraw behind it.
+// A redraw is render(state, 0): not a frame loop, dt = 0, tick() is never called, so no game time passes and nothing moves.
+const frozenCfg = configJson.frozenView
+let redrawPending = false
+let settleAt = 0 // performance.now() timebase; 0 = no follow-up scheduled
+let nextPollAt = 0
+let appliedW = -1
+let appliedH = -1
+let appliedDpr = -1
+
+function noteBufferTouched(): void {
+  redrawPending = true
+  settleAt = performance.now() + frozenCfg.settleMs
+}
+
 function redrawFrozen(): void {
   const s = session
   if (s === null || !screens.state.paused || !isAlive(s.state)) return
@@ -675,7 +696,33 @@ function redrawFrozen(): void {
 }
 
 function syncViewSize(view: View): void {
-  view.resize(canvas.clientWidth, canvas.clientHeight)
+  appliedW = canvas.clientWidth
+  appliedH = canvas.clientHeight
+  appliedDpr = window.devicePixelRatio
+  view.resize(appliedW, appliedH)
+}
+
+/** Frame-loop side of the size guard: numbers only, no allocation. Catches a size change nobody told us about. */
+function pollBufferSize(now: number): void {
+  if (now < nextPollAt) return
+  nextPollAt = now + frozenCfg.sizePollMs
+  const s = session
+  if (s === null) return
+  if (canvas.clientWidth === appliedW && canvas.clientHeight === appliedH && window.devicePixelRatio === appliedDpr) return
+  syncViewSize(s.view)
+  noteBufferTouched()
+}
+
+/** Called every frame while paused (instead of drawing). */
+function serviceFrozen(now: number): void {
+  pollBufferSize(now)
+  if (redrawPending) {
+    redrawPending = false
+    redrawFrozen()
+  } else if (settleAt !== 0 && now >= settleAt) {
+    settleAt = 0
+    redrawFrozen()
+  }
 }
 
 function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session): void {
@@ -692,10 +739,6 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       // Step tick: quieter and less frequent as pace grows (see blips.tick). Apple and death in this same step
       // bring their own sound (events follow moved), the tick under them is not needed.
       if (next === undefined || (next.type !== 'ate' && next.type !== 'died')) audio.play('tick', effectiveStepMs(s.state))
-      s.pad?.clearQueued()
-      break
-    case 'turnedInPlace':
-      // The snake executed the command - clear the "accepted, waiting for a step" highlight on the pad.
       s.pad?.clearQueued()
       break
     case 'modeChanged':
@@ -1061,7 +1104,11 @@ const perfSnap = createPerfSnapshot()
 
 function applyPerfNow(): void {
   session?.view.applyPerf(canvas.clientWidth, canvas.clientHeight)
+  appliedW = canvas.clientWidth
+  appliedH = canvas.clientHeight
+  appliedDpr = window.devicePixelRatio
   redrawFrozen()
+  noteBufferTouched()
 }
 
 function ensurePerfPanel(): PerfPanel {
@@ -1169,13 +1216,23 @@ window.addEventListener('keydown', (e) => {
 
 // --- resize/screen rotation: the UI and canvas must survive it -------------
 
-function onWindowResize(): void {
+function onViewportChange(): void {
   if (session !== null) syncViewSize(session.view)
   redrawFrozen()
+  noteBufferTouched() // the redraw above may run at a size that is replaced a moment later; the loop draws again once it settles
 }
 
-window.addEventListener('resize', onWindowResize)
-window.addEventListener('orientationchange', onWindowResize)
+window.addEventListener('resize', onViewportChange)
+window.addEventListener('orientationchange', onViewportChange)
+window.addEventListener('pageshow', onViewportChange)
+window.visualViewport?.addEventListener('resize', onViewportChange)
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(onViewportChange).observe(canvas)
+// A lost WebGL context (iOS does this on rotation, minimise, a call) comes back EMPTY: three.js rebuilds its state, but nothing is drawn
+// until somebody renders, and while paused nobody does.
+canvas.addEventListener('webglcontextrestored', onViewportChange)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) onViewportChange()
+})
 
 // --- game loop: requestAnimationFrame, dt passed to the core; steady-state frames do not allocate or await (see the header of this file for the exceptions) ---
 
@@ -1205,7 +1262,11 @@ function step(now: number): void {
   const dtMs = rawDt > config.loop.maxFrameMs ? config.loop.maxFrameMs : rawDt
   lastFrameTime = now
 
-  if (screens.state.paused) return
+  if (screens.state.paused) {
+    serviceFrozen(now)
+    return
+  }
+  if (now >= nextPollAt) pollBufferSize(now)
   if (!screens.state.demo && !benchActive) {
     dispatchEvents(s, tick(s.state, config, dtMs))
     if (boostHint.ticking) boostHint.advance(dtMs) // plain arithmetic, no allocation

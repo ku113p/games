@@ -342,28 +342,35 @@ export function reorientFrameFree(s: GameState, newHeading: Vec3): void {
 }
 
 /**
-  * Demo transition plane → free: the head turns along the third axis, sign = -1 ('into': heading = -depth)
-  * or +1 ('out': heading = +depth). The frame is adjusted so that depth = -heading:
-  * 'into': frame unchanged (the camera already looks into the screen); 'out': a 180° turn around up
-  * (right and depth flip sign, up stays). Mutates heading and frame in place.
+  * Reveal (demo transition) plane → free: the SNAKE KEEPS ITS COURSE, the frame turns around it. The camera goes behind the head, so
+  * depth = -heading; heading itself is not touched. The frame axis that lies along the heading is replaced, and the one perpendicular to
+  * it (in the old screen plane) is kept, so the two buttons that steered the flat snake (the sideways pair) still do the same in the
+  * world, and the pair that used to mean "straight on" / "reverse" now steer along the third axis:
+  *  - heading along ±right: up is kept, right' = up × depth' (the old depth axis, so left/right now turn into and out of the board);
+  *  - heading along ±up: right is kept, up' = depth' × right (the up/down buttons now turn into and out of the board).
+  * The result is right-handed (right × up = depth) with no -0. Mutates the frame in place, no allocations.
  */
-export function enterFreeFrame(s: GameState, sign: -1 | 1): void {
-  const d = s.frame.depth
-  const nx = sign * d.x + 0
-  const ny = sign * d.y + 0
-  const nz = sign * d.z + 0
-  if (sign === 1) {
-    const r = s.frame.right
-    r.x = -r.x + 0
-    r.y = -r.y + 0
-    r.z = -r.z + 0
-    d.x = -d.x + 0
-    d.y = -d.y + 0
-    d.z = -d.z + 0
+export function enterFreeFrame(s: GameState): void {
+  const h = s.heading
+  const f = s.frame
+  const d = f.depth
+  d.x = -h.x + 0
+  d.y = -h.y + 0
+  d.z = -h.z + 0
+  const alongRight = h.x * f.right.x + h.y * f.right.y + h.z * f.right.z !== 0
+  if (alongRight) {
+    const u = f.up
+    const r = f.right
+    r.x = u.y * d.z - u.z * d.y + 0
+    r.y = u.z * d.x - u.x * d.z + 0
+    r.z = u.x * d.y - u.y * d.x + 0
+  } else {
+    const r = f.right
+    const u = f.up
+    u.x = d.y * r.z - d.z * r.y + 0
+    u.y = d.z * r.x - d.x * r.z + 0
+    u.z = d.x * r.y - d.y * r.x + 0
   }
-  s.heading.x = nx
-  s.heading.y = ny
-  s.heading.z = nz
 }
 
 /**

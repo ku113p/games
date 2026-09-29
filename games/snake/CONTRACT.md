@@ -25,7 +25,7 @@ The snake's `heading` always lies in the screen plane: it is ±right or ±up.
 
 ### The third axis
 There is no axis-turn command and no third axis in the controls (removed): classic snake has none, and the flat opening sells that illusion. The only turn along the depth
-axis is the **demo turn** (Addendum 2), which the core makes by itself and which switches the game from `'plane'` to `'free'` for good. The frame is therefore constant while the game is flat.
+axis is the **reveal / demo turn** (Addendum 2), which the core makes by itself (it re-frames the camera around the snake, the heading is unchanged) and which switches the game from `'plane'` to `'free'` for good. The frame is therefore constant while the game is flat.
 
 Formula for rotating a vector v by +90° around a unit integer axis (still used by the free-mode frame, `rotateFrame`):
 `v' = axis × v` when v ⊥ axis. For frame: right, up, depth are rotated by this rule,
@@ -100,7 +100,7 @@ export function spawnApple(s: GameState): Vec3
 export function rotateFrame(s: GameState, axis: Vec3): void
 export function rotateFrameOf(frame: Frame, axis: Vec3): void          // the same over an arbitrary Frame
 export function reorientFrameFree(s: GameState, newHeading: Vec3): void // 'free' mode: frame follows a turn
-export function enterFreeFrame(s: GameState, sign: -1 | 1): void        // demo transition plane -> free
+export function enterFreeFrame(s: GameState): void                      // reveal plane -> free: depth = -heading, heading untouched
 export function initFreeStartFrame(s: GameState): void                 // start directly in 'free'
 export function speedAfterApples(config: Config, apples: number, paceScale?: number): number  // paceScale default 1
 export function isValidBoostFactor(f: number): boolean
@@ -124,7 +124,6 @@ export type GameEvent =
   | { type: 'started' }
   | { type: 'moved' }
   | { type: 'turned'; heading: Vec3 }
-  | { type: 'turnedInPlace'; heading: Vec3 }
   | { type: 'ate'; apple: Vec3; score: number }
   | { type: 'appleSpawned'; apple: Vec3 }
   | { type: 'speedUp'; stepMs: number }
@@ -141,9 +140,9 @@ export function tick(s: GameState, config: Config, dtMs: number): GameEvent[]
 
 `tick` caps `dtMs` at `config.loop.maxFrameMs`, accumulates `sinceStepMs` and makes steps while there is enough time.
 Events are returned in the same reusable array (no allocations in the hot path).
-Demo turn: if `demoTurnPending` and `stepCount >= config.demo.afterSteps`, the core itself makes the plane to free
-transition (a turn-in-place step into a random free side, see Addendum 1 and Addendum 3) and adds `turnedInPlace`,
-`modeChanged` and `demoTurn`, in that order. `boostChanged` is emitted by `setBoost` only (see Addendum 4).
+Demo turn (the reveal): if `demoTurnPending` and `stepCount >= config.demo.afterSteps`, the core itself makes the plane to free
+transition (a stand-still step, see Addendum 3): `heading` is NOT changed, the frame is turned around the snake so that `depth = -heading`
+(`enterFreeFrame`), and it adds `modeChanged` and `demoTurn`, in that order. It always fires (nothing is random, nothing can block it). `boostChanged` is emitted by `setBoost` only (see Addendum 4).
 
 ### core/queries.ts - read-only
 
@@ -288,14 +287,14 @@ The invariant is still mandatory and tests for these scenarios exist:
 
 1. Two `turnInPlane` in a row before the step.
 2. A queued turn in free mode: `viewFrame` equals the frame the step will produce.
-3. The demo turn: heading = ∓old depth, `depth = -heading`, no pending turn.
+3. The reveal: heading unchanged, `depth = -heading`, the axis of the old screen plane perpendicular to the heading is kept, a queued turn survives (unless it was "straight on").
 4. Death on the step of a turn.
 
 ## Demo turn (new rules from DESIGN.md)
 
 - Fires **on step 5** of the player's first game. The number of steps is in config: `demo.afterSteps`.
-- The direction is **random among the free ones**: if the cell along `into` is occupied or beyond the wall, `out` is taken;
-  if both are occupied, the demo does not fire and is not used up.
+- **The snake keeps its heading** (the designer: the reveal is a change of viewpoint, not of course). Nothing is random and nothing can
+  block it, so it always fires. Earlier versions turned the snake into a random free side along the depth axis, which really changed the heading.
 - The core emits `demoTurn`. **The pause and the explainer screen are done by main.ts**, not the core.
 
 ## Pause
@@ -369,31 +368,27 @@ The snake **cannot be seen**: dark on a dark background. Required:
 
 ---
 
-# Addendum 3 - the turn-in-place step
+# Addendum 3 - the stand-still step (was: the turn-in-place step)
 
 The designer's feedback: "probably the snake shouldn't move during the flip - let the change of direction
-happen before the movement."
+happen before the movement." (Superseded in part: the direction no longer changes at all, see "Demo turn" above; the stand-still step stayed.)
 
-**The demo turn is a separate step.** The snake first turns in place, and only
-on the next step moves in the new direction. (Once a manual axis turn did the same; it was removed with the third axis.) Ordinary turns in the plane (`turnInPlane`) are not affected - they
+**The reveal is a separate step.** The snake stands still while the frame is re-cut around it, and only
+on the next step moves on, in the same direction. Ordinary turns in the plane (`turnInPlane`) are not affected - they
 still coincide with a step, as in the classic snake.
 
-On the turn-in-place step the snake does not move, does not grow, does not eat, collisions are not checked,
+On the stand-still step the snake does not move, does not grow, does not eat, collisions are not checked,
 `stepCount` does not grow (it is not a move). The step takes exactly one `stepMs`.
 
-## New event
+## Event
 
-```ts
-| { type: 'turnedInPlace'; heading: Vec3 }
-```
-
-In the demo it comes first, before `modeChanged` and `demoTurn`.
+`turnedInPlace` no longer exists: the heading does not turn, so there is nothing to report. The reveal emits `modeChanged`, `demoTurn`.
 
 ## Side finding
 
-After the demo turn `heading` no longer matches the last step taken,
+(From the time the demo turned the snake:) `heading` did not match the last step taken,
 and the ordinary "180-degree reversal" check stopped being enough: a swipe backward hit the neck and killed.
-The `pointsIntoNeck` check was added - such a swipe is ignored.
+The `pointsIntoNeck` check was added - such a swipe is ignored. It stays as a safety net.
 
 ---
 

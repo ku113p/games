@@ -80,6 +80,9 @@ function getShared(canvas: HTMLCanvasElement): Shared {
   renderer.setPixelRatio(pixelRatioFor(canvas.clientWidth || canvas.width || 1, canvas.clientHeight || canvas.height || 1))
   renderer.toneMapping = NoToneMapping
   renderer.setClearColor(BACKGROUND_COLOR, 1)
+  // A lost and restored WebGL context comes back with the GL clear colour at its default (black): three.js rebuilds its own state but the
+  // navy background would stay black until the next setClearColor. Registered after three's own restore handler, so it runs after it.
+  canvas.addEventListener('webglcontextrestored', () => renderer.setClearColor(BACKGROUND_COLOR, 1))
   shared = { canvas, renderer, postFx: null }
   return shared
 }

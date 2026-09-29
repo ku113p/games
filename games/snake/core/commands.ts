@@ -3,13 +3,12 @@
 // events are written into the same array that is reused per GameState.
 
 import { enterFreeFrame, reorientFrameFree, spawnApple, speedAfterApples, type Config } from './rules'
-import { boostedStepMs, cellKey, effectiveStepMs, nextRandom, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
+import { boostedStepMs, cellKey, effectiveStepMs, type DeathCause, type Frame, type GameState, type Mode, type ScreenDir, type Vec3 } from './state'
 
 export type GameEvent =
   | { type: 'started' }
   | { type: 'moved' }
   | { type: 'turned'; heading: Vec3 }
-  | { type: 'turnedInPlace'; heading: Vec3 }
   | { type: 'ate'; apple: Vec3; score: number }
   | { type: 'appleSpawned'; apple: Vec3 }
   | { type: 'speedUp'; stepMs: number }
@@ -63,8 +62,8 @@ function signed(sign: -1 | 1, value: number): number {
 }
 
 /**
-  * The direction leads the head exactly into the second body cell (the neck). After the demo turn, heading
-  * no longer matches the last move made, so isOpposite(heading) alone is not enough.
+  * The direction leads the head exactly into the second body cell (the neck). A safety net on top of isOpposite(heading): it
+  * catches a move into the neck even when heading does not match the last move made.
  */
 function pointsIntoNeck(s: GameState, dir: Vec3): boolean {
   if (s.snake.length < 2) return false
@@ -119,59 +118,32 @@ export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[] {
   return buf
 }
 
-/** The cell in front of the head at offset (dx,dy,dz) is free: not a wall, not an obstacle, not the body. */
-function isFreeAhead(s: GameState, dx: number, dy: number, dz: number): boolean {
-  const head = s.snake[0]!
-  const nx = head.x + dx
-  const ny = head.y + dy
-  const nz = head.z + dz
-  if (nx < 0 || ny < 0 || nz < 0 || nx >= s.size || ny >= s.size || nz >= s.size) return false
-  const key = cellKey(nx, ny, nz, s.size)
-  if (s.obstacles.has(key)) return false
-  if (s.snakeCells.has(key)) {
-    const tail = s.snake[s.snake.length - 1]!
-    const isVacatingTail = s.growth === 0 && key === cellKey(tail.x, tail.y, tail.z, s.size)
-    if (!isVacatingTail) return false
-  }
-  return true
-}
-
 /**
-  * Demo transition plane → free (a separate step, the snake stands still): the direction is random among the free ones (into/out). If none
-  * is free, does nothing and the demoTurnPending flag is not spent (retry on the next step).
-  * The head turns immediately (heading = ∓depth, the frame is adjusted so that depth = -heading),
-  * modeChanged and demoTurn are emitted. Returns true if it fired (tick stops the step
-  * loop; main.ts sets the pause).
+  * The reveal (demo transition) plane → free, a separate step: the snake stands still and KEEPS ITS COURSE (heading is not touched);
+  * the frame turns around it so the camera can go behind the head (enterFreeFrame). Always fires: nothing has to be free, the snake is
+  * not sent anywhere. A turn the player has already buffered stays valid (it is along the axis the frame kept); a buffered "straight on"
+  * is dropped. Emits modeChanged and demoTurn. Returns true (tick stops the step loop; main.ts sets the pause).
  */
 function tryDemoTurn(s: GameState, buf: GameEvent[]): boolean {
-  const d = s.frame.depth
-  const intoFree = isFreeAhead(s, -d.x, -d.y, -d.z)
-  const outFree = isFreeAhead(s, d.x, d.y, d.z)
-  if (!intoFree && !outFree) return false
-
-  let sign: -1 | 1
-  if (intoFree && outFree) sign = nextRandom(s) < 0.5 ? -1 : 1
-  else sign = intoFree ? -1 : 1
-
   s.demoTurnPending = false
-  s.pendingTurn = null // the plane turn buffer belonged to the old frame
+  const p = s.pendingTurn
+  if (p !== null && p.x === s.heading.x && p.y === s.heading.y && p.z === s.heading.z) s.pendingTurn = null
   s.mode = 'free'
-  enterFreeFrame(s, sign)
-  buf.push({ type: 'turnedInPlace', heading: { x: s.heading.x, y: s.heading.y, z: s.heading.z } })
+  enterFreeFrame(s)
   buf.push(MODE_FREE)
   buf.push(DEMO_TURN)
   return true
 }
 
 /**
-  * One step. The demo transition is a turn-in-place step: it only changes
-  * heading: no movement, growth, eating or collision checks; stepCount does not grow. Otherwise a grid
+  * One step. The reveal (demo transition) is a stand-still step: it only re-frames the camera around the snake, heading is unchanged:
+  * no movement, growth, eating or collision checks; stepCount does not grow. Otherwise a grid
   * step: apply the buffered turn, move, collisions, eating.
   * Returns true if the demo transition fired (tick breaks the loop; main.ts sets the pause).
  */
 function step(s: GameState, config: Config, buf: GameEvent[]): boolean {
   if (s.demoTurnPending && s.stepCount >= config.demo.afterSteps && tryDemoTurn(s, buf)) {
-    return true // demo transition is a separate turn-in-place step: the snake did not move
+    return true // the reveal is a separate stand-still step: the snake did not move and did not turn
   }
 
   if (s.pendingTurn) {

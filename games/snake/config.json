@@ -142,6 +142,10 @@
   "loop": {
     "maxFrameMs": 100
   },
+  "frozenView": {
+    "settleMs": 350,
+    "sizePollMs": 250
+  },
   "minimap": {
     "windowCells": 20,
     "levelWindowCells": 10
