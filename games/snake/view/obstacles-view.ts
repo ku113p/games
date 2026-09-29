@@ -50,7 +50,7 @@ const OBSTACLE_SCALE = 0.98
 const OBSTACLE_EDGE_MIN_PX = 2.2
 const OBSTACLE_EDGE_WORLD_W = 0.04
 // Сдвиг ленты к камере по глубине, в её мировых ширинах: 0 — без сдвига (рёбра выедаются гранями).
-const OBSTACLE_EDGE_DEPTH_K = 3
+const OBSTACLE_EDGE_DEPTH_K = 1.5
 const COMMON = /* glsl */ `
 uniform float uHalf;
 uniform vec3 uHead;
@@ -74,8 +74,10 @@ uniform float uDepthK;
 ${COMMON}
 void main() {
   vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
-  vec3 wa = aCenter - 0.5 * dirv;
-  vec3 wb = aCenter + 0.5 * dirv;
+  // Концы — на настоящих углах контура (uHalf), а не на границе клетки (0.5): иначе каждый конец выступает за габарит.
+  // Стык углов и соседних отрезков закрывает продолжение на полуширину ленты (ниже).
+  vec3 wa = aCenter - uHalf * dirv;
+  vec3 wb = aCenter + uHalf * dirv;
   vec4 ca = projectionMatrix * (viewMatrix * vec4(wa, 1.0));
   vec4 cb = projectionMatrix * (viewMatrix * vec4(wb, 1.0));
   const float NEAR_W = 0.05;
