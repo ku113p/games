@@ -44,11 +44,11 @@ Leaving to the menu in the middle of a game counts what was earned: the score go
 Escape - pause (and resume). Keys are read by physical position, so WASD works on a Russian layout too; Ctrl/Cmd/Alt combinations are left to the browser.
 Mouse: the right (or middle) button dragged - camera tilt, wheel - zoom, left button - swipes and taps exactly as on a phone.
 
-**Boost hint (one-time).** Nothing on the screen used to say the boost must be *held*, so a player could finish a whole first game without touching it.
-Now, in the player's **first game only**, a small prompt appears next to the boost button: 0.6 s after the start, for 4 s
+**Boost hint (until the player has boosted).** Nothing on the screen used to say the boost must be *held*, so a player could finish a whole first game without touching it.
+Now a small prompt appears in **every game until the player has boosted once**, next to the boost button, 0.6 s after the start, for 4 s
 (`config.boostHint.showAfterMs` / `visibleMs`, counted in running game time, not wall time). The boost button gets a ring for as long as the prompt is up.
-- **Once in a lifetime.** It is marked as seen (`snake:boostHintSeen`) the moment it first appears, so it never returns: not in the next game, not after a reload, not when the
-  first game is repeated because the snake died before the camera transition. A returning player who has already had the twist never sees it.
+- **Until the first boost.** It is marked as seen (`snake:boostHintSeen`) only when the player boosts, so it never returns after that: not in the next game, not after a reload.
+  Merely being shown it does not retire it: a player who died in three seconds, or never noticed the bubble, gets it again in the next game.
 - **It vanishes the moment the player boosts** (button or key), and if they boost before it appears it never appears. Someone who already understood is not lectured.
 - **Only over a running game.** Pause hides it and freezes its clock (resume shows what is left); the demo explainer, game over and the menu end it for good. It is never on the legal screens.
 - **Where:** never over the boost button and never over the pad, stick, camera reset or pause. "Swipes": on the boost's own row, toward the centre of the screen.

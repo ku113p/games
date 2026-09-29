@@ -525,7 +525,7 @@ function openShop(): void {
 }
 
 // --- the one-time "hold to boost" prompt (screens/boost-hint.ts: the rules and the clock; here only the display) ---
-// Shown once in the player's lifetime, in their first game, next to the boost button; gone the moment they boost.
+// Shown in every game until the player has boosted once (then never again), next to the boost button; gone the moment they boost.
 // Timings are in config.json (boostHint). On a device with a mouse or trackpad the text names the keys (read from input/controls-doc.ts,
 // i.e. from keyboard.ts and gestures.ts); on a touch-only device it names the button, by the label the button really shows.
 function setBoostHintVisible(on: boolean): void {
@@ -664,6 +664,15 @@ function isPaused(): boolean {
 
 // Parameters of the last game - "Again" restarts with them.
 let lastScheme: InputScheme = 'swipes'
+
+// Resizing the canvas buffer clears it, and step() draws nothing while paused. So after anything that resizes the buffer
+// (quality change, window resize, rotation) one frame is drawn by hand. Cold path: not a frame loop, dt = 0, the core is not ticked,
+// so no game time passes and no per-frame work runs while paused.
+function redrawFrozen(): void {
+  const s = session
+  if (s === null || !screens.state.paused || !isAlive(s.state)) return
+  s.view.render(s.state, 0)
+}
 
 function syncViewSize(view: View): void {
   view.resize(canvas.clientWidth, canvas.clientHeight)
@@ -969,7 +978,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   session = s
 
   screens.startGame()
-  boostHint.begin(isFirstGameEver) // after startGame: its screen change has already reset the prompt
+  if (!forBench) boostHint.begin() // after startGame: its screen change has already reset the prompt. Not in the benchmark (endSession left it ended).
   hudScore.textContent = '0'
   showPad(scheme)
   showBoostAndPause()
@@ -1052,6 +1061,7 @@ const perfSnap = createPerfSnapshot()
 
 function applyPerfNow(): void {
   session?.view.applyPerf(canvas.clientWidth, canvas.clientHeight)
+  redrawFrozen()
 }
 
 function ensurePerfPanel(): PerfPanel {
@@ -1161,6 +1171,7 @@ window.addEventListener('keydown', (e) => {
 
 function onWindowResize(): void {
   if (session !== null) syncViewSize(session.view)
+  redrawFrozen()
 }
 
 window.addEventListener('resize', onWindowResize)

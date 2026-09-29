@@ -1,13 +1,13 @@
 // screens/boost-hint.ts - the one-time "hold to boost" prompt. No DOM: storage, time (dt) and display are passed in from outside
-// (model: legal/flow.ts). The player is told once in their lifetime, in their first game, and never again.
+// (model: legal/flow.ts). It shows in every game until the player has actually boosted once, then never again.
 //
 // Lifetime of the prompt inside a game: it waits `showAfterMs`, then is visible for `visibleMs`, then it is done.
 // It is done at once (and never comes back) when the player boosts - someone who already understood is not lectured.
 // Pause freezes the clock and hides it; resume brings it back with the time that was left. Anything else that ends the
 // game view (death, the demo explainer, leaving to the menu) ends it for good.
 //
-// "Seen" is written the moment the prompt is first shown (or the player boosts), not when the game ends:
-// close the tab two seconds in and it does not come back next launch.
+// "Seen" is written only when the player boosts (any game, button or key). Merely being shown the prompt does not retire it:
+// someone who missed the bubble (died in three seconds, looked away) gets it again in the next game.
 //
 // Hot-path safe: advance() is plain arithmetic, no allocation; the callback fires only on the (rare) visibility change.
 
@@ -26,8 +26,8 @@ export interface BoostHintTiming {
 }
 
 export interface BoostHint {
-  /** A game started. `firstGameEver`: the player's very first game (the intro is still unused). */
-  begin(firstGameEver: boolean): void
+  /** A game started. The prompt waits for its delay unless the player has already boosted once, ever. */
+  begin(): void
   /** Game time passed. Call only while `ticking` (running, not paused). */
   advance(dtMs: number): void
   /** The player boosted (button or key), in any game. */
@@ -51,7 +51,7 @@ export function createBoostHint(storage: BoostHintStorage, timing: BoostHintTimi
   let clock = 0
   let wasVisible = false
 
-  const markSeen = (): void => {
+  const markBoosted = (): void => {
     if (seen) return
     seen = true
     storage.set(BOOST_HINT_SEEN_KEY, '1')
@@ -66,8 +66,8 @@ export function createBoostHint(storage: BoostHintStorage, timing: BoostHintTimi
   }
 
   return {
-    begin(firstGameEver) {
-      phase = firstGameEver && !seen ? 'waiting' : 'idle'
+    begin() {
+      phase = seen ? 'idle' : 'waiting'
       held = false
       clock = 0
       sync()
@@ -79,7 +79,6 @@ export function createBoostHint(storage: BoostHintStorage, timing: BoostHintTimi
         if (clock >= timing.showAfterMs) {
           phase = 'shown'
           clock = 0
-          markSeen()
         }
       } else if (phase === 'shown') {
         clock += dtMs
@@ -88,7 +87,7 @@ export function createBoostHint(storage: BoostHintStorage, timing: BoostHintTimi
       sync()
     },
     boosted() {
-      markSeen()
+      markBoosted()
       if (phase === 'waiting' || phase === 'shown') phase = 'done'
       sync()
     },
