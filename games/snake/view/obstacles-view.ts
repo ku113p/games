@@ -6,7 +6,8 @@
 // 'started' (холодный путь), в кадре не трогается.
 // Инстансинг: по инстансу на грань (aCell + aFace) и на ребро (aCenter + aAxis),
 // геометрия одна на всех (квад / отрезок), позиции собирает вершинный шейдер.
-// Дальние затухают к фону (как туман), чтобы плотный лес не сливался в кашу.
+// Дальние затухают к фону (как туман) по расстоянию ОТ ГОЛОВЫ, чтобы плотный лес не
+// сливался в кашу: ближние читаются опасностью, дальние — глубиной. Яблоко сюда не входит.
 
 import {
   BufferGeometry,
@@ -42,20 +43,26 @@ import {
 // Это габарит ПЛОСКОСТЕЙ граней и рёбер-контуров. Щель между соседями закрывают не им,
 // а вылет кромок граней к соседу (obstacle-shell.ts): контур и одиночный куб не меняются.
 const OBSTACLE_SCALE = 0.98
-// Затухание цвета с расстоянием: exp(-d / L), L = size * k в пределах [min, max];
-// floor — доля яркости на любом удалении.
-const FALLOFF_PER_SIZE = 0.6
-const FALLOFF_MIN = 12
-const FALLOFF_MAX = 40
-const FAR_FADE_FLOOR = 0.3
+// ТУМАН. Кривая та же, что у решётки-подсказки (ahead-dots.ts): полная яркость до
+// FOG_FULL_CELLS от головы, дальше квадратично (1-t)^2 к FOG_FAR_CELLS, но не до нуля,
+// а до FOG_FLOOR (доля яркости на любом удалении: тусклый контур остаётся).
+// Мерим от головы, а не от камеры: в plane камера далеко и все кубы были бы одинаково
+// тусклыми, а «насколько это опасно» зависит именно от дистанции до головы.
+// Выключить туман: OBSTACLE_FOG_FLOOR = 1 (яркость везде полная, кривая вырождается).
+export const OBSTACLE_FOG_FULL_CELLS = 3 // до этой дистанции от головы — без затухания
+export const OBSTACLE_FOG_FAR_CELLS = 22 // на этой дистанции и дальше — только пол
+export const OBSTACLE_FOG_FLOOR = 0.1 // доля яркости вдали; 1 — туман выключен
 
 const COMMON = /* glsl */ `
-uniform float uFalloff;
+uniform float uFogFull;
+uniform float uFogFar;
 uniform float uFloor;
 uniform float uHalf;
+uniform vec3 uHead;
 varying float vFade;
 float fadeAt(vec3 world) {
-  return uFloor + (1.0 - uFloor) * exp(-distance(world, cameraPosition) / uFalloff);
+  float t = clamp((distance(world, uHead) - uFogFull) / (uFogFar - uFogFull), 0.0, 1.0);
+  return uFloor + (1.0 - uFloor) * (1.0 - t) * (1.0 - t);
 }
 `
 
@@ -101,7 +108,6 @@ attribute float aFace;
 attribute float aId;
 uniform sampler2D uGhostTex;
 uniform float uTexW;
-uniform vec3 uHead;
 uniform vec3 uDepthAxis;
 uniform float uFree;
 uniform float uGhostPass;   // 0 — непрозрачный проход, 1 — прозрачный
@@ -194,7 +200,6 @@ export class ObstaclesView {
   private readonly uHead = new Vector3()
   private readonly uDepthAxis = new Vector3()
   private readonly frameUniforms = {
-    uHead: { value: this.uHead },
     uDepthAxis: { value: this.uDepthAxis },
     uFree: { value: 1 },
   }
@@ -227,8 +232,10 @@ export class ObstaclesView {
 
     const uniforms = {
       uColor: { value: OBSTACLE_COLOR },
-      uFalloff: { value: Math.min(FALLOFF_MAX, Math.max(FALLOFF_MIN, n * FALLOFF_PER_SIZE)) },
-      uFloor: { value: FAR_FADE_FLOOR },
+      uFogFull: { value: OBSTACLE_FOG_FULL_CELLS },
+      uFogFar: { value: OBSTACLE_FOG_FAR_CELLS },
+      uFloor: { value: OBSTACLE_FOG_FLOOR },
+      uHead: { value: this.uHead },
       uHalf: { value: half },
     }
 
@@ -290,7 +297,8 @@ export class ObstaclesView {
     fillGeometry.instanceCount = shell.faceCount
     const shared = {
       ...uniforms,
-      ...this.frameUniforms,
+      uDepthAxis: this.frameUniforms.uDepthAxis,
+      uFree: this.frameUniforms.uFree,
       uGhostTex: { value: tex },
       uTexW: { value: GHOST_TEX_W },
       uGhostAlpha: { value: OBSTACLE_GHOST_ALPHA },

@@ -10,14 +10,13 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { GlitchPass } from 'three/addons/postprocessing/GlitchPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import type { Config } from '../core/rules'
-import { BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
+import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
 
 // Дизайнер дважды сказал, что гало сильное, а контурный стиль даёт много тонких
 // светящихся линий, поэтому свечение снижено с запасом: слабое, узкое, порог
 // выше яркости сетки/препятствий/чётных сегментов. Заметно светятся только
 // голова, яблоко и яркие рёбра змейки.
-// Параметры bloom — оформительские (форма свечения), не балансовые числа.
-const BLOOM_RADIUS = 0.2
+// Параметры bloom (сила, радиус, порог) — оформительские, не балансовые числа: см. palette.ts.
 
 export class PostFx {
   private composer: EffectComposer

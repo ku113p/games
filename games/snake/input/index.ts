@@ -16,6 +16,8 @@ export interface InputHandlers {
   /** Опционально: true — ускорение зажато, false — отпущено (всегда приходит парой; сбрасывается при blur/detach). */
   onBoost?(on: boolean): void
   onCameraTilt?(yaw: number, pitch: number): void
+  /** Escape на ПК: пауза или выход в меню. */
+  onPause?(): void
 }
 
 export function attachInput(

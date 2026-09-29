@@ -338,6 +338,11 @@ function startSession(size: number, scheme: InputScheme): void {
     },
     axisEnabled: () => s.mode === 'plane',
     onBoost: (on) => (on ? boost.press('kbd') : boost.release('kbd')),
+    onPause: () => {
+      // Escape: из игры — на паузу, с паузы — обратно в игру.
+      if (isPaused()) resumeFromPause()
+      else pauseNow()
+    },
     onCameraTilt(yaw: number, pitch: number) {
       s.view.setCameraTilt(yaw, pitch)
     },

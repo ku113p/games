@@ -35,6 +35,13 @@ export function attachKeyboard(h: InputHandlers): () => void {
   const boost = createBoostHold((on) => h.onBoost?.(on))
 
   function onKeyDown(e: KeyboardEvent): void {
+    // Escape — пауза и выход в меню. Проверяется первым: работает и с модификаторами,
+    // и при зажатом ускорении, потому что это аварийный выход из игры.
+    if (e.code === 'Escape') {
+      e.preventDefault()
+      if (!e.repeat) h.onPause?.()
+      return
+    }
     if (isBoostCode(e.code)) {
       if (e.ctrlKey || e.metaKey || e.altKey) return
       e.preventDefault() // Space иначе жмёт сфокусированную кнопку и скроллит

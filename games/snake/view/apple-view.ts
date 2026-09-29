@@ -6,7 +6,7 @@ import { MeshBasicMaterial, Mesh, MathUtils, type Scene } from 'three'
 import type { GameState } from '../core/state'
 import { applePos, elapsedMs } from '../core/queries'
 import { beamGeometry, cubeEdgeSegments } from './outline'
-import { APPLE_COLOR, APPLE_TARGET_COLOR, APPLE_EMISSIVE_PULSE_MIN, APPLE_EMISSIVE_PULSE_MAX } from './palette'
+import { APPLE_COLOR, APPLE_GLOW_BOOST, APPLE_TARGET_COLOR, APPLE_EMISSIVE_PULSE_MIN, APPLE_EMISSIVE_PULSE_MAX } from './palette'
 
 const APPLE_SCALE = 0.72
 const APPLE_BEAM = 0.11
@@ -44,7 +44,7 @@ export class AppleView {
     this.lastElapsed = now
     const step = dt * TARGET_BLEND_PER_MS
     this.targetAmount = targeted ? Math.min(1, this.targetAmount + step) : Math.max(0, this.targetAmount - step)
-    this.material.color.copy(APPLE_COLOR).lerp(APPLE_TARGET_COLOR, this.targetAmount).multiplyScalar(intensity)
+    this.material.color.copy(APPLE_COLOR).lerp(APPLE_TARGET_COLOR, this.targetAmount).multiplyScalar(intensity * APPLE_GLOW_BOOST)
     const scale = 1 + APPLE_SCALE_PULSE * wave
     this.mesh.scale.setScalar(scale)
   }

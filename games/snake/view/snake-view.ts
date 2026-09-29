@@ -8,9 +8,10 @@
 // сегменты чуть тусклее. В фазе free сегменты рядом с камерой уменьшаются
 // (fade), чтобы не закрывать обзор; вес эффекта задаёт камера (freeAmount).
 //
-// Змейка рисуется дискретно, по клеткам ядра, такт за тактом: без интерполяции
-// и скольжения (решение дизайнера: плавность не нужна). Камера привязана к вектору
-// движения сама, см. camera-rig.ts.
+// Змейка рисуется по клеткам ядра, такт за тактом. Плавность — только лёгкая:
+// сегмент подъезжает из клетки позади и встаёт на место за первые SLIDE_FRACTION
+// шага, дальше стоит. Это смягчённый перескок, а не скольжение (полное скольжение
+// дизайнер отверг). Камера привязана к вектору движения сама, см. camera-rig.ts.
 
 import {
   MeshBasicMaterial,
@@ -22,7 +23,7 @@ import {
   type Scene,
 } from 'three'
 import type { GameState } from '../core/state'
-import { snakeLength, forEachSnakeSegment, elapsedMs } from '../core/queries'
+import { snakeLength, forEachSnakeSegment, elapsedMs, stepProgress } from '../core/queries'
 import { InstancedPool } from './pool'
 import { beamGeometry, cubeEdgeSegments } from './outline'
 import {
@@ -31,10 +32,15 @@ import {
   SNAKE_HEAD_COLOR,
   SNAKE_HEAD_BOOST,
   SNAKE_STRIPE_DIM,
+  SNAKE_BODY_GLOW_BOOST,
 } from './palette'
 
 // Оформительские константы, не числа баланса.
 const SEGMENT_SCALE = 0.86
+// Лёгкая плавность хода: сегмент подъезжает из клетки соседа за спиной, но успевает
+// за первые SLIDE_FRACTION шага и дальше стоит. Движение остаётся тактовым —
+// это не скольжение, а смягчённый перескок.
+const SLIDE_FRACTION = 0.4
 // Толщина балок каркаса (клеток). Голова той же формы, что и тело: отличается цветом/яркостью.
 const SEGMENT_BEAM = 0.1
 const HEAD_PULSE = 0.06
@@ -51,6 +57,9 @@ export class SnakeView {
   private matrix = new Matrix4()
   private color = new Color()
   private denom = 1
+  private px = new Float32Array(0)
+  private py = new Float32Array(0)
+  private pz = new Float32Array(0)
 
   private headMesh: Mesh
   private headMaterial: MeshBasicMaterial
@@ -77,19 +86,39 @@ export class SnakeView {
   private fadeAmount = 0
 
   // Один раз созданный колбэк: в кадре замыкания не создаются.
-  private readonly writeSegment = (x: number, y: number, z: number, i: number): void => {
+  /** Сбор позиций такта: интерполировать сегмент можно, только зная соседа за ним. */
+  private readonly collect = (x: number, y: number, z: number, i: number): void => {
+    this.px[i] = x
+    this.py[i] = y
+    this.pz[i] = z
+  }
+
+  private ensureBuffers(n: number): void {
+    if (this.px.length >= n) return
+    const cap = Math.max(n, this.px.length * 2, 8)
+    this.px = new Float32Array(cap)
+    this.py = new Float32Array(cap)
+    this.pz = new Float32Array(cap)
+  }
+
+  private place(i: number, length: number, glide: number): void {
+    // Откуда едет сегмент: из клетки соседа за спиной. У хвоста соседа нет — он стоит.
+    const back = i + 1 < length ? i + 1 : i
+    const x = this.px[back]! + (this.px[i]! - this.px[back]!) * glide
+    const y = this.py[back]! + (this.py[i]! - this.py[back]!) * glide
+    const z = this.pz[back]! + (this.pz[i]! - this.pz[back]!) * glide
+
     if (i === 0) {
       this.headX = x
       this.headY = y
       this.headZ = z
-      this.hasNeck = false
+      this.hasNeck = length > 1
       return
     }
     if (i === 1) {
       this.neckX = x
       this.neckY = y
       this.neckZ = z
-      this.hasNeck = true
     }
     let k = 1
     if (this.fadeAmount > 0) {
@@ -106,6 +135,7 @@ export class SnakeView {
     this.pool.mesh.setMatrixAt(idx, this.matrix)
     this.color.copy(SNAKE_BODY_COLOR).lerp(SNAKE_TAIL_COLOR, i / this.denom)
     if (i % 2 === 1) this.color.multiplyScalar(SNAKE_STRIPE_DIM)
+    this.color.multiplyScalar(SNAKE_BODY_GLOW_BOOST)
     this.pool.mesh.setColorAt(idx, this.color)
   }
 
@@ -150,7 +180,10 @@ export class SnakeView {
     this.camY = camY
     this.camZ = camZ
     this.fadeAmount = freeAmount
-    forEachSnakeSegment(s, this.writeSegment)
+    this.ensureBuffers(length)
+    forEachSnakeSegment(s, this.collect)
+    const glide = MathUtils.smoothstep(stepProgress(s), 0, SLIDE_FRACTION)
+    for (let i = 0; i < length; i++) this.place(i, length, glide)
     this.pool.markDirty()
 
     // Направление движения (голова - шея); голова той же формы, что тело.

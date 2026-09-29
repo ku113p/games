@@ -6,8 +6,10 @@ import { Color } from 'three'
 
 export const BACKGROUND_COLOR = 0x02030a
 
-// Рёбра куба-арены. Множитель умеренный: светятся, но не заливают (bloom-порог 0.8).
-export const CUBE_EDGE_COLOR = new Color(0x1fb6ff).multiplyScalar(1.6)
+// Рёбра куба-арены: светятся, но не заливают (bloom-порог BLOOM_THRESHOLD, см. блок Bloom ниже).
+// Неон-проход: было 1.6, стало 2.2 (ярче линия -> заметный мягкий ореол по рёбрам куба).
+export const CUBE_EDGE_BOOST = 2.2
+export const CUBE_EDGE_COLOR = new Color(0x1fb6ff).multiplyScalar(CUBE_EDGE_BOOST)
 // Толщина ребра в клетках: size * k, в пределах [min, max].
 export const CUBE_EDGE_THICKNESS_PER_SIZE = 0.004
 export const CUBE_EDGE_THICKNESS_MIN = 0.07
@@ -26,16 +28,29 @@ export const SNAKE_BODY_COLOR = new Color(0x3dffa6)
 export const SNAKE_TAIL_COLOR = new Color(0x18c8ff)
 export const SNAKE_HEAD_COLOR = new Color(0xfff27a)
 // Множитель яркости головы (>1 — уходит в bloom и светится).
-export const SNAKE_HEAD_BOOST = 1.7
+// Неон-проход: было 1.7, стало 1.4 — голова у камеры и так самое яркое пятно кадра,
+// с новым радиусом ореола её прежняя яркость дала бы «молоко» и съела бы рёбра.
+export const SNAKE_HEAD_BOOST = 1.4
 // Чётные/нечётные сегменты чуть различаются по яркости — видно длину и движение.
 export const SNAKE_STRIPE_DIM = 0.72
+// Множитель яркости тела змейки (только вид змейки, мини-карта его не берёт).
+// Неон-проход: было 1.0 (тело не светилось вовсе), стало 1.25 — светятся яркие сегменты,
+// тусклые полосы (SNAKE_STRIPE_DIM) остаются ниже порога: полосатость не пропадает.
+export const SNAKE_BODY_GLOW_BOOST = 1.25
 
 export const APPLE_COLOR = new Color(0xff2d78)
+// Множитель яркости яблока (мини-карта его не берёт). Неон-проход: было 1.0 (линейная яркость
+// красно-розового ~0.34 — ниже порога, яблоко не светилось), стало 2.5.
+export const APPLE_GLOW_BOOST = 2.5
 export const APPLE_EMISSIVE_PULSE_MIN = 0.6
 export const APPLE_EMISSIVE_PULSE_MAX = 1.35
 
-// Контуры препятствий: тусклый фиолетовый неон, линейная яркость ниже порога bloom.
-export const OBSTACLE_COLOR = new Color(0x8f5cff)
+// Контуры препятствий: фиолетовый неон. Неон-проход: множитель было 1.0, стало 3.2 — тонкая
+// линия в 1 px стала яркой, но ореол у неё крошечный: сами грани не светятся.
+// Грани берут тот же цвет, поэтому OBSTACLE_FACE_BRIGHTNESS делится на множитель:
+// яркость граней осталась прежней (0.3 от прежнего цвета), меняется только линия.
+export const OBSTACLE_LINE_BOOST = 3.2
+export const OBSTACLE_COLOR = new Color(0x8f5cff).multiplyScalar(OBSTACLE_LINE_BOOST)
 
 // Сетка на стенках: тусклая, ниже порога bloom; каждая 5-я линия ярче.
 export const GRID_COLOR = new Color(0x2a8cff)
@@ -68,7 +83,7 @@ export const APPLE_TARGET_COLOR = new Color(0xffd23a).multiplyScalar(0.7)
 // сплошной заливкой. Оттенок по оси нормали (свет фиксирован в мире) даёт форму
 // даже там, где соседние грани одного цвета: +y светлее всего, z темнее всего,
 // отрицательные стороны ещё на NEG_SHADE тусклее.
-export const OBSTACLE_FACE_BRIGHTNESS = 0.3
+export const OBSTACLE_FACE_BRIGHTNESS = 0.3 / OBSTACLE_LINE_BOOST
 export const OBSTACLE_FACE_SHADE_X = 0.85
 export const OBSTACLE_FACE_SHADE_Y = 1.0
 export const OBSTACLE_FACE_SHADE_Z = 0.65
@@ -76,13 +91,22 @@ export const OBSTACLE_FACE_NEG_SHADE = 0.8
 // Прозрачность грани препятствия, которое мешает обзору (между камерой и головой).
 export const OBSTACLE_GHOST_ALPHA = 0.08
 
-// Bloom: порог поднят до 0.8 вместе с яркостью точек, чтобы белые точки были
-// честно белыми (иначе они серые). См. postprocessing.ts, там же сила.
-export const BLOOM_THRESHOLD = 0.8
-export const BLOOM_STRENGTH = 0.22
+// Bloom. Дизайнер трижды просил ослабить гало (грани терялись), потом попросил «неоновее,
+// но не сильно». Поэтому неон сделан не силой, а яркостью самих линий (*_BOOST выше) и
+// РАДИУСОМ: ореол шире и мягче, а не ярче. Откат к прежнему виду — значения «было».
+// Порог 0.75: яркие линии проходят с запасом, сетка/лучи/тусклые полосы (яркость ниже 0.5)
+// не светятся. Белые точки подсказки (0.9) чуть выше порога и дают крошечную искру — это ок.
+// Было 0.8, стало 0.75.
+export const BLOOM_THRESHOLD = 0.75
+// Было 0.22, стало 0.26: почти не тронута.
+export const BLOOM_STRENGTH = 0.26
+// Было 0.2, стало 0.45: главный рычаг — ореол шире и мягче при той же силе.
+export const BLOOM_RADIUS = 0.45
+// Прочие рычаги (пробовалось, не взято): BLOOM_STRENGTH 0.35+ даёт молоко вокруг головы;
+// порог ниже 0.7 заставляет светиться и тусклые полосы тела, и грани препятствий.
 
 // Решётка-подсказка: белые точки, линейная яркость 0.9 (после sRGB ~0.95, белые)
-// при пороге bloom 0.8: гало не даёт. Альфа считается в яркость: 1.0 * 0.9.
+// при пороге bloom 0.75 (было 0.8): гало почти нет, только крошечная искра. Альфа считается в яркость: 1.0 * 0.9.
 export const DOT_BASE_COLOR = new Color(1, 1, 1)
 export const DOT_BASE_ALPHA = 0.9
 

@@ -26,6 +26,7 @@ import { CubeFrame } from './cube-frame'
 import { SnakeView } from './snake-view'
 import { ObstaclesView } from './obstacles-view'
 import { AppleView } from './apple-view'
+import { CompassView, COMPASS_ENABLED } from './compass-view'
 import { createDirectionHint } from './direction-hint'
 import { WallGrid } from './wall-grid'
 import { MiniMap } from './minimap'
@@ -80,6 +81,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   const snakeView = new SnakeView(scene)
   const obstaclesView = new ObstaclesView(scene)
   const appleView = new AppleView(scene)
+  const compass = COMPASS_ENABLED ? new CompassView(scene) : null
   const aheadRay = createDirectionHint(scene, config)
 
   const initialWidth = canvas.clientWidth || canvas.width || 1
@@ -113,6 +115,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
     miniMap.setSize(cubeSize(state))
     miniMap.invalidate()
     obstaclesView.rebuild(state)
+    compass?.reset()
     syncCheap(state)
   }
 
@@ -170,6 +173,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)
       appleView.update(state, aheadRay.appleTargeted)
+      compass?.update(state, cameraRig.camera, dtMs, cameraRig.freeAmount)
       cubeFrame.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, h.x, h.y, h.z)
       wallGrid.update(cam.x, cam.y, cam.z, cameraRig.freeAmount)
       fx.render(dtMs)
@@ -186,6 +190,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       snakeView.dispose()
       obstaclesView.dispose()
       appleView.dispose()
+      compass?.dispose()
       aheadRay.dispose()
     },
   }
