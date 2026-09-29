@@ -30,8 +30,9 @@ describe('config.shop', () => {
     expect(s.balance).toBe(0)
   })
 
-  test('в витрине есть хотя бы две заглушки «скоро»', () => {
-    expect(items.filter((i) => i.kind === 'comingSoon').length).toBeGreaterThanOrEqual(2)
+  test('в каждом из девяти разделов витрины есть заглушка «скоро», её нельзя купить и надеть', () => {
+    const slots = items.filter((i) => i.kind === 'comingSoon').map((i) => i.payload.slot).sort()
+    expect(slots).toEqual(['appleSkin', 'arenaSize', 'boost', 'compassSkin', 'mult', 'obstacles', 'pace', 'palette', 'snakeSkin'])
   })
 
   test('постоянные множители слабее временных', () => {
@@ -71,6 +72,20 @@ describe('config.shop: арена, препятствия, темп', () => {
   test('размеры арены — из тех, что знает ядро; по умолчанию 20, коэффициент по умолчанию 1', () => {
     for (const i of of('arenaSize')) expect(configJson.cube.sizes).toContain(i.payload.size as number)
     expect(gameSetup(initialState(configJson), configJson)).toMatchObject({ size: 20, obstacleMult: 1, paceScale: 1 })
+  })
+
+  test('арена 5³: покупается (не выдана), дороже 50³ и дешевле 100³, по умолчанию по-прежнему 20³', () => {
+    const a5 = items.find((i) => i.id === 'arena-5') as Item
+    const price = (id: string) => (items.find((i) => i.id === id) as Item).price
+    expect(a5.kind).toBe('arenaSize')
+    expect(a5.payload.size).toBe(5)
+    expect(a5.price).toBeGreaterThan(price('arena-50'))
+    expect(a5.price).toBeLessThan(price('arena-100'))
+    const s = initialState(configJson)
+    expect(s.owned).not.toContain('arena-5')
+    expect(gameSetup(s, configJson).size).toBe(20)
+    const rich = equip(buy({ ...s, balance: a5.price }, a5, configJson), a5, configJson)
+    expect(gameSetup(rich, configJson).size).toBe(5)
   })
 
   test('в каталоге есть множители препятствий ×0, ×1/4, ×1/2, ×1, ×2', () => {

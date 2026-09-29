@@ -66,7 +66,7 @@ export function attachTouch(
   function startTilt(isMouse: boolean): void {
     // Начатый одним пальцем жест отменяется целиком: ни поворота сейчас, ни свайпа/тапа при отпускании.
     resetGesture()
-    clearPendingTap()
+    flushPendingTap()
     tilting = true
     tiltIsMouse = isMouse
     fingerMode = isMouse ? 'tilt' : 'pending'
@@ -110,6 +110,15 @@ export function attachTouch(
       pendingTapTimer = null
     }
     pendingTapAt = null
+  }
+
+  // Начался другой жест (свайп, два пальца), пока одиночный тап ещё ждал второго: это уже не двойной тап,
+  // но и не отменённый — сдаём его «вглубь» сразу и в порядке ввода (тап был раньше свайпа), а не теряем.
+  function flushPendingTap(): void {
+    if (pendingTapTimer === null) return
+    clearPendingTap()
+    if (h.axisEnabled?.() === false) return
+    h.onAxis('into')
   }
 
   // Тап без направления (любое место в 'swipes'):
@@ -206,7 +215,7 @@ export function attachTouch(
     swiped = true
     startX = e.clientX
     startY = e.clientY
-    clearPendingTap()
+    flushPendingTap()
     h.onTurn(dir)
   }
 

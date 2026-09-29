@@ -15,7 +15,7 @@ export interface GameEntry {
 export const GAMES: readonly GameEntry[] = [
   {
     title: 'Snake 3D',
-    blurb: 'Looks like classic snake. Then the third axis opens up and the camera turns with you.',
+    blurb: 'Snake in a cube. It starts flat, then the camera moves behind the head and you steer in 3D. Score is apples eaten; there is no win, only a record.',
     href: './snake/',
     // TODO(дизайнер): сейчас тут статичный скриншот, а не гифка. Снять гифку и заменить import выше.
     media: snakeShot,

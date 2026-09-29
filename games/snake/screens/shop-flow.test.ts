@@ -162,7 +162,7 @@ describe('арена, препятствия, темп', () => {
 describe('«скоро»', () => {
   const soon = items.filter((i) => i.kind === 'comingSoon')
   test('в каталоге есть закрытые предметы, их нельзя ни купить, ни надеть', () => {
-    expect(soon.length).toBeGreaterThanOrEqual(2)
+    expect(soon.length).toBeGreaterThanOrEqual(SHOP_SECTIONS.length - 1)
     const w = wallet(1_000_000)
     for (const it of soon) {
       expect(itemStatus(w.state, it, cfg)).toBe('soon')
@@ -176,6 +176,12 @@ describe('«скоро»', () => {
     expect(itemsOfSection(items, snake).some((i) => i.id === 'snake-soon')).toBe(true)
     const tail = SHOP_SECTIONS.find((s) => s.id === 'soon') as (typeof SHOP_SECTIONS)[number]
     expect(itemsOfSection(items, tail)).toEqual([])
+  })
+  test('в каждом разделе витрины (кроме хвостового «Скоро») есть своя заглушка', () => {
+    for (const sec of SHOP_SECTIONS) {
+      if (sec.id === 'soon') continue
+      expect(itemsOfSection(items, sec).some((i) => i.kind === 'comingSoon')).toBe(true)
+    }
   })
   test('«скоро» без известного слота уходит в последний раздел', () => {
     const orphan: Item = { id: 'x-soon', kind: 'comingSoon', price: 0, payload: {} }
@@ -192,7 +198,7 @@ describe('витрина', () => {
   test('каждый предмет с названием по id имеет его во всех словарях (косметика, темп, «без препятствий»)', async () => {
     const { LANGUAGES } = await import('../i18n/dictionaries')
     for (const it of items) {
-      if (!['palette', 'snakeSkin', 'appleSkin', 'compassSkin', 'pace'].includes(it.kind) && it.id !== 'density-0') continue
+      if (!['palette', 'snakeSkin', 'appleSkin', 'compassSkin', 'pace'].includes(it.kind) && it.id !== 'density-0' && it.id !== 'arena-5') continue
       for (const lang of LANGUAGES) expect(`shop.item.${it.id}` in lang.dict).toBe(true)
     }
   })

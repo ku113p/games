@@ -139,13 +139,13 @@ export const SHOP_SECTIONS: readonly ShopSection[] = [
   { id: 'soon', kinds: [] },
 ]
 
-/** Слот, которому принадлежит раздел (у раздела «Множитель монет» и «Скоро» слота нет). */
+/** Слот, которому принадлежит раздел (у «Скоро» слота нет; у «Множителя монет» слот только для заглушки, надеть в него нечего). */
 export const SECTION_SLOT: Readonly<Record<ShopSection['id'], string | null>> = {
   boost: 'boost',
   arena: 'arenaSize',
   obstacles: 'obstacles',
   pace: 'pace',
-  mult: null,
+  mult: 'mult', // у раздела нет надеваемого слота, но «скоро» помечается этим именем
   palette: 'palette',
   snakeSkin: 'snakeSkin',
   appleSkin: 'appleSkin',

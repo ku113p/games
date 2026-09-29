@@ -38,8 +38,10 @@ export function itemName(item: Item): string {
       return t('shop.mult.temp', { n: fmt(item.payload.mult ?? 1), games: item.games ?? 1 })
     case 'scoreMultPermanent':
       return t('shop.mult.perm', { n: fmt(item.payload.mult ?? 1) })
-    case 'arenaSize':
-      return `${item.payload.size ?? '?'}³`
+    case 'arenaSize': {
+      const key = `shop.item.${item.id}`
+      return hasKey(key) ? t(key) : `${item.payload.size ?? '?'}³`
+    }
     case 'obstacleDensity': {
       const d = item.payload.density ?? 1
       return d === 0 ? t('shop.item.density-0') : `×${d === 0.25 ? '¼' : d === 0.5 ? '½' : fmt(d)}`
