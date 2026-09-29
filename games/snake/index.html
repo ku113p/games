@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="color-scheme" content="dark" />
-    <title>Змейка 3D</title>
+    <title></title>
     <style>
       :root {
         color-scheme: dark;
@@ -731,37 +731,79 @@
         gap: 10px;
         width: 100%;
       }
+      /* Языки: китайский без разрядки и капса (иероглифам они не нужны), с CJK-шрифтами из системы. */
+      :lang(zh) {
+        font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Droid Sans Fallback", sans-serif;
+      }
+      :lang(zh) .field > span,
+      :lang(zh) .board-title,
+      :lang(zh) .tap-to-play,
+      :lang(zh) .screen h1 {
+        letter-spacing: 0.02em;
+      }
+      /* Переключатель языка компактнее: пять кнопок должны занимать две строки, а не съедать экран. */
+      #lang-options button {
+        padding: 8px 12px;
+        font-size: 15px;
+      }
+      /* Меню длиннее экрана (низкий телефон, пять языков): прокручивается, а не обрезается сверху.
+         Автоотступ у заголовка прижимает содержимое вниз, пока оно помещается, и схлопывается, когда нет. */
+      #menu {
+        justify-content: flex-start; /* flex-end при переполнении уводит верх за край, до него не докрутить */
+        overflow-y: auto;
+        touch-action: pan-y;
+      }
+      #menu > h1 {
+        margin-top: auto;
+      }
+      /* Кнопка старта всегда на виду, даже если меню прокручивается. */
+      #menu .tap-to-play {
+        position: sticky;
+        bottom: max(0px, env(safe-area-inset-bottom));
+        flex-shrink: 0;
+      }
+      #menu > * {
+        flex-shrink: 0;
+      }
+      @media (max-height: 720px) {
+        #menu {
+          gap: 10px;
+        }
+        #menu .field {
+          gap: 6px;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="app">
       <canvas id="game-canvas"></canvas>
 
-      <div id="pad" class="hidden" role="group" aria-label="Пульт управления">
+      <div id="pad" class="hidden" role="group" data-i18n-aria="aria.pad">
         <div class="cross" id="pad-cross">
-          <button type="button" class="up" data-pad="up" tabindex="-1" aria-label="Вверх">▲</button>
-          <button type="button" class="left" data-pad="left" tabindex="-1" aria-label="Влево">◀</button>
-          <button type="button" class="right" data-pad="right" tabindex="-1" aria-label="Вправо">▶</button>
-          <button type="button" class="down" data-pad="down" tabindex="-1" aria-label="Вниз">▼</button>
+          <button type="button" class="up" data-pad="up" tabindex="-1" data-i18n-aria="aria.up">▲</button>
+          <button type="button" class="left" data-pad="left" tabindex="-1" data-i18n-aria="aria.left">◀</button>
+          <button type="button" class="right" data-pad="right" tabindex="-1" data-i18n-aria="aria.right">▶</button>
+          <button type="button" class="down" data-pad="down" tabindex="-1" data-i18n-aria="aria.down">▼</button>
         </div>
         <div class="axis">
-          <button type="button" data-pad="into" tabindex="-1" aria-label="Вглубь">вглубь</button>
-          <button type="button" data-pad="out" tabindex="-1" aria-label="На себя">на себя</button>
+          <button type="button" data-pad="into" tabindex="-1" data-i18n-aria="aria.into" data-i18n="pad.into"></button>
+          <button type="button" data-pad="out" tabindex="-1" data-i18n-aria="aria.out" data-i18n="pad.out"></button>
         </div>
       </div>
 
-      <button type="button" id="boost" class="hidden" tabindex="-1" aria-label="Ускорение: зажми, чтобы ехать быстрее">×2</button>
+      <button type="button" id="boost" class="hidden" tabindex="-1" data-i18n-aria="aria.boost">×2</button>
 
-      <div id="stick" class="hidden" role="group" aria-label="Стик поворота камеры; быстрый тап — сброс камеры">
+      <div id="stick" class="hidden" role="group" data-i18n-aria="aria.stick">
         <svg class="glyph" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M50 10l-6 7h12zM50 90l-6-7h12zM10 50l7-6v12zM90 50l-7-6v12z" />
         </svg>
         <div class="knob" id="stick-knob"></div>
       </div>
 
-      <button type="button" id="pause-btn" class="hidden" tabindex="-1" aria-label="Пауза">❚❚</button>
+      <button type="button" id="pause-btn" class="hidden" tabindex="-1" data-i18n-aria="aria.pause">❚❚</button>
 
-      <button type="button" id="cam-reset" class="hidden idle" tabindex="-1" aria-label="Сбросить камеру (клавиша R)">
+      <button type="button" id="cam-reset" class="hidden idle" tabindex="-1" data-i18n-aria="aria.camReset">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
           <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
@@ -769,15 +811,15 @@
       </button>
 
       <div id="hud" class="hidden">
-        <div class="score-pill">Счёт: <span id="score">0</span></div>
+        <div class="score-pill"><span data-i18n="hud.score"></span> <span id="score">0</span></div>
       </div>
 
       <div id="menu" class="screen">
-        <h1>Змейка 3D</h1>
+        <h1 data-i18n="menu.title"></h1>
 
         <div class="field">
-          <span>Размер куба</span>
-          <div id="size-options" class="options" role="radiogroup" aria-label="Размер куба">
+          <span data-i18n="menu.size"></span>
+          <div id="size-options" class="options" role="radiogroup" data-i18n-aria="aria.size">
             <button type="button" data-size="20">20³</button>
             <button type="button" data-size="50">50³</button>
             <button type="button" data-size="100">100³</button>
@@ -785,42 +827,47 @@
         </div>
 
         <div class="field">
-          <span>Управление</span>
-          <div id="scheme-options" class="options" role="radiogroup" aria-label="Схема управления">
-            <button type="button" data-scheme="swipes">Свайпы</button>
-            <button type="button" data-scheme="taps">Тапы</button>
+          <span data-i18n="menu.scheme"></span>
+          <div id="scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
+            <button type="button" data-scheme="swipes" data-i18n="scheme.swipes"></button>
+            <button type="button" data-scheme="taps" data-i18n="scheme.taps"></button>
           </div>
         </div>
 
         <div class="field" id="pad-side-field">
-          <span>Сторона пульта</span>
-          <div id="pad-side-options" class="options" role="radiogroup" aria-label="Сторона пульта">
-            <button type="button" data-side="left">Слева</button>
-            <button type="button" data-side="right">Справа</button>
+          <span data-i18n="menu.padSide"></span>
+          <div id="pad-side-options" class="options" role="radiogroup" data-i18n-aria="aria.padSide">
+            <button type="button" data-side="left" data-i18n="side.left"></button>
+            <button type="button" data-side="right" data-i18n="side.right"></button>
           </div>
         </div>
 
         <div class="field">
-          <span>Звук</span>
-          <div class="options sound-toggles" role="group" aria-label="Звук">
-            <button type="button" data-snd="music" aria-pressed="true">Музыка: вкл</button>
-            <button type="button" data-snd="sfx" aria-pressed="true">Звуки: вкл</button>
+          <span data-i18n="menu.sound"></span>
+          <div class="options sound-toggles" role="group" data-i18n-aria="aria.sound">
+            <button type="button" data-snd="music" aria-pressed="true"></button>
+            <button type="button" data-snd="sfx" aria-pressed="true"></button>
           </div>
         </div>
 
         <div class="field">
-          <span>Вид</span>
-          <div class="options" role="group" aria-label="Вид">
-            <button type="button" data-fog aria-pressed="true">Туман: вкл</button>
+          <span data-i18n="menu.view"></span>
+          <div class="options" role="group" data-i18n-aria="aria.view">
+            <button type="button" data-fog aria-pressed="true"></button>
           </div>
+        </div>
+
+        <div class="field">
+          <span data-i18n="menu.language"></span>
+          <div id="lang-options" class="options" role="radiogroup" data-i18n-aria="aria.language"></div>
         </div>
 
         <div class="board-wrap">
-          <p class="board-title">Лучшие</p>
+          <p class="board-title" data-i18n="board.title"></p>
           <ol id="menu-board" class="board"></ol>
         </div>
 
-        <button type="button" id="tap-to-play" class="tap-to-play">Тапни, чтобы играть</button>
+        <button type="button" id="tap-to-play" class="tap-to-play" data-i18n="tapToPlay"></button>
       </div>
 
       <div id="game-over" class="screen hidden">
@@ -830,43 +877,43 @@
         </h2>
         <div class="neon-rule"></div>
         <div class="run-stats">
-          <span>Счёт <b id="final-score">0</b></span>
-          <span>Время <b id="final-time">0:00</b></span>
+          <span><span data-i18n="over.score"></span> <b id="final-score">0</b></span>
+          <span><span data-i18n="over.time"></span> <b id="final-time">0:00</b></span>
         </div>
         <div class="board-wrap">
-          <p class="board-title">Лучшие</p>
+          <p class="board-title" data-i18n="board.title"></p>
           <ol id="game-over-board" class="board"></ol>
         </div>
         <div id="drum-block" class="drum-block hidden">
-          <p class="drum-hint">Ты в лучших! Выбери три символа</p>
-          <div id="drum" class="drum" role="group" aria-label="Три символа для таблицы"></div>
-          <button type="button" id="drum-ok" class="tap-to-play">Готово</button>
+          <p class="drum-hint" data-i18n="over.drumHint"></p>
+          <div id="drum" class="drum" role="group" data-i18n-aria="aria.drum"></div>
+          <button type="button" id="drum-ok" class="tap-to-play" data-i18n="over.drumOk"></button>
         </div>
         <div id="game-over-actions" class="actions">
-          <button type="button" id="play-again" class="tap-to-play">Ещё раз</button>
-          <button type="button" id="to-menu" class="secondary">В меню</button>
+          <button type="button" id="play-again" class="tap-to-play" data-i18n="over.playAgain"></button>
+          <button type="button" id="to-menu" class="secondary" data-i18n="over.toMenu"></button>
         </div>
       </div>
 
       <div id="pause" class="screen overlay hidden">
-        <h2>Пауза</h2>
-        <div class="options sound-toggles" role="group" aria-label="Звук">
-          <button type="button" data-snd="music" aria-pressed="true">Музыка: вкл</button>
-          <button type="button" data-snd="sfx" aria-pressed="true">Звуки: вкл</button>
+        <h2 data-i18n="pause.title"></h2>
+        <div class="options sound-toggles" role="group" data-i18n-aria="aria.sound">
+          <button type="button" data-snd="music" aria-pressed="true"></button>
+          <button type="button" data-snd="sfx" aria-pressed="true"></button>
         </div>
-        <div class="options" role="group" aria-label="Вид">
-          <button type="button" data-fog aria-pressed="true">Туман: вкл</button>
+        <div class="options" role="group" data-i18n-aria="aria.view">
+          <button type="button" data-fog aria-pressed="true"></button>
         </div>
-        <button type="button" id="resume" class="tap-to-play">Продолжить</button>
-        <button type="button" id="pause-to-menu" class="secondary">Выйти в меню</button>
+        <button type="button" id="resume" class="tap-to-play" data-i18n="pause.resume"></button>
+        <button type="button" id="pause-to-menu" class="secondary" data-i18n="pause.toMenu"></button>
       </div>
 
       <div id="demo-explainer" class="screen overlay hidden">
-        <h2>Камера уехала за голову</h2>
-        <p>Это была плоская змейка, а теперь поле стало объёмным: ты смотришь из-за головы.</p>
-        <p>Свайпы влево, вправо, вверх и вниз ведут змейку в объёме. Тело остаётся на месте.</p>
-        <p class="hint">Дальше поворачиваешь только ты.</p>
-        <button type="button" id="demo-continue" class="tap-to-play">Понятно, играем</button>
+        <h2 data-i18n="demo.title"></h2>
+        <p data-i18n="demo.p1"></p>
+        <p data-i18n="demo.p2"></p>
+        <p class="hint" data-i18n="demo.hint"></p>
+        <button type="button" id="demo-continue" class="tap-to-play" data-i18n="demo.continue"></button>
       </div>
     </div>
 

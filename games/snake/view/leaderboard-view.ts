@@ -2,6 +2,7 @@
 // Холодный путь (экран проигрыша, меню): элементы создаются свободно. Из кадра не вызывается.
 // Барабан вместо HTML-input: экранная клавиатура не поднимается и не ломает вёрстку на телефоне.
 
+import { t } from '../i18n/runtime'
 import { formatDuration, stepSymbol, type LeaderboardConfig, type ScoreEntry } from '../scores/leaderboard'
 
 /** Рисует таблицу в `el`: `size` строк, свободные — тусклые прочерки. `highlight` — индекс своей записи (-1 — нет). */
@@ -33,11 +34,15 @@ export interface Drum {
   /** Показать барабан с этим именем; onChange — на каждое изменение, onConfirm — «Готово» / Enter. */
   show(name: string, onChange: (name: string) => void, onConfirm: () => void): void
   hide(): void
+  /** Язык сменился: пересобрать подписи (aria-label) стрелок. */
+  relabel(): void
 }
 
 export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
   const symbols: string[] = []
   const symEls: HTMLElement[] = []
+  const upEls: HTMLElement[] = []
+  const downEls: HTMLElement[] = []
   let active = 0
   let onChange: (name: string) => void = () => {}
   let onConfirm: () => void = () => {}
@@ -97,7 +102,6 @@ export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
     up.className = 'step'
     up.tabIndex = -1
     up.textContent = '▲'
-    up.setAttribute('aria-label', `Символ ${slot + 1}: следующий`)
     const sym = document.createElement('div')
     sym.className = 'sym'
     const down = document.createElement('button')
@@ -105,7 +109,6 @@ export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
     down.className = 'step'
     down.tabIndex = -1
     down.textContent = '▼'
-    down.setAttribute('aria-label', `Символ ${slot + 1}: предыдущий`)
     sym.addEventListener('pointerdown', () => {
       active = slot
       paint()
@@ -115,7 +118,16 @@ export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
     reel.append(up, sym, down)
     root.appendChild(reel)
     symEls.push(sym)
+    upEls.push(up)
+    downEls.push(down)
   }
+  function relabel(): void {
+    for (let i = 0; i < symEls.length; i++) {
+      ;(upEls[i] as HTMLElement).setAttribute('aria-label', t('aria.reelNext', { n: i + 1 }))
+      ;(downEls[i] as HTMLElement).setAttribute('aria-label', t('aria.reelPrev', { n: i + 1 }))
+    }
+  }
+  relabel()
   window.addEventListener('blur', stopRepeat)
 
   // ПК: символы набираются с клавиатуры, стрелки и Enter — как на барабане.
@@ -137,6 +149,7 @@ export function createDrum(root: HTMLElement, cfg: LeaderboardConfig): Drum {
   }
 
   return {
+    relabel,
     show(initial, change, confirm) {
       const clean = initial.length === symbols.length ? initial : cfg.defaultName
       for (let i = 0; i < symbols.length; i++) symbols[i] = clean.charAt(i)

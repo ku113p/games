@@ -32,6 +32,8 @@ import {
   type LeaderboardConfig,
   type ScoreEntry,
 } from './scores/leaderboard'
+import { LANGUAGES } from './i18n/dictionaries'
+import { currentLanguage, initLanguage, onLanguageChange, setLanguage, t } from './i18n/runtime'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
 
@@ -84,6 +86,7 @@ const pauseToMenuBtn = required<HTMLButtonElement>('pause-to-menu')
 const padSideOptions = required<HTMLElement>('pad-side-options')
 const sizeOptions = required<HTMLElement>('size-options')
 const schemeOptions = required<HTMLElement>('scheme-options')
+const langOptions = required<HTMLElement>('lang-options')
 
 // --- localStorage: рекорд и флаг «первая игра вообще» ------------------
 
@@ -103,6 +106,11 @@ function storageSet(key: string, value: string): void {
     /* не сохранилось — не страшно */
   }
 }
+
+// --- язык: сохранённый выбор, иначе язык браузера, иначе английский (i18n/, все тексты — там) ---
+
+const storage = { get: storageGet, set: storageSet }
+initLanguage(storage, navigator)
 
 // --- таблица лучших (топ-N): чистая логика в scores/leaderboard.ts, здесь только хранение и показ ---
 
@@ -227,7 +235,7 @@ function syncSoundToggles(): void {
   for (const btn of soundToggleButtons) {
     const isMusic = btn.dataset['snd'] === 'music'
     const on = isMusic ? audio.musicOn : audio.sfxOn
-    btn.textContent = `${isMusic ? 'Музыка' : 'Звуки'}: ${on ? 'вкл' : 'выкл'}`
+    btn.textContent = t(`toggle.${isMusic ? 'music' : 'sfx'}.${on ? 'on' : 'off'}`)
     btn.classList.toggle('selected', on)
     btn.setAttribute('aria-pressed', String(on))
   }
@@ -266,7 +274,7 @@ const fogToggleButtons = document.querySelectorAll<HTMLButtonElement>('button[da
 
 function syncFogToggles(): void {
   for (const btn of fogToggleButtons) {
-    btn.textContent = `Туман: ${fogOn ? 'вкл' : 'выкл'}`
+    btn.textContent = t(fogOn ? 'toggle.fog.on' : 'toggle.fog.off')
     btn.classList.toggle('selected', fogOn)
     btn.setAttribute('aria-pressed', String(fogOn))
   }
@@ -322,6 +330,41 @@ padSideOptions.addEventListener('click', (e) => {
 markSelected(sizeOptions, 'size', String(selectedSize))
 markSelected(schemeOptions, 'scheme', selectedScheme)
 markSelected(padSideOptions, 'side', padSide)
+
+// Переключатель языка: кнопки строятся из LANGUAGES (шестой язык = запись в i18n/dictionaries.ts).
+// Подписи — названия языков на них самих, поэтому не переводятся и не зависят от текущего языка.
+for (const lang of LANGUAGES) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.dataset['lang'] = lang.code
+  btn.lang = lang.code
+  btn.textContent = lang.native
+  langOptions.appendChild(btn)
+}
+
+function markLanguage(): void {
+  for (const btn of langOptions.querySelectorAll<HTMLButtonElement>('button')) {
+    const on = btn.dataset['lang'] === currentLanguage().code
+    btn.classList.toggle('selected', on)
+    btn.setAttribute('aria-pressed', String(on))
+  }
+}
+
+langOptions.addEventListener('click', (e) => {
+  const target = e.target
+  if (!(target instanceof HTMLButtonElement)) return
+  const code = target.dataset['lang']
+  if (code !== undefined) setLanguage(code, storage) // текст меняется сразу, выбор запоминается
+})
+
+// Динамические строки (не размеченные data-i18n) перерисовываются на смену языка.
+onLanguageChange(() => {
+  syncSoundToggles()
+  syncFogToggles()
+  drum.relabel()
+  markLanguage()
+})
+markLanguage()
 
 // --- игровая сессия ------------------------------------------------------
 
