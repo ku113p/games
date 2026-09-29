@@ -62,9 +62,9 @@ float fogVisibility(float viewDepth) {
 // applyPalette computes the multiplier (2.2 in Night Neon: was 1.6, now 2.2; a brighter line gives a visible soft halo along the cube edges).
 export const CUBE_EDGE_COLOR = new Color()
 // Edge thickness in cells: size * k, clamped to [min, max].
-export const CUBE_EDGE_THICKNESS_PER_SIZE = 0.004
-export const CUBE_EDGE_THICKNESS_MIN = 0.07
-export const CUBE_EDGE_THICKNESS_MAX = 0.2
+export const CUBE_EDGE_THICKNESS_PER_SIZE = 0.0025
+export const CUBE_EDGE_THICKNESS_MIN = 0.045
+export const CUBE_EDGE_THICKNESS_MAX = 0.12
 
 // Head projection on the walls: very quiet, clearly dimmer than the edges and the snake.
 // Luminance (linear color * alpha) is below BLOOM_THRESHOLD.
@@ -84,6 +84,17 @@ export const SNAKE_STRIPE_DIM = 0.72
 // Neon pass: was 1.0 (the body did not glow at all), now 1.25. Bright segments glow,
 // the dim stripes (SNAKE_STRIPE_DIM) stay below the threshold, so the striping does not vanish.
 export let SNAKE_BODY_GLOW_BOOST = 1.25
+// Head end of the snake: the first SNAKE_HEAD_END_SEGMENTS body segments (right behind the head) glow always: no stripe dimming, no body-to-tail ramp (the
+// pure body hue: a normalised cyan tail collides with the goal pink for deuteranopia), luminance pinned to SNAKE_HEAD_END_LUMINANCE (config.palettes.glow.headEnd,
+// above BLOOM_THRESHOLD). Without it a short snake glowed nowhere and a long one only on the even segments.
+export let SNAKE_HEAD_END_LUMINANCE = 0.8055
+export let SNAKE_HEAD_END_SEGMENTS = 3
+export let SNAKE_HEAD_END_MAX_BOOST = 5
+// Close to the camera a head-end segment is huge on screen and its bloom would flood the frame ("far too fat"): the luminance falls to NEAR_LUMINANCE
+// (below the threshold) inside NEAR_FROM cells and rises to the full glow at NEAR_TO cells and beyond.
+export let SNAKE_HEAD_END_NEAR_LUMINANCE = 0.6
+export let SNAKE_HEAD_END_NEAR_FROM = 1.5
+export let SNAKE_HEAD_END_NEAR_TO = 3.5
 
 export const APPLE_COLOR = new Color()
 // Apple brightness multiplier (the minimap does not use it). Neon pass: was 1.0 (the linear luminance
@@ -220,6 +231,12 @@ export function applyPalette(set: PaletteSet, glow: GlowTargets): void {
   SNAKE_TAIL_COLOR.set(set.tail)
   SNAKE_HEAD_COLOR.set(set.head)
   SNAKE_BODY_GLOW_BOOST = b.body
+  SNAKE_HEAD_END_LUMINANCE = glow.headEnd
+  SNAKE_HEAD_END_SEGMENTS = glow.headEndSegments
+  SNAKE_HEAD_END_MAX_BOOST = glow.maxBoost
+  SNAKE_HEAD_END_NEAR_LUMINANCE = glow.headEndNearLuminance
+  SNAKE_HEAD_END_NEAR_FROM = glow.headEndNearFromCells
+  SNAKE_HEAD_END_NEAR_TO = glow.headEndNearToCells
   APPLE_COLOR.set(set.apple)
   APPLE_GLOW_BOOST = b.apple
   OBSTACLE_COLOR.set(set.obstacle).multiplyScalar(b.obstacleLine)

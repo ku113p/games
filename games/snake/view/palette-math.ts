@@ -44,6 +44,18 @@ export interface GlowTargets {
   body: number
   edge: number
   obstacleLine: number
+  /** Target luminance of the first headEndSegments body segments (the head end of the snake): they glow whatever the stripe or the body-to-tail ramp says. */
+  headEnd: number
+  /** How many body segments right behind the head (snake indices 1..N) get the headEnd glow. The head itself is not counted: its glow is the goal/danger signal. */
+  headEndSegments: number
+  /**
+   * A head-end segment that is close to the camera (the neck of a 3D game sits ~1.7 cells from it) is enormous on screen, and its glow floods the frame.
+   * Its luminance goes from headEndNearLuminance (at headEndNearFromCells and closer) up to headEnd (at headEndNearToCells and farther), smoothly.
+   * headEndNearLuminance is below the bloom threshold (the segment is big enough without glow).
+   */
+  headEndNearLuminance: number
+  headEndNearFromCells: number
+  headEndNearToCells: number
   /** Multiplier cap: the color does not burn out to white. */
   maxBoost: number
 }
@@ -249,6 +261,10 @@ export function checkPalette(set: PaletteSet, g: GlowTargets): PaletteCheck[] {
   pair('apple/edge', st.goal, edge)
   pair('dangerFar/obstacle', st.dangerFar, obs)
   pair('dangerNear/obstacle', st.dangerNear, obs)
+  // Head end of the snake glows always (glow.headEnd) in the pure body hue (no tail ramp, see snake-view): it must not blend with the head states,
+  // above all with the danger colors, otherwise "glow = danger" is no longer readable next to a glowing neck.
+  const headEnd = displayedLinear(set.body, boostFor(set.body, g.headEnd, g.maxBoost))
+  for (const n of HEAD_STATE_NAMES) pair(`${n}/headEnd`, st[n], headEnd)
   for (const n of HEAD_STATE_NAMES) {
     const value = deltaE(st[n], bg)
     out.push({ name: `${n}/background`, vision: 'normal', value, min: PASS_VS_BACKGROUND, ok: value >= PASS_VS_BACKGROUND })

@@ -35,6 +35,12 @@ import {
   SNAKE_HEAD_COLOR,
   SNAKE_STRIPE_DIM,
   SNAKE_BODY_GLOW_BOOST,
+  SNAKE_HEAD_END_LUMINANCE,
+  SNAKE_HEAD_END_SEGMENTS,
+  SNAKE_HEAD_END_MAX_BOOST,
+  SNAKE_HEAD_END_NEAR_LUMINANCE,
+  SNAKE_HEAD_END_NEAR_FROM,
+  SNAKE_HEAD_END_NEAR_TO,
   HEAD_IDLE_BOOST,
   HEAD_GOAL_COLOR,
   HEAD_GOAL_BOOST,
@@ -170,22 +176,34 @@ export class SnakeView {
       return
     }
     let k = 1
-    if (this.fadeAmount > 0) {
+    const headEnd = i <= SNAKE_HEAD_END_SEGMENTS
+    let dist = Infinity
+    if (this.fadeAmount > 0 || headEnd) {
       const dx = x - this.camX
       const dy = y - this.camY
       const dz = z - this.camZ
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    }
+    if (this.fadeAmount > 0) {
       const f = MathUtils.smoothstep(dist, FADE_NEAR_CELLS, FADE_FAR_CELLS)
       k = MathUtils.lerp(1, MathUtils.lerp(FADE_MIN_SCALE, 1, f), this.fadeAmount)
     }
-    this.gk[i] = k
+    this.gk[i] = k;
     // The body is instances 0..length-2 (the head is drawn separately).
     const idx = i - 1
     this.matrix.makeScale(k, k, k).setPosition(x, y, z)
     this.pool.mesh.setMatrixAt(idx, this.matrix)
-    this.color.copy(SNAKE_BODY_COLOR).lerp(SNAKE_TAIL_COLOR, i / this.denom)
-    if (i % 2 === 1) this.color.multiplyScalar(SNAKE_STRIPE_DIM)
-    this.color.multiplyScalar(SNAKE_BODY_GLOW_BOOST)
+    this.color.copy(SNAKE_BODY_COLOR)
+    if (!headEnd) this.color.lerp(SNAKE_TAIL_COLOR, i / this.denom)
+    if (headEnd) {
+      // Head end: the pure body hue (palette.test checks it against the head states; the tail ramp would collide with them for color-blind players), pinned to a luminance (same formula as boostFor in palette-math): the full glow (above the bloom threshold), lower when near the camera.
+      const target = MathUtils.lerp(SNAKE_HEAD_END_NEAR_LUMINANCE, SNAKE_HEAD_END_LUMINANCE, MathUtils.smoothstep(dist, SNAKE_HEAD_END_NEAR_FROM, SNAKE_HEAD_END_NEAR_TO))
+      const l = 0.299 * this.color.r + 0.587 * this.color.g + 0.114 * this.color.b
+      this.color.multiplyScalar(l > 1e-6 ? Math.min(SNAKE_HEAD_END_MAX_BOOST, target / l) : SNAKE_HEAD_END_MAX_BOOST)
+    } else {
+      if (i % 2 === 1) this.color.multiplyScalar(SNAKE_STRIPE_DIM)
+      this.color.multiplyScalar(SNAKE_BODY_GLOW_BOOST)
+    }
     this.pool.mesh.setColorAt(idx, this.color)
   }
 

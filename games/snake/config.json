@@ -267,7 +267,7 @@
     }
   },
   "palettes": {
-    "glow": { "headIdle": 0.5897, "headGoal": 1.0074, "dangerFar": 0.7882, "dangerNear": 1.109, "apple": 0.8395, "body": 0.8055, "edge": 0.8639, "obstacleLine": 0.8286, "maxBoost": 5 },
+    "glow": { "headIdle": 0.5897, "headGoal": 1.0074, "dangerFar": 0.7882, "dangerNear": 1.109, "apple": 0.8395, "body": 0.8055, "edge": 0.8639, "obstacleLine": 0.8286, "headEnd": 0.8055, "headEndSegments": 3, "headEndNearLuminance": 0.6, "headEndNearFromCells": 3.5, "headEndNearToCells": 4.5, "maxBoost": 5 },
     "sets": {
       "neon": { "background": "#02030a", "fog": "#1e223a", "body": "#3dffa6", "tail": "#18c4ff", "head": "#fff27a", "apple": "#ff2d78", "dangerFar": "#fd7500", "dangerNear": "#ff2010", "rayDanger": "#ff5a30", "obstacle": "#8f5cff", "edge": "#1fb6ff", "grid": "#2a8cff", "mark": "#d9b84a", "wall": "#6fe3ff" },
       "contrast": { "background": "#03060c", "fog": "#1c2236", "body": "#56b4e9", "tail": "#3d8bff", "head": "#ffffe9", "apple": "#f0e442", "dangerFar": "#e8600a", "dangerNear": "#ff1e97", "rayDanger": "#f26a1c", "obstacle": "#7a6cff", "edge": "#2f8cff", "grid": "#2a70d0", "mark": "#d9b84a", "wall": "#8fd0ff" },

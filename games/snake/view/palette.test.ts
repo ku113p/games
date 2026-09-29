@@ -31,6 +31,8 @@ import { appleSegments } from './apple-view'
 import { compassGeometry } from './compass-view'
 import { TAIL_ARROWS, TailGuides } from './tail-guides'
 import { Color } from 'three'
+import { SnakeView } from './snake-view'
+import { makeState, v } from '../core/test-helpers'
 
 const palettes = config.palettes as unknown as PalettesConfig
 const glow: GlowTargets = palettes.glow
@@ -248,5 +250,40 @@ describe('measurement functions', () => {
     const r = displayedLinear('#c86400', 1)
     const g = displayedLinear('#5f9600', 1)
     expect(deltaE(r, g, 'deuteranopia')).toBeLessThan(deltaE(r, g, 'normal') / 3)
+  })
+})
+
+describe('head end of the snake glows whatever the length and the stripe', () => {
+  const lumOf = (c: Color): number => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+  function bodyColors(length: number, cam: number): Color[] {
+    applyPaletteById(palettes, DEFAULT_PALETTE_ID)
+    const snake = Array.from({ length }, (_, i) => v(10 - i, 10, 10))
+    const view = new SnakeView(new Scene())
+    const s = makeState({ snake, mode: 'free' })
+    view.ensureCapacity(s)
+    view.update(s, 10 + cam, 10, 10, 1)
+    const mesh = (view as unknown as { pool: { mesh: { getColorAt: (i: number, c: Color) => void } } }).pool.mesh
+    const out: Color[] = []
+    for (let i = 0; i < length - 1; i++) {
+      const c = new Color()
+      mesh.getColorAt(i, c)
+      out.push(c)
+    }
+    view.dispose()
+    return out
+  }
+  test('a snake of 3 and a snake of 16: body segments 1..3 are above the bloom threshold, even and odd alike', () => {
+    for (const length of [3, 4, 16]) {
+      const cols = bodyColors(length, 30) // camera far away: no near-camera dimming
+      for (let i = 1; i <= Math.min(glow.headEndSegments, length - 1); i++) expect(lumOf(cols[i - 1]!), `length ${length}, segment ${i}`).toBeGreaterThan(BLOOM_THRESHOLD)
+    }
+  })
+  test('the fifth segment and beyond keep the old rule: the odd stripe stays below the threshold', () => {
+    const cols = bodyColors(16, 30)
+    expect(lumOf(cols[4]!)).toBeLessThan(BLOOM_THRESHOLD) // segment 5 is odd
+  })
+  test('close to the camera the head end does not glow (its bloom would flood the frame)', () => {
+    const cols = bodyColors(16, 1) // makeState is at the start of a step: segment 1 still sits on the cell of segment 2, 3 cells from the camera
+    expect(lumOf(cols[0]!)).toBeLessThan(BLOOM_THRESHOLD)
   })
 })

@@ -257,6 +257,13 @@ There is nothing random in it and nothing that can block it, so it always fires 
 Neon and volume. The camera flight at the twist: a glitch at the start and at the midpoint, the lens widening, the world appearing from the board outward (under "reduced motion" the glitch noise is muted, the flight stays).
 The snake slides into the cell in a jerk at the start of the step and stands until the next one.
 
+**What glows (bloom).** Bloom lights only pixels whose luminance is above 0.75 (`BLOOM_THRESHOLD`); every glow target is a luminance in `config.json` under `palettes.glow`, and the multiplier of each palette is computed from it.
+- **Signals glow:** the apple, the head in the goal state and in danger (the idle head stays below the threshold on purpose, so a glowing head means something).
+- **The head end of the snake glows always:** the first three body segments right behind the head (`headEndSegments`, luminance `headEnd`) whatever the length of the snake and the stripe: no dim odd segments, no tail-colour ramp there (the tail colour at that brightness collides with the apple pink for deuteranopia). From the fourth segment on the old rule holds: bright even segments glow, dim odd ones do not.
+- **Near the camera the head end does not glow** (`headEndNearLuminance` below `headEndNearFromCells`, full glow from `headEndNearToCells`): in the 3D chase view the neck is 4 cells from the camera and fills a quarter of the screen, and its bloom turned into a blob of light. Setting both distances to 0 turns this off.
+- **Cube edges** keep their brightness (`edge`: lowering it breaks the apple/edge colour-blind check), but the beams are thinner (0.0025 of the cube size, between 0.045 and 0.12 cells) so the glow around them is smaller.
+- **Obstacles** are unchanged: purple outline glows near the camera, faces do not.
+
 **Sound.** Turns on only after the first touch. Music - *Cyber Runner* (Luis Zuno, CC0), quiet, looped. The sounds are
 generated, there are no files:
 - **apple** - a rising sweep, each next one in a row a semitone higher, the ceiling is an octave;
