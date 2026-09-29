@@ -120,16 +120,22 @@ describe('parseRich', () => {
 describe('юридические тексты', () => {
   const keys = Object.keys(ru).filter((k) => k.startsWith('legal.')) as TextKey[]
   test('во всех языках есть все юридические ключи, непустые', () => {
-    expect(keys.length).toBe(11)
+    expect(keys.length).toBe(12)
     for (const l of LANGUAGES) for (const k of keys) expect(l.dict[k].trim().length).toBeGreaterThan(0)
   })
   test('разметка ** сбалансирована в каждом языке', () => {
     for (const l of LANGUAGES) for (const k of keys) expect((l.dict[k].match(/\*\*/g) ?? []).length % 2).toBe(0)
   })
-  test('жирное предупреждение и жирное «не собирает» есть в каждом языке', () => {
+  test('жирное предупреждение и жирное «ничего личного» есть в каждом языке', () => {
     for (const l of LANGUAGES) {
       expect(l.dict['legal.warn.p2']).toContain('**')
       expect(l.dict['legal.terms.b2']).toContain('**')
+    }
+  })
+  test('условия называют счётчик и хостинг в каждом языке (не возвращаем ложное «ничего не отправляет»)', () => {
+    for (const l of LANGUAGES) {
+      expect(l.dict['legal.terms.b2']).toContain('GoatCounter')
+      expect(l.dict['legal.terms.b2']).toContain('GitHub Pages')
     }
   })
   test('название музыки и лицензия сохранены в каждом языке', () => {

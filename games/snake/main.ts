@@ -45,6 +45,9 @@ import { createWallet, grandfatherArena, hasAffordableNew, isShopUnlocked } from
 import { createShopView } from './screens/shop-view'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
+import analyticsCfg from './analytics/config.json'
+import { analyticsEnabled, createTracker } from './analytics/events'
+import { loadCounter, sendEvent } from './analytics/goatcounter'
 
 const config = configJson as Config
 
@@ -141,6 +144,18 @@ function storageSet(key: string, value: string): void {
 // --- язык: сохранённый выбор, иначе язык браузера, иначе английский (i18n/, все тексты — там) ---
 
 const storage = { get: storageGet, set: storageSet }
+
+// Аналитика (analytics/): пять событий-счётчиков, см. analytics/events.ts. Выключена на локальных адресах и при любом ?perf:
+// тогда скрипт счётчика не подключается совсем (не считается даже посещение), а хранилище не трогается.
+const analyticsOn = analyticsEnabled(location.hostname, isPerfDebugRequested(location.search))
+const tracker = createTracker({
+  enabled: analyticsOn,
+  now: Date.now,
+  storage,
+  send: sendEvent,
+  returnMinGapHours: analyticsCfg.returnMinGapHours,
+})
+if (analyticsOn) loadCounter()
 initLanguage(storage, navigator)
 
 // --- таблица лучших (топ-N): чистая логика в scores/leaderboard.ts, здесь только хранение и показ ---
@@ -579,6 +594,8 @@ interface Session {
   mode: 'plane' | 'free'
   /** Показать экран-объяснение на переходе (только самая первая игра игрока). */
   explainTransition: boolean
+  /** Настоящая партия (не замер ?perf): только такие идут в аналитику. */
+  counted: boolean
 }
 
 let session: Session | null = null
@@ -629,6 +646,7 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       showPad(lastScheme, s.mode)
       // Гасим флаг только здесь: знакомство с твистом реально состоялось.
       if (ev.mode === 'free') consumeFirstGameEver()
+      if (ev.mode === 'free' && s.explainTransition && s.counted) tracker.twistSeen()
       // Экран с паузой — только в самой первой игре игрока; дальше переход бесшумный.
       // Камера при этом доигрывает полёт (render продолжает идти).
       if (s.explainTransition && ev.mode === 'free') {
@@ -677,6 +695,7 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       }
       audio.play('death')
       screens.died()
+      if (s.counted) tracker.gameFinished()
       break
     }
     default:
@@ -842,6 +861,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
     boost,
     mode: gameMode(state),
     explainTransition: isFirstGameEver,
+    counted: !forBench,
   }
 
   const handlers: InputHandlers = {
@@ -905,6 +925,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
 
   syncViewSize(view)
   dispatchEvents(s, startGame(s.state))
+  if (s.counted) tracker.gameStarted()
 
   lastFrameTime = null
   syncPerfVisibility()
