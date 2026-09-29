@@ -58,7 +58,7 @@
   },
   "sound": {
     "music": {
-      "volume": 0.35,
+      "volume": 0.15,
       "loopStartSec": 8,
       "loopEndSec": 96,
       "bufferSampleRate": 24000,
