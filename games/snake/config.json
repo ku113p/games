@@ -62,9 +62,11 @@
   "quality": {
     "autoMediumFromMegapixels": 2.5,
     "autoLowFromMegapixels": 6,
+    "autoWeakGpu": "medium",
+    "strongGpuPattern": "nvidia|geforce|quadro|rtx|gtx|radeon rx|radeon pro|radeon r9|apple|adreno|mali|powervr|immortalis",
     "levels": {
       "high": { "megapixelCap": 0, "msaa": 4, "bloom": "full" },
-      "medium": { "megapixelCap": 2.5, "msaa": 2, "bloom": "half" },
+      "medium": { "megapixelCap": 0, "msaa": 0, "bloom": "full" },
       "low": { "megapixelCap": 1.5, "msaa": 0, "bloom": "off" }
     }
   },
@@ -131,21 +133,21 @@
       },
       "tick": {
         "wave": "triangle",
-        "freqFrom": 520,
-        "freqTo": 400,
-        "sweepMs": 22,
+        "freqFrom": 760,
+        "freqTo": 520,
+        "sweepMs": 30,
         "attackMs": 1,
-        "decayMs": 24,
-        "gain": 0.1,
+        "decayMs": 110,
+        "gain": 0.13,
         "combo": false,
         "speed": {
           "slowStepMs": 1080,
           "fastStepMs": 180,
-          "fastGain": 0.15,
+          "fastGain": 0.5,
           "skipBelowStepMs": 300,
           "skipEvery": 2,
           "jitterCents": 70,
-          "minGapMs": 60
+          "minGapMs": 90
         }
       },
       "death": {

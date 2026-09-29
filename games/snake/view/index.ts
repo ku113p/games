@@ -11,8 +11,8 @@
 // Тонмаппинг: ВЫКЛЮЧЕН (NoToneMapping). Палитра неона задана в конечных
 // цветах, ACES сжимал бы их; свечение даёт bloom, OutputPass делает только
 // sRGB-конвертацию. Поэтому флагов toneMapped у материалов нет.
-// Antialias выключен: рендер идёт в RenderTarget composer'а без samples,
-// MSAA канваса ничего бы не сглаживал, а стоил бы дорого на слабом телефоне.
+// Antialias канваса выключен: рендер идёт в RenderTarget composer'а, MSAA канваса ничего бы не сглаживал.
+// Сглаживание — свой способ в PostFx (MSAA-цель, 8-битная цель или постобработочный SMAA, view/perf-settings.ts: AA_PRESETS).
 
 import { WebGLRenderer, Scene, Color, NoToneMapping, MathUtils } from 'three'
 import type { GameState } from '../core/state'
@@ -30,7 +30,7 @@ import { CompassView, COMPASS_ENABLED } from './compass-view'
 import { createDirectionHint } from './direction-hint'
 import { WallGrid } from './wall-grid'
 import { MiniMap } from './minimap'
-import { MAX_PIXEL_RATIO, perf, type PerfSnapshot } from './perf-settings'
+import { MAX_PIXEL_RATIO, currentAa, perf, type PerfSnapshot } from './perf-settings'
 import { readGpuInfo, type GpuInfo } from './perf-env'
 
 export interface View {
@@ -119,11 +119,11 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   let postFx = sh.postFx
   if (postFx) {
     postFx.attach(scene, cameraRig.camera, config)
-    postFx.setMsaa(perf.msaa)
+    postFx.setAa(currentAa())
     postFx.setBloomScale(perf.bloomScale)
     postFx.resize(initialWidth, initialHeight, renderer.getPixelRatio())
   } else {
-    postFx = new PostFx(renderer, scene, cameraRig.camera, config, initialWidth, initialHeight, perf.msaa)
+    postFx = new PostFx(renderer, scene, cameraRig.camera, config, initialWidth, initialHeight, currentAa())
     sh.postFx = postFx
   }
   const fx = postFx
@@ -175,7 +175,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
     },
 
     applyPerf(width: number, height: number): void {
-      fx.setMsaa(perf.msaa)
+      fx.setAa(currentAa())
       fx.setBloomScale(perf.bloomScale)
       fx.setBloom(perf.bloom)
       renderer.info.autoReset = !perf.statsOn
@@ -193,6 +193,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       out.bufferW = canvas.width
       out.bufferH = canvas.height
       out.pixelRatio = renderer.getPixelRatio()
+      out.aaLabel = fx.aaLabel()
       out.devicePixelRatio = window.devicePixelRatio || 1
       out.miniMapBottomPx = miniMap.bottomCssPx
     },

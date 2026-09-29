@@ -7,7 +7,7 @@
 // заморожена (tick не вызывается, ввод игнорируется), камера в исходном положении, рендер идёт как обычно.
 
 import configJson from '../config.json'
-import type { PerfSnapshot, QualityLevel } from './perf-settings'
+import { perf, type PerfSnapshot, type QualityLevel } from './perf-settings'
 
 /** Длительность одного этапа замера, мс. */
 export const BENCH_STAGE_MS = 5000
@@ -33,31 +33,68 @@ export interface BenchStage {
   id: string
   label: string
   msaa: number
+  /** MSAA-цель 8 бит (sRGB) вместо HalfFloat. */
+  aaByte: boolean
+  /** Разрешать multisampled глубину (по умолчанию three разрешает). */
+  aaDepthResolve: boolean
+  /** Постобработочный SMAA (msaa при этом 0). */
+  smaa: boolean
   bloom: boolean
   /** Разрешение свечения относительно буфера: 1 — полное, 0.5 — половинное. */
   bloomScale: number
   megapixelCap: number
 }
 
+/** Применить этап к настройкам perf целиком (включая способ сглаживания). Холодный путь; после — View.applyPerf. */
+export function applyBenchStage(stage: BenchStage): void {
+  perf.msaa = stage.msaa
+  perf.aaByte = stage.aaByte
+  perf.aaDepthResolve = stage.aaDepthResolve
+  perf.smaa = stage.smaa
+  perf.bloom = stage.bloom
+  perf.bloomScale = stage.bloomScale
+  perf.megapixelCap = stage.megapixelCap
+}
+
+function aaName(level: QualityLevel): string {
+  if (level.smaa) return 'SMAA'
+  if (level.msaa === 0) return 'off'
+  return `MSAA${level.msaa}${level.aaByte ? ' 8bit' : ''}`
+}
+
 function levelStage(id: string, level: QualityLevel): BenchStage {
   return {
     id,
-    label: `quality ${id.replace('q-', '')} (cap ${level.megapixelCap || 'none'} MP, AA ${level.msaa}, bloom ${level.bloom})`,
+    label: `quality ${id.replace('q-', '')} (cap ${level.megapixelCap || 'none'} MP, AA ${aaName(level)}, bloom ${level.bloom})`,
     msaa: level.msaa,
+    aaByte: level.aaByte ?? false,
+    aaDepthResolve: level.aaDepthResolve ?? true,
+    smaa: level.smaa ?? false,
     bloom: level.bloom !== 'off',
     bloomScale: level.bloom === 'half' ? 0.5 : 1,
     megapixelCap: level.megapixelCap,
   }
 }
 
+function stage(id: string, label: string, over: Partial<BenchStage>): BenchStage {
+  return { id, label, msaa: 0, aaByte: false, aaDepthResolve: true, smaa: false, bloom: true, bloomScale: 1, megapixelCap: 0, ...over }
+}
+
+// Потолки МПикс (cap-2.5, cap-1.5) из прежнего набора убраны: замер дизайнера показал, что потолок не лечит затык. Основной вопрос
+// теперь — какое сглаживание не роняет встроенную графику Intel и что оно даёт картинке.
 export const BENCH_STAGES: readonly BenchStage[] = [
-  { id: 'as-is', label: 'as is (AA4, bloom, no cap)', msaa: 4, bloom: true, bloomScale: 1, megapixelCap: 0 },
-  { id: 'no-aa', label: 'AA off', msaa: 0, bloom: true, bloomScale: 1, megapixelCap: 0 },
-  { id: 'no-bloom', label: 'bloom off', msaa: 4, bloom: false, bloomScale: 1, megapixelCap: 0 },
-  { id: 'no-aa-bloom', label: 'AA off + bloom off', msaa: 0, bloom: false, bloomScale: 1, megapixelCap: 0 },
-  { id: 'cap-2.5', label: 'cap 2.5 MP', msaa: 4, bloom: true, bloomScale: 1, megapixelCap: 2.5 },
-  { id: 'cap-1.5', label: 'cap 1.5 MP', msaa: 4, bloom: true, bloomScale: 1, megapixelCap: 1.5 },
+  stage('as-is', 'as is (MSAA4 half-float target, bloom, no cap)', { msaa: 4 }),
+  stage('no-aa', 'AA off (full res, full bloom)', {}),
+  stage('no-bloom', 'bloom off (MSAA4 half)', { msaa: 4, bloom: false }),
+  stage('no-aa-bloom', 'AA off + bloom off', { bloom: false }),
+  // Кандидаты обхода MSAA-затыка:
+  stage('aa4-8bit', 'MSAA4, 8-bit sRGB target', { msaa: 4, aaByte: true }),
+  stage('aa2-8bit', 'MSAA2, 8-bit sRGB target', { msaa: 2, aaByte: true }),
+  stage('aa4-nodepth', 'MSAA4 half, no depth resolve', { msaa: 4, aaDepthResolve: false }),
+  stage('aa4-8bit-nodepth', 'MSAA4 8-bit, no depth resolve', { msaa: 4, aaByte: true, aaDepthResolve: false }),
+  stage('smaa', 'SMAA (post-process), full bloom', { smaa: true }),
   // Ступени качества из меню игры (config.json: quality.levels) — то, что игрок реально выберет.
+  levelStage('q-high', configJson.quality.levels.high as QualityLevel),
   levelStage('q-medium', configJson.quality.levels.medium as QualityLevel),
   levelStage('q-low', configJson.quality.levels.low as QualityLevel),
 ]
@@ -81,6 +118,8 @@ export interface StageResult {
   bufferW: number
   bufferH: number
   pixelRatio: number
+  /** Что реально было включено в композере на этапе (не «что хотели»): подпись сглаживания. */
+  aaLabel: string
 }
 
 /** Процентиль по методу ближайшего ранга; `sorted` отсортирован по возрастанию, n > 0. */
@@ -236,6 +275,7 @@ export class BenchRun {
       bufferW: this.snap.bufferW,
       bufferH: this.snap.bufferH,
       pixelRatio: this.snap.pixelRatio,
+      aaLabel: this.snap.aaLabel,
     })
     this.stageIndex++
     if (this.stageIndex >= BENCH_STAGES.length) {
@@ -287,7 +327,7 @@ function n1(v: number, w: number): string {
 /** Человекочитаемый компактный лог (холодный путь). Числа этапов выровнены столбцами. */
 export function formatBenchLog(env: BenchEnv, results: readonly StageResult[], aborted: string | null): string {
   const L: string[] = []
-  L.push('SNAKE BENCH v1' + (aborted !== null ? ` (INCOMPLETE: ${aborted})` : ''))
+  L.push('SNAKE BENCH v2' + (aborted !== null ? ` (INCOMPLETE: ${aborted})` : ''))
   L.push(`date: ${env.startedAt}`)
   L.push(`GPU: ${env.gpuRenderer}`)
   L.push(`GPU vendor: ${env.gpuVendor}`)
@@ -305,15 +345,15 @@ export function formatBenchLog(env: BenchEnv, results: readonly StageResult[], a
       `frame = requestAnimationFrame interval; over60 = >${MISS_60_MS} ms, over30 = >${MISS_30_MS} ms; js = tick+render call CPU time`,
   )
   L.push('')
-  L.push('stage         frames   avg   med   p95   p99   max  >60  >30   js  jsp95 draws    tris  buffer         MP   pr  vs-med')
+  L.push('stage              frames   avg   med   p95   p99   max  >60  >30   js  jsp95 draws    tris  buffer         MP   pr  vs-med')
   const base = results.length > 0 ? results[0]!.medianMs : 0
   for (const r of results) {
     const mp = (r.bufferW * r.bufferH) / 1e6
     const delta = base > 0 ? `${(((r.medianMs - base) / base) * 100).toFixed(0)}%`.padStart(6, ' ') : '     -'
     L.push(
-      `${r.stage.id.padEnd(13, ' ')} ${String(r.frames).padStart(6, ' ')} ${n1(r.avgMs, 5)} ${n1(r.medianMs, 5)} ${n1(r.p95Ms, 5)} ${n1(r.p99Ms, 5)} ${n1(r.maxMs, 5)} ` +
+      `${r.stage.id.padEnd(18, ' ')} ${String(r.frames).padStart(6, ' ')} ${n1(r.avgMs, 5)} ${n1(r.medianMs, 5)} ${n1(r.p95Ms, 5)} ${n1(r.p99Ms, 5)} ${n1(r.maxMs, 5)} ` +
         `${String(r.over60).padStart(4, ' ')} ${String(r.over30).padStart(4, ' ')} ${n1(r.jsAvgMs, 4)} ${n1(r.jsP95Ms, 5)} ` +
-        `${String(r.drawCalls).padStart(5, ' ')} ${String(r.triangles).padStart(7, ' ')}  ${`${r.bufferW}x${r.bufferH}`.padEnd(10, ' ')} ${mp.toFixed(2).padStart(5, ' ')} ${r.pixelRatio.toFixed(2)} ${delta}`,
+        `${String(r.drawCalls).padStart(5, ' ')} ${String(r.triangles).padStart(7, ' ')}  ${`${r.bufferW}x${r.bufferH}`.padEnd(10, ' ')} ${mp.toFixed(2).padStart(5, ' ')} ${r.pixelRatio.toFixed(2)} ${delta}  [${r.aaLabel}]`,
     )
   }
   L.push('(all times in ms; vs-med = median frame time relative to "as-is", negative = faster)')

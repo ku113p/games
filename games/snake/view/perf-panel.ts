@@ -11,7 +11,7 @@
 // подписи кнопок — только при смене значения.
 
 import type { BenchRun } from './perf-bench'
-import { MEGAPIXEL_STEPS, MSAA_STEPS, createPerfSnapshot, perf, type PerfSnapshot } from './perf-settings'
+import { AA_PRESETS, MEGAPIXEL_STEPS, createPerfSnapshot, currentAaPreset, perf, setAaPreset, type PerfSnapshot } from './perf-settings'
 
 /** Период обновления текста, мс (4-5 раз в секунду). */
 const REFRESH_MS = 220
@@ -145,12 +145,15 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
   function capLabel(mp: number): string {
     return mp > 0 ? String(mp) : 'none'
   }
+  function aaName(): string {
+    return currentAaPreset()?.label ?? `custom(${perf.msaa}${perf.aaByte ? ' 8bit' : ''}${perf.smaa ? ' smaa' : ''})`
+  }
   function bloomLabel(): string {
     return perf.bloom ? (perf.bloomScale < 1 ? 'half' : 'on') : 'off'
   }
   function refreshButtons(): void {
-    btnMsaa.textContent = `AA ${perf.msaa === 0 ? 'off' : perf.msaa + 'x'}`
-    btnMsaa.classList.toggle('off', perf.msaa === 0)
+    btnMsaa.textContent = `AA ${aaName()}`
+    btnMsaa.classList.toggle('off', perf.msaa === 0 && !perf.smaa)
     btnBloom.textContent = `Bloom ${bloomLabel()}`
     btnBloom.classList.toggle('off', !perf.bloom)
     btnCap.textContent = `Cap ${capLabel(perf.megapixelCap)}`
@@ -169,7 +172,8 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
     nextRefresh = 0
   }
   function toggleMsaa(): void {
-    perf.msaa = stepAfter(MSAA_STEPS, perf.msaa)
+    const i = AA_PRESETS.indexOf(currentAaPreset() ?? AA_PRESETS[AA_PRESETS.length - 1]!)
+    setAaPreset(AA_PRESETS[(i + 1) % AA_PRESETS.length]!)
     changed()
   }
   function toggleBloom(): void {
@@ -303,7 +307,7 @@ export function createPerfPanel(hooks: PerfPanelHooks): PerfPanel {
       `buf ${bw}x${bh}  ${mp.toFixed(2)} MP\n` +
       `pixel ratio ${snap.pixelRatio.toFixed(2)} (device ${snap.devicePixelRatio.toFixed(2)})\n` +
       `arena ${snap.arena}^3  snake ${snap.snakeLength}\n` +
-      `AA ${perf.msaa === 0 ? 'off' : perf.msaa + 'x'} bloom ${bloomLabel()} cap ${capLabel(perf.megapixelCap)}\n` +
+      `AA ${aaName()} bloom ${bloomLabel()} cap ${capLabel(perf.megapixelCap)}\n` +
       `fog ${perf.fog ? 'on' : 'off'} map ${perf.miniMap ? 'on' : 'off'}`
   }
 

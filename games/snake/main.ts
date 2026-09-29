@@ -8,7 +8,7 @@ import { cubeSize, elapsedMs, gameMode, isAlive, score, snakeLength } from './co
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
 import { createPerfPanel, type PerfPanel } from './view/perf-panel'
-import { BENCH_ARENA, BENCH_SEED, BenchRun, formatBenchLog, type StageResult } from './view/perf-bench'
+import { BENCH_ARENA, BENCH_SEED, BenchRun, applyBenchStage, formatBenchLog, type StageResult } from './view/perf-bench'
 import { collectBenchEnv } from './view/perf-env'
 import { applyQualityLevel, autoQuality, bufferMegapixels, createPerfSnapshot, isQualityId, perf, type QualityConfig, type QualityId } from './view/perf-settings'
 import { attachPad, type Pad } from './input/pad'
@@ -890,7 +890,7 @@ function startBench(): void {
   if (bench !== null && bench.running) return
   const panel = ensurePerfPanel()
   panel.open()
-  const saved = { msaa: perf.msaa, bloom: perf.bloom, bloomScale: perf.bloomScale, megapixelCap: perf.megapixelCap, fog: perf.fog, miniMap: perf.miniMap }
+  const saved = { ...perf }
   // Сцена одна на все этапы: арена 100, фиксированный seed, свободная фаза, логика заморожена (benchActive).
   benchActive = true
   startSession(BENCH_ARENA, 'swipes', true)
@@ -899,10 +899,7 @@ function startBench(): void {
   const run = new BenchRun(
     {
       applyStage(stage) {
-        perf.msaa = stage.msaa
-        perf.bloom = stage.bloom
-        perf.bloomScale = stage.bloomScale
-        perf.megapixelCap = stage.megapixelCap
+        applyBenchStage(stage)
         applyPerfNow()
       },
       sample(out) {
@@ -921,16 +918,11 @@ function startBench(): void {
             mode: `${gameMode(sn.state)}, fog menu toggle ${fogOn ? 'on' : 'off'}`,
             seed: BENCH_SEED,
             language: currentLanguage().code,
-            quality: `${quality} (${qualityChosen ? 'chosen by player' : 'auto, by buffer size'})`,
+            quality: `${quality} (${qualityChosen ? 'chosen by player' : 'auto, by GPU class and buffer size'})`,
           })
           text = formatBenchLog(env, results, aborted)
         }
-        perf.msaa = saved.msaa
-        perf.bloom = saved.bloom
-        perf.bloomScale = saved.bloomScale
-        perf.megapixelCap = saved.megapixelCap
-        perf.fog = saved.fog
-        perf.miniMap = saved.miniMap
+        Object.assign(perf, saved)
         applyPerfNow()
         returnToMenu() // benchActive ещё true: счёт пустой партии в таблицу не попадает
         benchActive = false

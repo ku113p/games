@@ -3,12 +3,13 @@
 // (attach/detach сцены). Все пассы хранятся в полях и освобождаются в dispose():
 // EffectComposer.dispose() трогает только свои таргеты и copyPass.
 
-import { WebGLRenderer, WebGLRenderTarget, HalfFloatType, Scene, PerspectiveCamera, Vector2 } from 'three'
+import { WebGLRenderer, WebGLRenderTarget, HalfFloatType, UnsignedByteType, SRGBColorSpace, Scene, PerspectiveCamera, Vector2 } from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { GlitchPass } from 'three/addons/postprocessing/GlitchPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import type { Config } from '../core/rules'
 import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
 
@@ -24,6 +25,21 @@ import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
 // 4 — обычно, 0 — выключить сглаживание целиком (композер вернётся к обычному target'у без samples).
 export const MSAA_SAMPLES = 4
 
+/**
+ * Способ сглаживания (холодный путь, задаётся из perf-settings). Замеры на встроенной графике Intel (ANGLE/D3D11) показали, что
+ * MSAA в HalfFloat-цели даёт затык через кадр независимо от числа сэмплов и пикселей, поэтому способов несколько.
+ * - samples: число сэмплов MSAA (0 — MSAA нет).
+ * - byteTarget: цель 8 бит (RGBA8, аппаратный sRGB) вместо HalfFloat: свет выше 1.0 обрезается (см. отчёт).
+ * - resolveDepth: разрешать (blit) multisampled глубину; по умолчанию three делает это, хотя ничто её не читает.
+ * - smaa: постобработочное сглаживание SMAA (после OutputPass, в sRGB); MSAA при этом не используется.
+ */
+export interface AaSettings {
+  samples: number
+  byteTarget: boolean
+  resolveDepth: boolean
+  smaa: boolean
+}
+
 export class PostFx {
   private composer!: EffectComposer
   private renderPass!: RenderPass
@@ -34,7 +50,8 @@ export class PostFx {
   private glitchElapsed = 0
   private glitchActive = false
   private msaaTarget: WebGLRenderTarget | null = null
-  private msaa: number
+  private aa: AaSettings
+  private smaaPass: SMAAPass | null = null
   // prefers-reduced-motion: как и анимации в index.html, глитч при включённой настройке не играется. Список медиазапроса
   // живой: matches всегда актуален, а слушатель гасит уже идущий глитч, если настройку включили посреди него.
   private readonly reducedMotion: MediaQueryList | null =
@@ -60,7 +77,7 @@ export class PostFx {
     config: Config,
     width: number,
     height: number,
-    msaaSamples: number = MSAA_SAMPLES,
+    aa: AaSettings = { samples: MSAA_SAMPLES, byteTarget: false, resolveDepth: true, smaa: false },
   ) {
     this.glitchDurationMs = config.camera.glitchMs
     this.scene = scene
@@ -68,7 +85,7 @@ export class PostFx {
     this.width = width
     this.height = height
     this.pixelRatio = renderer.getPixelRatio()
-    this.msaa = msaaSamples
+    this.aa = { ...aa }
     this.build()
     this.reducedMotion?.addEventListener('change', this.onReducedMotionChange)
   }
@@ -76,20 +93,26 @@ export class PostFx {
   /** Холодный путь: собрать композер и пассы под текущие msaa/размер/сцену. Вызывается из конструктора и setMsaa. */
   private build(): void {
     const renderer = this.renderer
-    // Свой target с samples (тип как у штатного: HalfFloat, размер в физических px).
+    // Свой target с samples (тип по умолчанию как у штатного: HalfFloat, размер в физических px).
     // RenderPass пишет в readBuffer композера, поэтому MSAA нужен только ему: writeBuffer
     // (используется глитчем) остаётся без сэмплов, чтобы не платить памятью за два multisampled буфера.
     let target: WebGLRenderTarget | undefined
     this.msaaTarget = null
-    if (this.msaa > 0) {
+    const samples = this.aa.smaa ? 0 : this.aa.samples
+    if (samples > 0) {
       const pr = this.pixelRatio
       target = new WebGLRenderTarget(Math.max(1, Math.floor(this.width * pr)), Math.max(1, Math.floor(this.height * pr)), {
-        type: HalfFloatType,
-        samples: this.msaa,
+        type: this.aa.byteTarget ? UnsignedByteType : HalfFloatType,
+        // 8 бит линейно дали бы полосы в тёмных градиентах тумана: sRGB-хранение (SRGB8_ALPHA8) даёт точность там, где глаз чувствителен.
+        colorSpace: this.aa.byteTarget ? SRGBColorSpace : undefined,
+        samples,
+        resolveDepthBuffer: this.aa.resolveDepth,
+        // Глубина после кадра никому не нужна: без resolve её и хранить незачем (три инвалидирует буфер, тайловым GPU это на руку).
+        storeMultisampledDepthBuffer: this.aa.resolveDepth,
       })
     }
     this.composer = new EffectComposer(renderer, target)
-    if (this.msaa > 0) {
+    if (samples > 0) {
       this.msaaTarget = this.composer.readBuffer
       this.composer.writeBuffer.samples = 0
     }
@@ -108,6 +131,13 @@ export class PostFx {
 
     this.outputPass = new OutputPass()
     this.composer.addPass(this.outputPass)
+
+    // SMAA после OutputPass: работает в sRGB (как задумано в алгоритме), последним пассом сразу пишет на экран.
+    this.smaaPass = null
+    if (this.aa.smaa) {
+      this.smaaPass = new SMAAPass()
+      this.composer.addPass(this.smaaPass)
+    }
 
     this.composer.setPixelRatio(this.pixelRatio)
     this.composer.setSize(this.width, this.height)
@@ -129,15 +159,25 @@ export class PostFx {
     this.bloomPass.dispose()
     this.glitchPass.dispose()
     this.outputPass.dispose()
+    this.smaaPass?.dispose()
     this.composer.dispose()
   }
 
-  /** Отладка (перф-панель), холодный путь: сменить число сэмплов MSAA, пересоздав композер. */
-  setMsaa(samples: number): void {
-    if (samples === this.msaa) return
-    this.msaa = samples
+  /** Холодный путь (меню качества, перф-панель, бенчмарк): сменить способ сглаживания, пересоздав композер. */
+  setAa(aa: AaSettings): void {
+    const a = this.aa
+    if (a.samples === aa.samples && a.byteTarget === aa.byteTarget && a.resolveDepth === aa.resolveDepth && a.smaa === aa.smaa) return
+    this.aa = { ...aa }
     this.teardown()
     this.build()
+  }
+
+  /** Что реально включено сейчас (для лога бенчмарка: подпись этапа не должна зависеть от того, что «хотели»). */
+  aaLabel(): string {
+    const a = this.aa
+    if (a.smaa) return 'SMAA'
+    if (a.samples <= 0) return 'off'
+    return `MSAA${a.samples} ${a.byteTarget ? '8bit' : 'half'}${a.resolveDepth ? '' : ' nodepthresolve'}`
   }
 
   /** Качество «среднее»: свечение в половинном разрешении (0.5); 1 — полное. Холодный путь. */
