@@ -30,6 +30,8 @@ import { CompassView, COMPASS_ENABLED } from './compass-view'
 import { createDirectionHint } from './direction-hint'
 import { WallGrid } from './wall-grid'
 import { MiniMap } from './minimap'
+import { MAX_PIXEL_RATIO, perf, type PerfSnapshot } from './perf-settings'
+import { readGpuInfo, type GpuInfo } from './perf-env'
 
 export interface View {
   resize(width: number, height: number): void
@@ -39,19 +41,24 @@ export interface View {
   setCameraTilt(yaw: number, pitch: number): void
   /** Тумблер «Туман» из меню: общий туман по дальности (плотность — config.fog.density). */
   setFogOn(on: boolean): void
+  /** Отладка (перф-панель), холодный путь: применить view/perf-settings.ts (MSAA, bloom, потолок МПикс) сразу. */
+  applyPerf(width: number, height: number): void
+  /** Отладка: заполнить снимок показателей рендера (после отрисовки кадра). Без аллокаций. */
+  readPerf(out: PerfSnapshot): void
+  /** Отладка (лог бенчмарка): видеокарта и возможности WebGL. Холодный путь. */
+  gpuInfo(): GpuInfo
   dispose(): void
 }
 
-// Ограничение pixel ratio — защита слабых телефонов от перерасхода fillrate.
-const MAX_PIXEL_RATIO = 2
+// Ограничение pixel ratio — защита слабых телефонов от перерасхода fillrate (perf-settings.ts: MAX_PIXEL_RATIO).
 // Потолок числа пикселей буфера отрисовки, МПикс (0 — без потолка, как было). Стоимость MSAA и bloom растёт
 // линейно с пикселями: на ретина-мониторе буфер 5-8 МПикс, на телефоне ~1.3. Включение снижает pixelRatio
 // на больших окнах и делает картинку мягче; решать дизайнеру (см. отчёт), поэтому по умолчанию выключен.
-const MAX_RENDER_MEGAPIXELS = 0
+// Значение живёт в perf.megapixelCap (view/perf-settings.ts): его меняет отладочная панель.
 
 function pixelRatioFor(cssW: number, cssH: number): number {
   let pr = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)
-  if (MAX_RENDER_MEGAPIXELS > 0) pr = Math.min(pr, Math.sqrt((MAX_RENDER_MEGAPIXELS * 1e6) / Math.max(1, cssW * cssH)))
+  if (perf.megapixelCap > 0) pr = Math.min(pr, Math.sqrt((perf.megapixelCap * 1e6) / Math.max(1, cssW * cssH)))
   return pr
 }
 
@@ -101,6 +108,9 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
 
   const initialWidth = canvas.clientWidth || canvas.width || 1
   const initialHeight = canvas.clientHeight || canvas.height || 1
+  // Качество могли сменить в меню между партиями: множитель плотности пересчитывается по текущему потолку.
+  const startPr = pixelRatioFor(initialWidth, initialHeight)
+  if (startPr !== renderer.getPixelRatio()) renderer.setPixelRatio(startPr)
   renderer.setSize(initialWidth, initialHeight, false)
   cameraRig.resize(initialWidth, initialHeight)
   miniMap.resize(initialWidth, initialHeight)
@@ -109,12 +119,17 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   let postFx = sh.postFx
   if (postFx) {
     postFx.attach(scene, cameraRig.camera, config)
+    postFx.setMsaa(perf.msaa)
+    postFx.setBloomScale(perf.bloomScale)
     postFx.resize(initialWidth, initialHeight, renderer.getPixelRatio())
   } else {
-    postFx = new PostFx(renderer, scene, cameraRig.camera, config, initialWidth, initialHeight)
+    postFx = new PostFx(renderer, scene, cameraRig.camera, config, initialWidth, initialHeight, perf.msaa)
     sh.postFx = postFx
   }
   const fx = postFx
+  fx.setBloomScale(perf.bloomScale)
+  fx.setBloom(perf.bloom)
+  renderer.info.autoReset = !perf.statsOn
 
   function syncCheap(state: GameState): void {
     snakeView.ensureCapacity(state)
@@ -159,6 +174,29 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       fogOn = on
     },
 
+    applyPerf(width: number, height: number): void {
+      fx.setMsaa(perf.msaa)
+      fx.setBloomScale(perf.bloomScale)
+      fx.setBloom(perf.bloom)
+      renderer.info.autoReset = !perf.statsOn
+      this.resize(width, height)
+    },
+
+    gpuInfo(): GpuInfo {
+      return readGpuInfo(renderer.getContext())
+    },
+
+    readPerf(out: PerfSnapshot): void {
+      const info = renderer.info.render
+      out.drawCalls = info.calls
+      out.triangles = info.triangles
+      out.bufferW = canvas.width
+      out.bufferH = canvas.height
+      out.pixelRatio = renderer.getPixelRatio()
+      out.devicePixelRatio = window.devicePixelRatio || 1
+      out.miniMapBottomPx = miniMap.bottomCssPx
+    },
+
     handle(event: GameEvent, state: GameState): void {
       switch (event.type) {
         case 'started':
@@ -182,6 +220,8 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
     },
 
     render(state: GameState, dtMs: number): void {
+      // Панель открыта: composer рисует несколько пассов, а info по умолчанию сбрасывается на каждом render().
+      if (perf.statsOn) renderer.info.reset()
       cameraRig.update(dtMs, state)
       if (cameraRig.consumeGlitchRequest()) {
         fx.triggerGlitch()
@@ -196,13 +236,13 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)
       // Туман проявляется вместе с объёмом (в plane камера далеко снаружи, там он выключен); 0 — тумблер «выкл».
-      fog.density = fogOn ? config.fog.density * MathUtils.smoothstep(cameraRig.freeAmount, 0, 1) : 0
+      fog.density = fogOn && perf.fog ? config.fog.density * MathUtils.smoothstep(cameraRig.freeAmount, 0, 1) : 0
       appleView.update(state, aheadRay.appleTargeted)
       compass?.update(state, cameraRig.camera, dtMs, cameraRig.freeAmount)
       cubeFrame.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, h.x, h.y, h.z)
       wallGrid.update(cam.x, cam.y, cam.z, cameraRig.freeAmount)
       fx.render(dtMs)
-      miniMap.render(renderer, state, cameraRig.freeAmount)
+      if (perf.miniMap) miniMap.render(renderer, state, cameraRig.freeAmount)
     },
 
     dispose(): void {

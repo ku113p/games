@@ -59,6 +59,15 @@
     "windowCells": 20,
     "levelWindowCells": 10
   },
+  "quality": {
+    "autoMediumFromMegapixels": 2.5,
+    "autoLowFromMegapixels": 6,
+    "levels": {
+      "high": { "megapixelCap": 0, "msaa": 4, "bloom": "full" },
+      "medium": { "megapixelCap": 2.5, "msaa": 2, "bloom": "half" },
+      "low": { "megapixelCap": 1.5, "msaa": 0, "bloom": "off" }
+    }
+  },
   "fog": {
     "density": 0.06,
     "defaultOn": true

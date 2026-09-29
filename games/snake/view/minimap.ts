@@ -597,6 +597,11 @@ export class MiniMap {
     }
   }
 
+  /** Нижний край панели карт в CSS px от верха окна (для отладочной панели). */
+  get bottomCssPx(): number {
+    return MARGIN_TOP_PX + this.panelH
+  }
+
   resize(width: number, height: number): void {
     this.screenW = width
     this.screenH = height

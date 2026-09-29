@@ -4,9 +4,13 @@
 import { createGame, type Config } from './core/rules'
 import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
 import type { AxisDir, GameState, ScreenDir } from './core/state'
-import { elapsedMs, gameMode, isAlive, score } from './core/queries'
+import { cubeSize, elapsedMs, gameMode, isAlive, score, snakeLength } from './core/queries'
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
+import { createPerfPanel, type PerfPanel } from './view/perf-panel'
+import { BENCH_ARENA, BENCH_SEED, BenchRun, formatBenchLog, type StageResult } from './view/perf-bench'
+import { collectBenchEnv } from './view/perf-env'
+import { applyQualityLevel, autoQuality, bufferMegapixels, createPerfSnapshot, isQualityId, perf, type QualityConfig, type QualityId } from './view/perf-settings'
 import { attachPad, type Pad } from './input/pad'
 import { attachStick, stickStep, type Stick } from './input/stick'
 import { attachBoostButton, type BoostButton } from './input/boost'
@@ -47,6 +51,7 @@ const PAD_SIDE_KEY = 'snake:padSide'
 const MUSIC_ON_KEY = 'snake:musicOn'
 const SFX_ON_KEY = 'snake:sfxOn'
 const FOG_ON_KEY = 'snake:fogOn'
+const QUALITY_KEY = 'snake:quality'
 
 // --- DOM ---------------------------------------------------------------
 
@@ -264,6 +269,9 @@ document.addEventListener('click', (e) => {
     storageSet(FOG_ON_KEY, fogOn ? '1' : '0')
     syncFogToggles()
     session?.view.setFogOn(fogOn)
+  } else {
+    const q = (btn as HTMLElement).dataset['quality']
+    if (isQualityId(q)) setQuality(q)
   }
   audio.play('click')
 })
@@ -281,6 +289,40 @@ function syncFogToggles(): void {
 }
 
 syncFogToggles()
+
+// Качество графики (меню и пауза): связка потолка МПикс, сглаживания и свечения из config.json (quality.levels).
+// Пока игрок не выбирал, ступень берётся по размеру буфера окна (не по типу устройства): телефон и 1080p остаются
+// на «высоком» (картинка как всегда), большой монитор и ретина получают ступень ниже. Выбор запоминается.
+const qualityCfg = configJson.quality as QualityConfig
+const storedQuality = storageGet(QUALITY_KEY)
+let qualityChosen = isQualityId(storedQuality)
+let quality: QualityId = isQualityId(storedQuality)
+  ? storedQuality
+  : autoQuality(bufferMegapixels(window.innerWidth, window.innerHeight, window.devicePixelRatio), qualityCfg)
+applyQualityLevel(qualityCfg.levels[quality])
+
+const qualityButtons = document.querySelectorAll<HTMLButtonElement>('button[data-quality]')
+
+function syncQualityButtons(): void {
+  for (const btn of qualityButtons) {
+    const on = btn.dataset['quality'] === quality
+    btn.classList.toggle('selected', on)
+    btn.setAttribute('aria-pressed', String(on))
+  }
+}
+
+// Применяется сразу, без перезапуска партии: композер и буферы перенастраиваются (View.applyPerf).
+function setQuality(id: QualityId): void {
+  quality = id
+  qualityChosen = true
+  storageSet(QUALITY_KEY, id)
+  applyQualityLevel(qualityCfg.levels[id])
+  syncQualityButtons()
+  applyPerfNow()
+  perfPanel?.refresh()
+}
+
+syncQualityButtons()
 
 // --- меню: выбор размера куба и схемы управления ------------------------
 
@@ -388,13 +430,20 @@ interface Session {
 
 let session: Session | null = null
 
+// --- отладка производительности (view/perf-panel.ts, view/perf-bench.ts) ---------------------------
+// Выключена по умолчанию: panel и bench остаются null, ничего не создаётся и не считается.
+let perfPanel: PerfPanel | null = null
+let bench: BenchRun | null = null
+/** Идёт бенчмарк: логика игры заморожена, ввод игнорируется, партия не может умереть. */
+let benchActive = false
+
 // Пауза живёт здесь, ядро о ней не знает: пока пауза, tick() просто не вызывается.
 // Две независимые причины: вкладка скрыта (нужен тап «Продолжить») и экран демо-поворота.
 let pausedByVisibility = false
 let demoExplainerOpen = false
 
 function isPaused(): boolean {
-  return pausedByVisibility || demoExplainerOpen
+  return pausedByVisibility || demoExplainerOpen || benchActive
 }
 
 // Параметры последней партии — «Ещё раз» перезапускает с ними.
@@ -435,6 +484,7 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
       }
       break
     case 'died': {
+      queueMicrotask(syncPerfVisibility) // session.state уже мёртв, но проверяем после обработки события
       s.boost.releaseAll()
       s.stick.release()
       s.pad?.clearQueued()
@@ -550,6 +600,10 @@ function applyStick(x: number, y: number, dtMs: number): void {
   syncCamResetButton()
 }
 
+function syncPerfVisibility(): void {
+  perfPanel?.setShown(session !== null && isAlive(session.state))
+}
+
 function endSession(): void {
   hidePauseScreens()
   padEl.classList.add('hidden')
@@ -559,6 +613,7 @@ function endSession(): void {
   session.detachInput()
   session.view.dispose()
   session = null
+  syncPerfVisibility()
 }
 
 const padCrossEl = required<HTMLElement>('pad-cross')
@@ -586,19 +641,21 @@ function showPad(scheme: InputScheme, mode: 'plane' | 'free'): void {
   padEl.classList.remove('hidden')
 }
 
-function startSession(size: number, scheme: InputScheme): void {
+function startSession(size: number, scheme: InputScheme, forBench = false): void {
   endSession()
-  lastSize = size
-  lastScheme = scheme
+  if (!forBench) {
+    lastSize = size
+    lastScheme = scheme
+  }
 
   // Наклон и зум прошлой партии не переезжают в новую: иначе можно начать игру в неиграбельном ракурсе
   // и не понять почему. Сбрасываем на старте (а не по выходу) — так кнопка «Ещё раз» тоже чистая.
   resetCamera()
 
-  const isFirstGameEver = readIsFirstGameEver()
+  const isFirstGameEver = forBench ? false : readIsFirstGameEver()
   // В первой игре ядро стартует в 'plane' и переезжает на demo.afterSteps ходу,
   // во всех следующих — сразу в 'free'. s.mode ниже зеркалит это и обновляется по modeChanged.
-  const seed = Math.floor(Math.random() * 0x7fffffff)
+  const seed = forBench ? BENCH_SEED : Math.floor(Math.random() * 0x7fffffff)
   const state = createGame(config, size, seed, isFirstGameEver)
   const view = createView(canvas, config, state)
   view.setFogOn(fogOn)
@@ -606,6 +663,7 @@ function startSession(size: number, scheme: InputScheme): void {
   // Ускорение включено, пока держит хоть один источник: палец на кнопке или Shift/Space.
   // Любое отпускание (палец ушёл, cancel, blur, пауза, смерть, detach) приходит сюда же как on=false.
   const boost: BoostHold = createBoostHold((on) => {
+    if (benchActive) return // замер: логика заморожена, ускорение не нужно
     s.boostBtn.setActive(on)
     dispatchEvents(s, setBoost(s.state, on))
   })
@@ -642,6 +700,11 @@ function startSession(size: number, scheme: InputScheme): void {
     axisEnabled: () => s.mode === 'plane',
     onBoost: (on) => (on ? boost.press('kbd') : boost.release('kbd')),
     onPause: () => {
+      if (benchActive) {
+        if (bench !== null) bench.abort('cancelled with Escape')
+        else exitFreeze()
+        return
+      }
       // Escape: из игры — на паузу, с паузы — обратно в игру.
       if (isPaused()) resumeFromPause()
       else pauseNow()
@@ -690,11 +753,12 @@ function startSession(size: number, scheme: InputScheme): void {
   dispatchEvents(s, startGame(s.state))
 
   lastFrameTime = null
+  syncPerfVisibility()
 }
 
 function returnToMenu(): void {
   // Выход с паузы посреди партии: набранный счёт идёт в таблицу с запомненными символами, как при смерти (без барабана).
-  if (session !== null && isAlive(session.state)) commitRun(score(session.state), elapsedMs(session.state))
+  if (session !== null && isAlive(session.state) && !benchActive) commitRun(score(session.state), elapsedMs(session.state))
   gameOverScreen.classList.add('hidden')
   hud.classList.add('hidden')
   closeDrum()
@@ -723,6 +787,7 @@ function resumeFromPause(): void {
 // Единственная точка входа в паузу: и сворачивание вкладки, и кнопка «пауза» идут сюда.
 function pauseNow(): void {
   const s = session
+  if (benchActive) return
   if (s === null || !isAlive(s.state) || pausedByVisibility) return
   pausedByVisibility = true
   // Ускорение на паузе выключается всегда: после «Продолжить» игрок сам зажмёт заново.
@@ -740,6 +805,7 @@ document.addEventListener('visibilitychange', () => {
     return
   }
   audio.suspend() // фоновая вкладка не должна играть музыку
+  if (benchActive) bench?.abort('tab was hidden during the run')
   pauseNow()
 })
 
@@ -754,6 +820,126 @@ demoContinueBtn.addEventListener('click', () => {
   // Если вкладку сворачивали, пока висел экран демо, — теперь нужна обычная пауза.
   if (pausedByVisibility) pauseScreen.classList.remove('hidden')
 })
+
+// --- отладочная панель и бенчмарк ----------------------------------------
+// Включение: клавиша ` (Backquote) или параметр адреса ?perf (?perf=bench — ещё и сразу запустить замер).
+
+const perfSnap = createPerfSnapshot()
+
+function applyPerfNow(): void {
+  session?.view.applyPerf(canvas.clientWidth, canvas.clientHeight)
+}
+
+function ensurePerfPanel(): PerfPanel {
+  if (perfPanel === null) {
+    perfPanel = createPerfPanel({
+      sample(out) {
+        const sn = session
+        if (sn === null) return
+        sn.view.readPerf(out)
+        out.arena = cubeSize(sn.state)
+        out.snakeLength = snakeLength(sn.state)
+      },
+      apply: applyPerfNow,
+      startBench,
+      resultClosed() {},
+    })
+  }
+  syncPerfVisibility()
+  return perfPanel
+}
+
+function startBench(): void {
+  if (bench !== null && bench.running) return
+  const panel = ensurePerfPanel()
+  panel.open()
+  const saved = { msaa: perf.msaa, bloom: perf.bloom, bloomScale: perf.bloomScale, megapixelCap: perf.megapixelCap, fog: perf.fog, miniMap: perf.miniMap }
+  // Сцена одна на все этапы: арена 100, фиксированный seed, свободная фаза, логика заморожена (benchActive).
+  benchActive = true
+  startSession(BENCH_ARENA, 'swipes', true)
+  perf.fog = true
+  perf.miniMap = true
+  const run = new BenchRun(
+    {
+      applyStage(stage) {
+        perf.msaa = stage.msaa
+        perf.bloom = stage.bloom
+        perf.bloomScale = stage.bloomScale
+        perf.megapixelCap = stage.megapixelCap
+        applyPerfNow()
+      },
+      sample(out) {
+        const sn = session
+        if (sn !== null) sn.view.readPerf(out)
+      },
+      finished(results: readonly StageResult[], aborted: string | null) {
+        const sn = session
+        let text: string
+        if (sn === null) {
+          text = `SNAKE BENCH v1 (INCOMPLETE: ${aborted ?? 'session lost'})`
+        } else {
+          const env = collectBenchEnv(sn.view.gpuInfo(), {
+            arena: cubeSize(sn.state),
+            snakeLength: snakeLength(sn.state),
+            mode: `${gameMode(sn.state)}, fog menu toggle ${fogOn ? 'on' : 'off'}`,
+            seed: BENCH_SEED,
+            language: currentLanguage().code,
+            quality: `${quality} (${qualityChosen ? 'chosen by player' : 'auto, by buffer size'})`,
+          })
+          text = formatBenchLog(env, results, aborted)
+        }
+        perf.msaa = saved.msaa
+        perf.bloom = saved.bloom
+        perf.bloomScale = saved.bloomScale
+        perf.megapixelCap = saved.megapixelCap
+        perf.fog = saved.fog
+        perf.miniMap = saved.miniMap
+        applyPerfNow()
+        returnToMenu() // benchActive ещё true: счёт пустой партии в таблицу не попадает
+        benchActive = false
+        bench = null
+        panel.setBench(null)
+        panel.showResult(text)
+      },
+    },
+    perfSnap,
+  )
+  bench = run
+  run.start(performance.now())
+  panel.setBench(run) // после start: баннер показывается только пока прогон идёт
+}
+
+// ?perf=freeze: та же замороженная сцена, что у бенчмарка, но без прогона этапов: можно спокойно листать переключатели
+// панели и сравнивать кадры (скриншоты ступеней качества). Escape — выход в меню.
+function startFreeze(): void {
+  if (benchActive) return
+  ensurePerfPanel().open()
+  benchActive = true
+  startSession(BENCH_ARENA, 'swipes', true)
+}
+
+function exitFreeze(): void {
+  returnToMenu()
+  benchActive = false
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Backquote' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+  const tg = e.target as HTMLElement | null
+  if (tg !== null && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA')) return
+  e.preventDefault()
+  if (benchActive && bench !== null) return
+  ensurePerfPanel().toggle()
+})
+
+{
+  const p = new URLSearchParams(location.search).get('perf')
+  if (p !== null && p !== '0' && p !== 'false') {
+    ensurePerfPanel().open()
+    if (p === 'bench') setTimeout(startBench, 500)
+    else if (p === 'freeze') setTimeout(startFreeze, 500)
+  }
+}
 
 // --- ресайз/поворот экрана: UI и канвас должны это пережить -------------
 
@@ -773,7 +959,20 @@ let lastFrameTime: number | null = null
 
 function frame(now: number): void {
   requestAnimationFrame(frame)
+  // Отладка выключена (по умолчанию) — обе переменные null, в кадре стоит одна проверка.
+  if (perfPanel === null) {
+    step(now)
+    return
+  }
+  perfPanel.beginFrame(now)
+  const t0 = performance.now()
+  step(now)
+  const jsMs = performance.now() - t0
+  if (bench !== null) bench.frame(now, jsMs)
+  perfPanel.endFrame(jsMs)
+}
 
+function step(now: number): void {
   const s = session
   if (s === null) return
 
@@ -783,7 +982,7 @@ function frame(now: number): void {
   lastFrameTime = now
 
   if (pausedByVisibility) return
-  if (!demoExplainerOpen) {
+  if (!demoExplainerOpen && !benchActive) {
     dispatchEvents(s, tick(s.state, config, dtMs))
     const st = s.stick.state
     if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)

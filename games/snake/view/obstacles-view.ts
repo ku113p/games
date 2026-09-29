@@ -1,17 +1,21 @@
 // Препятствия — неоновая ВНЕШНЯЯ оболочка: сплошные непрозрачные грани + рёбра
-// поверх (три draw call: рёбра, грани, прозрачные грани мешающих кубов). Грань рисуется, только
+// поверх (три меша на кубик: рёбра, грани, прозрачные грани мешающих кубов). Грань рисуется, только
 // если соседняя клетка в её сторону свободна; ребро — только настоящий излом
 // контура (см. obstacle-shell.ts), так что слипшаяся группа читается одним
 // объёмом, а не стопкой проволочных коробок. Оболочка считается один раз на
 // 'started' (холодный путь), в кадре не трогается.
 // Инстансинг: по инстансу на грань (aCell + aFace) и на ребро (aCenter + aAxis),
 // геометрия одна на всех (квад / отрезок), позиции собирает вершинный шейдер.
+// Оболочка порезана на кубики OBSTACLE_CHUNK_CELLS^3 клеток (obstacle-chunks.ts): у каждого свои три меша и ограничивающая
+// сфера, поэтому штатное отсечение по пирамиде видимости не пускает в GPU невидимую часть арены; квад — индексированный (4 вершины).
 // Дальние растворяются в общем тумане сцены (palette.ts: createFog/fogUniforms), чтобы плотный лес
 // не сливался в кашу: ближние читаются опасностью, дальние — глубиной. Своей кривой затухания нет.
 
 import {
   BufferGeometry,
+  BufferAttribute,
   Float32BufferAttribute,
+  Sphere,
   InstancedInterleavedBuffer,
   InterleavedBufferAttribute,
   InstancedBufferGeometry,
@@ -30,6 +34,7 @@ import {
 import type { GameState } from '../core/state'
 import { cubeSize, forEachObstacle } from '../core/queries'
 import { computeShell } from './obstacle-shell'
+import { chunkShell } from './obstacle-chunks'
 import {
   OBSTACLE_COLOR,
   OBSTACLE_FACE_BRIGHTNESS,
@@ -233,17 +238,42 @@ const OCCLUDER_REACH = 24 // дальше этого от головы не ищ
 const OCCLUDER_MAX_ACTIVE = 2048 // потолок одновременно тающих клеток
 const GHOST_FADE_MS = 140 // постоянная времени плавного перехода
 const GHOST_TEX_W = 256
+// Оболочка режется на кубики по стольку клеток: каждый кубик — свои меши и ограничивающая сфера, и штатное отсечение
+// по пирамиде видимости не даёт GPU обрабатывать то, что заведомо вне кадра. Картинка не меняется. Меньше кубик —
+// точнее отсечение, но больше вызовов отрисовки (на 100^3 при 25 — до 64 кубиков по 3 меша).
+// 0 — не резать (один кубик на всю арену, как было: картинка попиксельно прежняя, но без отсечения). При разбиении на кубики
+// в ~0.3-0.6% пикселей (тонкие 1-2 px места, где перекрываются рёбра-ленты) меняется, какая лента лежит сверху: раньше это
+// определял порядок в общем буфере, теперь порядок кубиков.
+const OBSTACLE_CHUNK_CELLS = 25
+// Порядок отрисовки кубиков фиксирован (renderOrder = слой + номер кубика * шаг), а не по глубине, как сортирует three.js
+// одинаковые renderOrder: там, где фрагменты равны по глубине (стыки смыкающихся граней) или перекрываются рёбра-ленты,
+// победитель определяется порядком отрисовки, и при сортировке по глубине он менял бы стороны по мере движения камеры.
+// Слои те же, что были: непрозрачные грани < прозрачные грани < near-cells (2) < рёбра.
+const CHUNK_ORDER_STEP = 0.001
+const GHOST_ORDER = 1
+const EDGES_ORDER = 3
+// Общий индексированный квад (4 вершины, 2 треугольника вместо 6 вершин): вершинный шейдер считает уникальные вершины.
+const QUAD_INDEX = [0, 1, 2, 0, 2, 3]
 // true — всегда гонять прозрачный проход по всем граням (как было); false — только когда есть что рисовать.
 const GHOST_PASS_ALWAYS = false
 
+interface ObstacleChunk {
+  edges: Mesh
+  opaque: Mesh
+  ghost: Mesh
+  geometries: BufferGeometry[]
+  /** Сколько клеток этого кубика сейчас в списке тающих (активных). */
+  active: number
+}
+
 export class ObstaclesView {
   private scene: Scene
-  private lines: Mesh | null = null
   private readonly res = new Vector2(1, 1)
   private material: ShaderMaterial | null = null
-  private opaque: Mesh | null = null
-  private ghost: Mesh | null = null
   private faceMaterials: ShaderMaterial[] = []
+  // Кубики оболочки: меши рёбер/непрозрачных/прозрачных граней и число тающих клеток в каждом.
+  private chunks: ObstacleChunk[] = []
+  private chunkOfCell = new Int32Array(0)
   private solid = new Set<number>()
   private solidSize = 1
 
@@ -267,6 +297,10 @@ export class ObstaclesView {
   /** Сколько граней и рёбер в оболочке последней сборки (для замеров). */
   shellFaces = 0
   shellEdges = 0
+  /** Кубики оболочки (для замеров). */
+  get chunkCount(): number {
+    return this.chunks.length
+  }
   /** Сколько клеток сейчас тает или прозрачно (для замеров). */
   get ghostCells(): number {
     return this.activeCount
@@ -286,9 +320,10 @@ export class ObstaclesView {
       this.solid.add(x + n * (y + n * z))
     })
     const half = OBSTACLE_SCALE / 2
-    const shell = computeShell(this.solid, n, half)
-    this.shellFaces = shell.faceCount
-    this.shellEdges = shell.edgeCount
+    const rawShell = computeShell(this.solid, n, half)
+    this.shellFaces = rawShell.faceCount
+    this.shellEdges = rawShell.edgeCount
+    const parts = chunkShell(rawShell.faces, rawShell.faceCount, rawShell.edges, rawShell.edgeCount, n, OBSTACLE_CHUNK_CELLS > 0 ? OBSTACLE_CHUNK_CELLS : n)
 
     const uniforms = {
       ...fogUniforms(),
@@ -297,24 +332,29 @@ export class ObstaclesView {
       uHalf: { value: half },
     }
 
-    // Клетки оболочки: грани одной клетки идут подряд (computeShell), номер клетки —
-    // порядковый по первому появлению.
+    // Клетки оболочки: грани одной клетки идут подряд (computeShell, порядок сохраняет chunkShell), номер клетки —
+    // порядковый по первому появлению; кубик клетки запоминаем, чтобы считать тающие клетки по кубикам.
     const nn = n * n * n
     this.cellId = new Int32Array(nn).fill(-1)
-    const ids = new Float32Array(shell.faceCount)
+    const faceIds: Float32Array[] = []
+    const cellChunk: number[] = []
     let cells = 0
-    for (let i = 0; i < shell.faceCount; i++) {
-      const cx = shell.faces[i * 4]!
-      const cy = shell.faces[i * 4 + 1]!
-      const cz = shell.faces[i * 4 + 2]!
-      const key = cx + n * (cy + n * cz)
-      let id = this.cellId[key]!
-      if (id < 0) {
-        id = cells++
-        this.cellId[key] = id
+    for (let ci = 0; ci < parts.length; ci++) {
+      const part = parts[ci]!
+      const ids = new Float32Array(part.faceCount)
+      for (let i = 0; i < part.faceCount; i++) {
+        const key = part.faces[i * 4]! + n * (part.faces[i * 4 + 1]! + n * part.faces[i * 4 + 2]!)
+        let id = this.cellId[key]!
+        if (id < 0) {
+          id = cells++
+          this.cellId[key] = id
+          cellChunk.push(ci)
+        }
+        ids[i] = id
       }
-      ids[i] = id
+      faceIds.push(ids)
     }
+    this.chunkOfCell = Int32Array.from(cellChunk)
     this.ghostLevel = new Float32Array(cells)
     this.stamp = new Int32Array(cells).fill(-1)
     this.inActive = new Uint8Array(cells)
@@ -329,25 +369,6 @@ export class ObstaclesView {
     this.ghostTex = tex
 
     // Контур: инстанс на ребро, база — квад (вдоль отрезка x сторона), позиции собирает вершинный шейдер.
-    const geometry = new InstancedBufferGeometry()
-    geometry.setAttribute(
-      'position',
-      new Float32BufferAttribute([-0.5, -1, 0, 0.5, -1, 0, 0.5, 1, 0, -0.5, -1, 0, 0.5, 1, 0, -0.5, 1, 0], 3),
-    )
-    const edgeBuf = new InstancedInterleavedBuffer(shell.edges, 4)
-    geometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
-    geometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
-    // Владелец ребра — клетка, чья грань его породила: смещения ребра от её центра ±half по двум осям,
-    // так что округление центра ребра даёт её индекс. Рёбра тают вместе со своей клеткой (см. FACE_VERT).
-    const edgeIds = new Float32Array(shell.edgeCount)
-    for (let i = 0; i < shell.edgeCount; i++) {
-      const ex = Math.round(shell.edges[i * 4]!)
-      const ey = Math.round(shell.edges[i * 4 + 1]!)
-      const ez = Math.round(shell.edges[i * 4 + 2]!)
-      edgeIds[i] = this.cellId[ex + n * (ey + n * ez)]!
-    }
-    geometry.setAttribute('aId', new InstancedBufferAttribute(edgeIds, 1))
-    geometry.instanceCount = shell.edgeCount
     const edgeUniforms = {
       ...uniforms,
       uRes: { value: this.res },
@@ -361,30 +382,15 @@ export class ObstaclesView {
       uEdgeGhostAlpha: { value: OBSTACLE_EDGE_GHOST_ALPHA },
     }
     this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide, transparent: true, depthWrite: false })
-    const lines = new Mesh(geometry as BufferGeometry, this.material)
-    lines.frustumCulled = false
-    lines.renderOrder = 2 // после прозрачных граней: альфа рёбер считается независимо
     // Размер буфера кадра (физические px) и pixelRatio — перед отрисовкой, без аллокаций.
     const minPx = edgeUniforms.uMinPx
-    lines.onBeforeRender = (renderer) => {
+    const beforeEdges = (renderer: { getDrawingBufferSize(t: Vector2): Vector2; getPixelRatio(): number }): void => {
       renderer.getDrawingBufferSize(this.res)
       minPx.value = OBSTACLE_EDGE_MIN_PX * renderer.getPixelRatio()
     }
-    this.lines = lines
-    this.scene.add(lines)
 
-    // Грани: инстанс на грань, база — квад из двух треугольников. Геометрия общая
-    // для непрозрачного и прозрачного мешей.
-    const fillGeometry = new InstancedBufferGeometry()
-    fillGeometry.setAttribute(
-      'position',
-      new Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0], 3),
-    )
-    const faceBuf = new InstancedInterleavedBuffer(shell.faces, 4)
-    fillGeometry.setAttribute('aCell', new InterleavedBufferAttribute(faceBuf, 3, 0))
-    fillGeometry.setAttribute('aFace', new InterleavedBufferAttribute(faceBuf, 1, 3))
-    fillGeometry.setAttribute('aId', new InstancedBufferAttribute(ids, 1))
-    fillGeometry.instanceCount = shell.faceCount
+    // Грани: инстанс на грань, база — квад из двух треугольников; геометрия кубика общая для
+    // непрозрачного и прозрачного мешей.
     const shared = {
       ...uniforms,
       uDepthAxis: this.frameUniforms.uDepthAxis,
@@ -418,15 +424,60 @@ export class ObstaclesView {
       polygonOffsetUnits: 1,
     })
     this.faceMaterials = [opaqueMat, ghostMat]
-    const opaque = new Mesh(fillGeometry as BufferGeometry, opaqueMat)
-    opaque.frustumCulled = false
-    this.opaque = opaque
-    this.scene.add(opaque)
-    const ghost = new Mesh(fillGeometry as BufferGeometry, ghostMat)
-    ghost.frustumCulled = false
-    ghost.renderOrder = 1
-    this.ghost = ghost
-    this.scene.add(ghost)
+
+    const edgeQuad = new Float32BufferAttribute([-0.5, -1, 0, 0.5, -1, 0, 0.5, 1, 0, -0.5, 1, 0], 3)
+    const faceQuad = new Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3)
+
+    for (let ci = 0; ci < parts.length; ci++) {
+      const part = parts[ci]!
+      const sphere = new Sphere(new Vector3(part.cx, part.cy, part.cz), part.radius)
+      const geoms: BufferGeometry[] = []
+
+      const edgeGeometry = new InstancedBufferGeometry()
+      edgeGeometry.setAttribute('position', edgeQuad)
+      edgeGeometry.setIndex(new BufferAttribute(new Uint16Array(QUAD_INDEX), 1))
+      const edgeBuf = new InstancedInterleavedBuffer(part.edges, 4)
+      edgeGeometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
+      edgeGeometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
+      // Владелец ребра — клетка, чья грань его породила: смещения ребра от её центра ±half по двум осям,
+      // так что округление центра ребра даёт её индекс. Рёбра тают вместе со своей клеткой (см. FACE_VERT).
+      const edgeIds = new Float32Array(part.edgeCount)
+      for (let i = 0; i < part.edgeCount; i++) {
+        const ex = Math.round(part.edges[i * 4]!)
+        const ey = Math.round(part.edges[i * 4 + 1]!)
+        const ez = Math.round(part.edges[i * 4 + 2]!)
+        edgeIds[i] = this.cellId[ex + n * (ey + n * ez)]!
+      }
+      edgeGeometry.setAttribute('aId', new InstancedBufferAttribute(edgeIds, 1))
+      edgeGeometry.instanceCount = part.edgeCount
+      edgeGeometry.boundingSphere = sphere
+      const edges = new Mesh(edgeGeometry as BufferGeometry, this.material)
+      // После прозрачных граней (альфа рёбер считается независимо) и после слоя near-cells (renderOrder 2): раньше меш
+      // рёбер был один, с ограничивающей сферой в начале координат, и на равной глубине шёл после него по id. Кубики имеют
+      // настоящую глубину, и при равном renderOrder слой подсказок оказывался то до рёбер, то после; 3 сохраняет прежний порядок.
+      edges.renderOrder = EDGES_ORDER + ci * CHUNK_ORDER_STEP
+      edges.onBeforeRender = beforeEdges
+      geoms.push(edgeGeometry as BufferGeometry)
+
+      const fillGeometry = new InstancedBufferGeometry()
+      fillGeometry.setAttribute('position', faceQuad)
+      fillGeometry.setIndex(new BufferAttribute(new Uint16Array(QUAD_INDEX), 1))
+      const faceBuf = new InstancedInterleavedBuffer(part.faces, 4)
+      fillGeometry.setAttribute('aCell', new InterleavedBufferAttribute(faceBuf, 3, 0))
+      fillGeometry.setAttribute('aFace', new InterleavedBufferAttribute(faceBuf, 1, 3))
+      fillGeometry.setAttribute('aId', new InstancedBufferAttribute(faceIds[ci]!, 1))
+      fillGeometry.instanceCount = part.faceCount
+      fillGeometry.boundingSphere = sphere
+      const opaque = new Mesh(fillGeometry as BufferGeometry, opaqueMat)
+      opaque.renderOrder = ci * CHUNK_ORDER_STEP
+      const ghost = new Mesh(fillGeometry as BufferGeometry, ghostMat)
+      ghost.renderOrder = GHOST_ORDER + ci * CHUNK_ORDER_STEP
+      geoms.push(fillGeometry as BufferGeometry)
+
+      // frustumCulled (по умолчанию true) + sphere выше: кубики вне кадра не рисуются.
+      this.scene.add(edges, opaque, ghost)
+      this.chunks.push({ edges, opaque, ghost, geometries: geoms, active: 0 })
+    }
   }
 
   /**
@@ -486,6 +537,7 @@ export class ObstaclesView {
                 if (this.inActive[id] === 0 && this.activeCount < OCCLUDER_MAX_ACTIVE) {
                   this.inActive[id] = 1
                   this.active[this.activeCount++] = id
+                  this.chunks[this.chunkOfCell[id]!]!.active++
                 }
               }
             }
@@ -511,15 +563,21 @@ export class ObstaclesView {
       }
       if (g === 0 && target === 0) {
         this.inActive[id] = 0
+        this.chunks[this.chunkOfCell[id]!]!.active--
         this.active[i] = this.active[--this.activeCount]!
       } else {
         i++
       }
     }
     if (changed) this.ghostTex.needsUpdate = true
-    // Прозрачный проход гоняет вершинный шейдер по ВСЕМ граням (на 100³ ~130k инстансов), а рисует единицы.
-    // Пока тающих клеток нет (g == 0 у всех) и плоская фаза не даёт веса, он ничего не рисует: прячем меш целиком.
-    if (this.ghost) this.ghost.visible = GHOST_PASS_ALWAYS || this.activeCount > 0 || freeAmount < 1
+    // Прозрачный проход гоняет вершинный шейдер по всем граням меша, а рисует единицы. Пока тающих клеток нет
+    // (g == 0 у всех) и плоская фаза не даёт веса, он ничего не рисует. Меши по кубикам: прозрачный проход идёт
+    // только по кубикам, где есть тающие клетки (раньше — по всей оболочке, как только таяла хоть одна).
+    const allGhost = GHOST_PASS_ALWAYS || freeAmount < 1
+    for (let i = 0; i < this.chunks.length; i++) {
+      const c = this.chunks[i]!
+      c.ghost.visible = allGhost || c.active > 0
+    }
   }
 
   /** Есть ли препятствие в клетке (набор собирается на 'started'). Без аллокаций. */
@@ -527,22 +585,14 @@ export class ObstaclesView {
     this.solid.has(x + this.solidSize * (y + this.solidSize * z))
 
   private disposeLines(): void {
-    if (this.lines) {
-      this.scene.remove(this.lines)
-      this.lines.geometry.dispose()
-      this.lines = null
+    for (const c of this.chunks) {
+      this.scene.remove(c.edges, c.opaque, c.ghost)
+      for (const g of c.geometries) g.dispose()
     }
+    this.chunks = []
+    this.chunkOfCell = new Int32Array(0)
     this.material?.dispose()
     this.material = null
-    if (this.opaque) {
-      this.scene.remove(this.opaque)
-      this.opaque.geometry.dispose()
-      this.opaque = null
-    }
-    if (this.ghost) {
-      this.scene.remove(this.ghost)
-      this.ghost = null
-    }
     for (const m of this.faceMaterials) m.dispose()
     this.faceMaterials = []
     this.ghostTex?.dispose()
