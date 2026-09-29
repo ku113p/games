@@ -50,6 +50,8 @@ const OBSTACLE_SCALE = 0.98
 const OBSTACLE_EDGE_MIN_PX = 2.2
 const OBSTACLE_EDGE_WORLD_W = 0.04
 // Сдвиг ленты к камере по глубине, в её мировых ширинах: 0 — без сдвига (рёбра выедаются гранями).
+// Непрозрачность рёбер тающей (призрачной) клетки; у граней — OBSTACLE_GHOST_ALPHA.
+const OBSTACLE_EDGE_GHOST_ALPHA = 0.15
 const OBSTACLE_EDGE_DEPTH_K = 1.5
 const COMMON = /* glsl */ `
 uniform float uHalf;
@@ -67,12 +69,28 @@ uniform vec3 uHead;
 const VERT = /* glsl */ `
 attribute vec3 aCenter;
 attribute float aAxis;
+attribute float aId;
+uniform sampler2D uGhostTex;
+uniform float uTexW;
+uniform vec3 uDepthAxis;
+uniform float uFree;
+uniform float uEdgeGhostAlpha;
+varying float vAlpha;
 uniform vec2 uRes;
 uniform float uMinPx;
 uniform float uWorldW;
 uniform float uDepthK;
 ${COMMON}
 void main() {
+  // Призрачность клетки-владельца (та же, что у граней): рёбра тающих кубов тают вместе с гранями,
+  // иначе сквозь прозрачную грань видны все рёбра куба, включая заднюю сторону.
+  int id = int(aId + 0.5);
+  int wtex = int(uTexW);
+  int row = id / wtex;
+  float g = texelFetch(uGhostTex, ivec2(id - row * wtex, row), 0).r;
+  float front = step(0.5, dot(floor(aCenter + 0.5) - uHead, uDepthAxis));
+  g = max(g, front * (1.0 - uFree));
+  vAlpha = mix(1.0, uEdgeGhostAlpha, g);
   vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
   // Концы — на настоящих углах контура (uHalf), а не на границе клетки (0.5): иначе каждый конец выступает за габарит.
   // Стык углов и соседних отрезков закрывает продолжение на полуширину ленты (ниже).
@@ -81,6 +99,7 @@ void main() {
   vec4 ca = projectionMatrix * (viewMatrix * vec4(wa, 1.0));
   vec4 cb = projectionMatrix * (viewMatrix * vec4(wb, 1.0));
   const float NEAR_W = 0.05;
+  const float EDGE_END_EXT = 0.5; // продолжение конца в долях полуширины: закрывает стык, но не торчит усом
   if (ca.w < NEAR_W && cb.w < NEAR_W) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -99,7 +118,7 @@ void main() {
   vec4 c = atB ? cb : ca;
   vec2 sc = atB ? sb : sa;
   float wpx = max(uMinPx, uWorldW * projectionMatrix[1][1] * half_.y / c.w);
-  vec2 sp = sc + d * ((atB ? 0.5 : -0.5) * wpx) + nrm * (position.y * 0.5 * wpx);
+  vec2 sp = sc + d * ((atB ? 0.5 : -0.5) * wpx * EDGE_END_EXT) + nrm * (position.y * 0.5 * wpx);
   // Ребро лежит на стыке граней, а лента шире линии: её половина оказывается «внутри» куба или за
   // гранью, которая на вогнутом изломе или при скользящем угле ближе к камере по глубине, и depth-тест
   // выедает ленту. polygonOffset считается от наклона полигона граней и ленте по ширине не помогает,
@@ -116,9 +135,10 @@ void main() {
 
 const FRAG = /* glsl */ `
 uniform vec3 uColor;
+varying float vAlpha;
 #include <fog_pars_fragment>
 void main() {
-  gl_FragColor = vec4(uColor, 1.0);
+  gl_FragColor = vec4(uColor, vAlpha);
   #include <fog_fragment>
 }
 `
@@ -275,35 +295,6 @@ export class ObstaclesView {
       uHalf: { value: half },
     }
 
-    // Контур: инстанс на ребро, база — квад (вдоль отрезка x сторона), позиции собирает вершинный шейдер.
-    const geometry = new InstancedBufferGeometry()
-    geometry.setAttribute(
-      'position',
-      new Float32BufferAttribute([-0.5, -1, 0, 0.5, -1, 0, 0.5, 1, 0, -0.5, -1, 0, 0.5, 1, 0, -0.5, 1, 0], 3),
-    )
-    const edgeBuf = new InstancedInterleavedBuffer(shell.edges, 4)
-    geometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
-    geometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
-    geometry.instanceCount = shell.edgeCount
-    const edgeUniforms = {
-      ...uniforms,
-      uRes: { value: this.res },
-      uMinPx: { value: OBSTACLE_EDGE_MIN_PX },
-      uWorldW: { value: OBSTACLE_EDGE_WORLD_W },
-      uDepthK: { value: OBSTACLE_EDGE_DEPTH_K },
-    }
-    this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide })
-    const lines = new Mesh(geometry as BufferGeometry, this.material)
-    lines.frustumCulled = false
-    // Размер буфера кадра (физические px) и pixelRatio — перед отрисовкой, без аллокаций.
-    const minPx = edgeUniforms.uMinPx
-    lines.onBeforeRender = (renderer) => {
-      renderer.getDrawingBufferSize(this.res)
-      minPx.value = OBSTACLE_EDGE_MIN_PX * renderer.getPixelRatio()
-    }
-    this.lines = lines
-    this.scene.add(lines)
-
     // Клетки оболочки: грани одной клетки идут подряд (computeShell), номер клетки —
     // порядковый по первому появлению.
     const nn = n * n * n
@@ -334,6 +325,51 @@ export class ObstaclesView {
     tex.generateMipmaps = false
     tex.needsUpdate = true
     this.ghostTex = tex
+
+    // Контур: инстанс на ребро, база — квад (вдоль отрезка x сторона), позиции собирает вершинный шейдер.
+    const geometry = new InstancedBufferGeometry()
+    geometry.setAttribute(
+      'position',
+      new Float32BufferAttribute([-0.5, -1, 0, 0.5, -1, 0, 0.5, 1, 0, -0.5, -1, 0, 0.5, 1, 0, -0.5, 1, 0], 3),
+    )
+    const edgeBuf = new InstancedInterleavedBuffer(shell.edges, 4)
+    geometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
+    geometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
+    // Владелец ребра — клетка, чья грань его породила: смещения ребра от её центра ±half по двум осям,
+    // так что округление центра ребра даёт её индекс. Рёбра тают вместе со своей клеткой (см. FACE_VERT).
+    const edgeIds = new Float32Array(shell.edgeCount)
+    for (let i = 0; i < shell.edgeCount; i++) {
+      const ex = Math.round(shell.edges[i * 4]!)
+      const ey = Math.round(shell.edges[i * 4 + 1]!)
+      const ez = Math.round(shell.edges[i * 4 + 2]!)
+      edgeIds[i] = this.cellId[ex + n * (ey + n * ez)]!
+    }
+    geometry.setAttribute('aId', new InstancedBufferAttribute(edgeIds, 1))
+    geometry.instanceCount = shell.edgeCount
+    const edgeUniforms = {
+      ...uniforms,
+      uRes: { value: this.res },
+      uMinPx: { value: OBSTACLE_EDGE_MIN_PX },
+      uWorldW: { value: OBSTACLE_EDGE_WORLD_W },
+      uDepthK: { value: OBSTACLE_EDGE_DEPTH_K },
+      uDepthAxis: this.frameUniforms.uDepthAxis,
+      uFree: this.frameUniforms.uFree,
+      uGhostTex: { value: tex },
+      uTexW: { value: GHOST_TEX_W },
+      uEdgeGhostAlpha: { value: OBSTACLE_EDGE_GHOST_ALPHA },
+    }
+    this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide, transparent: true, depthWrite: false })
+    const lines = new Mesh(geometry as BufferGeometry, this.material)
+    lines.frustumCulled = false
+    lines.renderOrder = 2 // после прозрачных граней: альфа рёбер считается независимо
+    // Размер буфера кадра (физические px) и pixelRatio — перед отрисовкой, без аллокаций.
+    const minPx = edgeUniforms.uMinPx
+    lines.onBeforeRender = (renderer) => {
+      renderer.getDrawingBufferSize(this.res)
+      minPx.value = OBSTACLE_EDGE_MIN_PX * renderer.getPixelRatio()
+    }
+    this.lines = lines
+    this.scene.add(lines)
 
     // Грани: инстанс на грань, база — квад из двух треугольников. Геометрия общая
     // для непрозрачного и прозрачного мешей.
