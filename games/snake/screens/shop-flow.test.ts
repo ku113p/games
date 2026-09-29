@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import configJson from '../config.json'
 import { catalog, gameSetup, initialState, parse, selectedBoostFactor, serialize, type Item, type ShopRoot, type ShopState } from '../shop'
-import { SHOP_SECTIONS, createWallet, grandfatherArena, hasAffordableNew, isShopUnlocked, itemStatus, itemsOfSection } from './shop-flow'
+import { SHOP_SECTIONS, createWallet, grandfatherArena, hasAffordableNew, isItemLocked, isShopUnlocked, itemStatus, itemsOfSection, obstaclesLocked } from './shop-flow'
+import { createGame } from '../core/rules'
+import { config as helperConfig } from '../core/test-helpers'
 
 const cfg = configJson as unknown as ShopRoot
 const items = catalog(cfg)
@@ -73,15 +75,15 @@ describe('покупка и надевание — разные действия
     expect(w.state.balance).toBe(0)
   })
   test('не хватает денег: покупка отказывает и ничего не меняет', () => {
-    const b8 = byId('boost-8')
-    const w = wallet(b8.price - 1)
-    expect(itemStatus(w.state, b8, cfg)).toBe('short')
-    expect(w.buy(b8)).toBe(false)
-    expect(w.state.balance).toBe(b8.price - 1)
+    const b4 = byId('boost-4')
+    const w = wallet(b4.price - 1)
+    expect(itemStatus(w.state, b4, cfg)).toBe('short')
+    expect(w.buy(b4)).toBe(false)
+    expect(w.state.balance).toBe(b4.price - 1)
   })
   test('некупленное не надевается', () => {
     const w = wallet(0)
-    expect(w.equip(byId('boost-8'))).toBe(false)
+    expect(w.equip(byId('boost-4'))).toBe(false)
   })
   test('постоянный множитель — «действует», надевать нечего', () => {
     const p = byId('score-perm-1.25')
@@ -228,5 +230,59 @@ describe('сохранение', () => {
     expect(parse(serialize(w.state), cfg)).toEqual(w.state)
     expect(parse('{{{', cfg)).toEqual(initialState(cfg))
     expect(parse(null, cfg)).toEqual(initialState(cfg))
+  })
+})
+
+describe('арена 5³ и раздел «Препятствия»', () => {
+  const geo = configJson.obstacles
+  const rich = (): ShopState => ({ ...withBalance(10_000) })
+  const setup = (ids: string[]) => {
+    const w = createWallet(rich(), cfg)
+    for (const id of ids) {
+      w.buy(byId(id))
+      w.equip(byId(id))
+    }
+    return w
+  }
+
+  test('на 20³ раздел не заперт, на 5³ заперт', () => {
+    expect(obstaclesLocked(withBalance(0), cfg, geo)).toBe(false)
+    expect(obstaclesLocked(setup(['arena-5']).state, cfg, geo)).toBe(true)
+    expect(obstaclesLocked(setup(['arena-50']).state, cfg, geo)).toBe(false)
+  })
+
+  test('нет геометрии — не заперто (старое поведение)', () => {
+    expect(obstaclesLocked(setup(['arena-5']).state, cfg, undefined)).toBe(false)
+  })
+
+  test('на 5³ плотность заперта, остальное нет; из-за неё вход в магазин не светится', () => {
+    const base = initialState(cfg)
+    const state: ShopState = { ...base, balance: 300, owned: [...base.owned, 'arena-5'], equipped: { ...base.equipped, arenaSize: 'arena-5' } }
+    expect(itemStatus(state, byId('density-0'), cfg)).toBe('buyable')
+    expect(isItemLocked(state, byId('density-0'), cfg, geo)).toBe(true)
+    expect(isItemLocked(state, byId('boost-2'), cfg, geo)).toBe(false)
+    // 60 монет хватает на ×¼ и на ускорения; оставим только плотности: подсветки быть не должно
+    const denseOnly: ShopState = { ...state, balance: 40, owned: [...state.owned, 'boost-2', 'apple-orb', 'apple-star', 'compass-chevron', 'pace-1.5', 'score-perm-1.25'].filter((id, i, a) => a.indexOf(id) === i) }
+    expect(hasAffordableNew(denseOnly, cfg)).toBe(true) // без геометрии плотность ×½ за 40 считалась бы покупкой
+    expect(hasAffordableNew(denseOnly, cfg, geo)).toBe(false)
+  })
+
+  test('обратный случай: ×2 надет, куплена и надета 5³ — выбор ×2 хранится, партия идёт без препятствий; вернулся на 20³ — ×2 на месте', () => {
+    const w = setup(['density-2'])
+    expect(gameSetup(w.state, cfg).obstacleMult).toBe(2)
+    w.buy(byId('arena-5'))
+    w.equip(byId('arena-5'))
+    expect(obstaclesLocked(w.state, cfg, geo)).toBe(true)
+    const on5 = gameSetup(w.state, cfg)
+    expect(on5.size).toBe(5)
+    expect(on5.obstacleMult).toBe(2) // выбор не стёрт
+    const g5 = createGame({ ...helperConfig, obstacles: geo } as never, on5.size, 3, false, 2, { obstacleMult: on5.obstacleMult })
+    expect(g5.obstacles.size).toBe(0) // но препятствий в партии нет
+    // через сохранение и обратно
+    const reloaded = parse(serialize(w.state), cfg)
+    expect(gameSetup(reloaded, cfg).obstacleMult).toBe(2)
+    w.equip(byId('arena-20'))
+    expect(obstaclesLocked(w.state, cfg, geo)).toBe(false)
+    expect(gameSetup(w.state, cfg)).toMatchObject({ size: 20, obstacleMult: 2 })
   })
 })

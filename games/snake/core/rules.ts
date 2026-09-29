@@ -103,6 +103,16 @@ export function fillDeadZones(size: number, obstacles: Set<number>, clearCells: 
   }
 }
 
+/**
+ * Может ли в кубе такого размера появиться хоть одно препятствие. Голова стоит в середине куба, вокруг неё зона очистки
+ * (clearRadius по каждой оси), а внешний слой толщиной wallMargin занят стенками: если вся допустимая область лежит
+ * внутри зоны очистки, препятствий не будет при любой плотности (сейчас это кубы до 11 клеток, в том числе 5³).
+ */
+export function arenaHasObstacles(size: number, clearRadius: number, wallMargin: number): boolean {
+  const mid = Math.floor(size / 2)
+  return wallMargin < mid - clearRadius || size - 1 - wallMargin > mid + clearRadius
+}
+
 /** Клетка ближе wallMargin к какой-либо стенке куба (при margin 1 — внешний слой). */
 export function isInWallMargin(x: number, y: number, z: number, size: number, margin: number): boolean {
   const hi = size - 1 - margin
@@ -288,7 +298,7 @@ export function isValidBoostFactor(f: number): boolean {
 }
 
 /**
- * Множители, из которых игрок выбирает перед партией (config.speed.boostFactors: ×2, ×3, ×4, ×8).
+ * Множители, из которых игрок выбирает перед партией (config.speed.boostFactors: ×2, ×3, ×4).
  * Негодные значения отбрасываются; нет списка или он пуст — единственный boostFactor из конфига.
  * Как их выбирают и покупают — не забота ядра: оно получает готовое число в createGame.
  */

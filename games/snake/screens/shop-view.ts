@@ -5,13 +5,15 @@
 import { t } from '../i18n/runtime'
 import { ru, type TextKey } from '../i18n/dictionaries'
 import { equippedItem, gamesLeft, scoreMultiplier, type Item, type ShopRoot, type ShopState, type Slot } from '../shop'
-import { SECTION_SLOT, SHOP_SECTIONS, itemStatus, itemsOfSection, type ItemStatus, type ShopSection } from './shop-flow'
+import { SECTION_SLOT, SHOP_SECTIONS, isItemLocked, itemStatus, itemsOfSection, obstaclesLocked, type ItemStatus, type ObstacleGeometry, type ShopSection } from './shop-flow'
 
 export interface ShopViewDeps {
   readonly config: ShopRoot
   /** Все предметы витрины в порядке каталога. */
   readonly items: () => readonly Item[]
   readonly state: () => ShopState
+  /** Зона очистки и стенки: по ним витрина узнаёт, что в надетой арене (5³) препятствий не бывает. */
+  readonly obstacleGeometry: ObstacleGeometry
   readonly onBuy: (item: Item) => void
   readonly onEquip: (item: Item) => void
 }
@@ -77,9 +79,9 @@ const ACTION_LABEL: Record<Exclude<ItemStatus, 'soon'>, TextKey> = {
   maxed: 'shop.max',
 }
 
-function buildRow(item: Item, state: ShopState, config: ShopRoot): HTMLElement {
+function buildRow(item: Item, state: ShopState, config: ShopRoot, locked: boolean): HTMLElement {
   const status = itemStatus(state, item, config)
-  const row = el('div', `shop-item ${status}`)
+  const row = el('div', `shop-item ${status}${locked ? ' locked' : ''}`)
   row.dataset['id'] = item.id
   row.appendChild(el('div', 'name', itemName(item)))
 
@@ -99,7 +101,8 @@ function buildRow(item: Item, state: ShopState, config: ShopRoot): HTMLElement {
     const btn = el('button', `act ${status === 'buyable' ? 'buy' : ''}`, t(ACTION_LABEL[status]))
     btn.type = 'button'
     btn.dataset['id'] = item.id
-    if (status === 'buyable') btn.dataset['act'] = 'buy'
+    if (locked) btn.disabled = true
+    else if (status === 'buyable') btn.dataset['act'] = 'buy'
     else if (status === 'owned') btn.dataset['act'] = 'equip'
     else btn.disabled = true
     row.appendChild(btn)
@@ -110,7 +113,9 @@ function buildRow(item: Item, state: ShopState, config: ShopRoot): HTMLElement {
 }
 
 /** Краткое «что сейчас выбрано» для шапки свёрнутого раздела. */
-function sectionSummary(section: ShopSection, state: ShopState, config: ShopRoot): string {
+function sectionSummary(section: ShopSection, state: ShopState, config: ShopRoot, geometry: ObstacleGeometry): string {
+  // Препятствий в этой арене нет, что бы ни было надето: шапка говорит правду о партии, а не о запомненном выборе.
+  if (section.id === 'obstacles' && obstaclesLocked(state, config, geometry)) return t('shop.item.density-0')
   if (section.id === 'mult') {
     const m = scoreMultiplier(state, config)
     return m > 1 ? `×${fmt(m)}` : '—'
@@ -133,7 +138,7 @@ export function createShopView(
     const state = deps.state()
     for (const section of SHOP_SECTIONS) {
       const list = itemsOfSection(deps.items(), section)
-      if (list.some((it) => it.kind !== 'scoreMultTemporary' && itemStatus(state, it, deps.config) === 'buyable')) return section.id
+      if (list.some((it) => it.kind !== 'scoreMultTemporary' && itemStatus(state, it, deps.config) === 'buyable' && !isItemLocked(state, it, deps.config, deps.obstacleGeometry))) return section.id
     }
     return SHOP_SECTIONS[0]?.id ?? 'boost'
   }
@@ -156,12 +161,19 @@ export function createShopView(
       head.setAttribute('aria-expanded', String(open))
       head.append(el('span', 'g-title', t(`shop.section.${section.id}` as TextKey)))
       // Точка на шапке: в разделе есть что купить прямо сейчас (не расходник) — видно и в свёрнутом виде.
-      if (list.some((it) => it.kind !== 'scoreMultTemporary' && itemStatus(state, it, deps.config) === 'buyable')) head.append(el('span', 'g-dot'))
-      head.append(el('span', 'g-now', sectionSummary(section, state, deps.config)), el('span', 'g-chev'))
+      if (list.some((it) => it.kind !== 'scoreMultTemporary' && itemStatus(state, it, deps.config) === 'buyable' && !isItemLocked(state, it, deps.config, deps.obstacleGeometry))) head.append(el('span', 'g-dot'))
+      head.append(el('span', 'g-now', sectionSummary(section, state, deps.config, deps.obstacleGeometry)), el('span', 'g-chev'))
       group.appendChild(head)
       if (open) {
         const panel = el('div', 'shop-group-items')
-        for (const it of list) panel.appendChild(buildRow(it, state, deps.config))
+        // Арена без препятствий (5³): вместо молчаливо неактивных кнопок — причина. Выбор плотности сохраняется.
+        const noObstacles = section.id === 'obstacles' && obstaclesLocked(state, deps.config, deps.obstacleGeometry)
+        if (noObstacles) {
+          const note = el('p', 'shop-note', t('shop.obstacles.tiny'))
+          note.setAttribute('role', 'note')
+          panel.appendChild(note)
+        }
+        for (const it of list) panel.appendChild(buildRow(it, state, deps.config, isItemLocked(state, it, deps.config, deps.obstacleGeometry)))
         group.appendChild(panel)
       }
       nodes.push(group)

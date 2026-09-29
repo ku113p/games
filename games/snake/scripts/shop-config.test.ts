@@ -92,3 +92,29 @@ describe('config.shop: арена, препятствия, темп', () => {
     expect(of('obstacleDensity').map((i) => i.payload.density).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([0, 0.25, 0.5, 1, 2])
   })
 })
+
+describe('сохранение с убранным ускорением ×8', () => {
+  const legacy = JSON.stringify({
+    v: 1,
+    balance: 40,
+    totalEarned: 900,
+    owned: ['boost-1.5', 'boost-4', 'boost-8', 'arena-20', 'density-1', 'pace-1', 'palette-neon', 'palette-contrast', 'snake-classic', 'apple-diamond', 'compass-default'],
+    equipped: { boost: 'boost-8', arenaSize: 'arena-20', obstacles: 'density-1', pace: 'pace-1', palette: 'palette-neon' },
+    temporary: [],
+  })
+
+  test('boost-8 не каталог: строка разбирается без ошибки, неизвестный предмет отбрасывается, монеты и остальное целы', () => {
+    expect(items.some((i) => i.id === 'boost-8')).toBe(false)
+    const p = parse(legacy, configJson)
+    expect(p.owned).not.toContain('boost-8')
+    expect(p.owned).toContain('boost-4')
+    expect(p.balance).toBe(40)
+    expect(p.totalEarned).toBe(900)
+    expect(p.equipped.boost).toBe('boost-1.5')
+  })
+
+  test('партия такого игрока собирается с допустимым ускорением', () => {
+    const f = gameSetup(parse(legacy, configJson), configJson).boostFactor
+    expect(configJson.speed.boostFactors).toContain(f)
+  })
+})

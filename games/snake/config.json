@@ -17,7 +17,7 @@
     "minStepMs": 360,
     "stepMsPerApple": 24,
     "boostFactor": 1.5,
-    "boostFactors": [1.5, 2, 3, 4, 8],
+    "boostFactors": [1.5, 2, 3, 4],
     "minEffectiveStepMs": 60
   },
   "shop": {
@@ -44,7 +44,6 @@
       { "id": "boost-2", "kind": "boost", "price": 40, "payload": { "factor": 2 } },
       { "id": "boost-3", "kind": "boost", "price": 100, "payload": { "factor": 3 } },
       { "id": "boost-4", "kind": "boost", "price": 250, "payload": { "factor": 4 } },
-      { "id": "boost-8", "kind": "boost", "price": 600, "payload": { "factor": 8 } },
       { "id": "boost-soon", "kind": "comingSoon", "price": 0, "payload": { "slot": "boost" } },
 
       { "id": "score-perm-1.25", "kind": "scoreMultPermanent", "price": 80, "payload": { "mult": 1.25 } },

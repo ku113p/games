@@ -208,7 +208,7 @@ export function getBoostFactor(s: GameState): number {
 
 /**
  * Во сколько раз ускоренный шаг реально короче обычного с учётом пола (config.speed.minEffectiveStepMs).
- * Равен getBoostFactor, пока пол не мешает; меньше — когда ×8 упёрся в пол. Для подписи «×8 → ×4.0».
+ * Равен getBoostFactor, пока пол не мешает; меньше — когда ускорение упёрлось в пол. Для подписи вида «×4 → ×3.0».
  */
 export function effectiveBoostFactor(s: GameState): number {
   const b = boostedStepMs(s)

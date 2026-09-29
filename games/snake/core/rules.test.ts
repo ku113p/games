@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { cellKey, type Vec3 } from './state'
 import {
+  arenaHasObstacles,
   createGame,
   fillDeadZones,
   generateObstacles,
@@ -469,5 +470,23 @@ describe('createGame — boost', () => {
     const s = createGame({ ...config, speed: { ...config.speed, boostFactor: 3 } }, 20, 1, false)
     expect(s.boosting).toBe(false)
     expect(s.boostFactor).toBe(3)
+  })
+})
+
+describe('arenaHasObstacles: бывают ли препятствия в кубе', () => {
+  test('совпадает с настоящей генерацией на плотности ×30 для кубов 3..14 при радиусе очистки 4 и стенке 1', () => {
+    const cfg = { ...config, obstacles: { ...config.obstacles, clearRadius: 4, wallMargin: 1 } }
+    for (let size = 3; size <= 14; size++) {
+      let any = false
+      for (let seed = 1; seed <= 5; seed++) if (createGame(cfg, size, seed, false, 2, { obstacleMult: 30 }).obstacles.size > 0) any = true
+      expect(any).toBe(arenaHasObstacles(size, 4, 1))
+    }
+  })
+  test('5³ — нет, 12³ и 20³ — да; без зоны очистки препятствия есть везде, где есть внутренность', () => {
+    expect(arenaHasObstacles(5, 4, 1)).toBe(false)
+    expect(arenaHasObstacles(11, 4, 1)).toBe(false)
+    expect(arenaHasObstacles(12, 4, 1)).toBe(true)
+    expect(arenaHasObstacles(20, 4, 1)).toBe(true)
+    expect(arenaHasObstacles(5, 0, 1)).toBe(true)
   })
 })

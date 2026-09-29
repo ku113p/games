@@ -29,23 +29,21 @@ describe('лестница ускорений на дне кривой (config.s
     expect(configJson.headSignal.riseMs).toBeLessThanOrEqual(floor)
   })
 
-  test('на «Обычном» и «Спокойном» все ступени ×2…×8 различаются', () => {
-    for (const pace of [1.5, 1]) {
-      const steps = [2, 3, 4, 8].map((f) => floorStep(pace, f))
+  test('на «Спокойном», «Обычном» и «Быстром» все ступени ×2…×4 различаются', () => {
+    for (const pace of [1.5, 1, 0.75]) {
+      const steps = [2, 3, 4].map((f) => floorStep(pace, f))
       expect(new Set(steps).size).toBe(steps.length)
     }
   })
 
-  test('на «Обычном» дно: ×2 180, ×3 120, ×4 90, ×8 60 мс', () => {
-    expect([2, 3, 4, 8].map((f) => floorStep(1, f))).toEqual([180, 120, 90, 60])
+  test('на «Обычном» дно: ×2 180, ×3 120, ×4 90 мс', () => {
+    expect([2, 3, 4].map((f) => floorStep(1, f))).toEqual([180, 120, 90])
   })
 
-  test('на «Быстром» ×8 короче ×4 меньше чем на 15%; на «Очень быстром» ×3, ×4 и ×8 — одно и то же', () => {
+  test('на «Быстром» ×4 — 67.5 мс, ещё выше пола; на «Очень быстром» ×3 и ×4 упираются в пол 60 мс', () => {
     expect(floorStep(0.75, 4)).toBe(67.5)
-    expect(floorStep(0.75, 8)).toBe(60)
     expect(floorStep(0.5, 3)).toBe(60)
     expect(floorStep(0.5, 4)).toBe(60)
-    expect(floorStep(0.5, 8)).toBe(60)
   })
 
   test('ускоренный шаг никогда не короче пола и не длиннее обычного', () => {
@@ -58,8 +56,8 @@ describe('лестница ускорений на дне кривой (config.s
       }
   })
 
-  test('эффективный множитель на «Очень быстром» ×8 — ×3, не ×8', () => {
-    const s = createGame(cfg, 20, 1, false, 8, { paceScale: 0.5 })
+  test('эффективный множитель на «Очень быстром» ×4 — ×3, не ×4', () => {
+    const s = createGame(cfg, 20, 1, false, 4, { paceScale: 0.5 })
     s.stepMs = speedAfterApples(cfg, 10_000, 0.5)
     expect(effectiveBoostFactor(s)).toBe(3)
     expect(boostedStepMs(s)).toBe(60)

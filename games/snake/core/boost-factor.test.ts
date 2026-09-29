@@ -5,9 +5,8 @@ import { effectiveStepMs } from './state'
 import { effectiveBoostFactor, getBoostFactor } from './queries'
 import { config } from './test-helpers'
 
-// Тестовый конфиг: startStepMs 180 (helpers), boostFactor 2. Список ×2/×3/×4/×8 дублирует будущий
-// config.speed.boostFactors — файл конфига в этой задаче не правится.
-const cfg = { ...config, speed: { ...config.speed, boostFactors: [2, 3, 4, 8] } }
+// Тестовый конфиг: startStepMs 180 (helpers), boostFactor 2. Список ×2/×3/×4 повторяет config.speed.boostFactors.
+const cfg = { ...config, speed: { ...config.speed, boostFactors: [2, 3, 4] } }
 
 /** Партия с множителем f; зажать ускорение, дойти до границы шага — дальше шаг идёт в темпе множителя. */
 function boosted(f: number | undefined) {
@@ -25,14 +24,14 @@ describe('множитель ускорения партии', () => {
     expect(effectiveStepMs(s)).toBe(s.stepMs / 2)
   })
 
-  test.each([1, 2, 3, 4, 8])('×%i: длительность шага = stepMs / множитель', (f) => {
+  test.each([1, 2, 3, 4])('×%i: длительность шага = stepMs / множитель', (f) => {
     const s = boosted(f)
     expect(getBoostFactor(s)).toBe(f)
     expect(effectiveStepMs(s)).toBeCloseTo(s.stepMs / f, 9)
   })
 
   test('до границы шага темп прежний, ускорение не действует', () => {
-    const s = createGame(cfg, 20, 1, false, 8)
+    const s = createGame(cfg, 20, 1, false, 4)
     startGame(s)
     setBoost(s, true)
     expect(effectiveStepMs(s)).toBe(s.stepMs)
@@ -52,7 +51,6 @@ describe('множитель ускорения партии', () => {
     }
     expect(count(2)).toBe(4)
     expect(count(4)).toBe(8)
-    expect(count(8)).toBe(16)
   })
 
   test('×1 валиден: ускорение включается, но темп не меняется', () => {
@@ -69,9 +67,9 @@ describe('множитель ускорения партии', () => {
     }
   })
 
-  test('детерминизм: та же партия с ×8 даёт тот же результат', () => {
+  test('детерминизм: та же партия с ×4 даёт тот же результат', () => {
     const run = () => {
-      const s = createGame(cfg, 20, 9, false, 8)
+      const s = createGame(cfg, 20, 9, false, 4)
       startGame(s)
       setBoost(s, true)
       for (let i = 0; i < 80; i++) tick(s, cfg, 16)
@@ -80,31 +78,31 @@ describe('множитель ускорения партии', () => {
     expect(run()).toBe(run())
   })
 
-  test('потолок шагов за кадр учитывает ×8: длинный кадр не даёт бесконечный цикл', () => {
-    const s = createGame(cfg, 100, 1, false, 8)
+  test('потолок шагов за кадр учитывает ×4: длинный кадр не даёт бесконечный цикл', () => {
+    const s = createGame(cfg, 100, 1, false, 4)
     startGame(s)
     setBoost(s, true)
     tick(s, cfg, 200)
     const before = s.stepCount
     tick(s, cfg, 100000)
-    expect(s.stepCount - before).toBeLessThanOrEqual(Math.ceil(cfg.loop.maxFrameMs / (s.stepMs / 8)) + 1)
+    expect(s.stepCount - before).toBeLessThanOrEqual(Math.ceil(cfg.loop.maxFrameMs / (s.stepMs / 4)) + 1)
   })
 })
 
 describe('список множителей из конфига', () => {
   test('берётся из speed.boostFactors как есть', () => {
-    expect(availableBoostFactors(cfg)).toEqual([2, 3, 4, 8])
+    expect(availableBoostFactors(cfg)).toEqual([2, 3, 4])
   })
   test('нет списка — единственный boostFactor; негодные отбрасываются', () => {
     expect(availableBoostFactors(config)).toEqual([2])
-    const dirty = { ...config, speed: { ...config.speed, boostFactors: [0, 3, Number.NaN, 0.5, 8] } }
-    expect(availableBoostFactors(dirty)).toEqual([3, 8])
+    const dirty = { ...config, speed: { ...config.speed, boostFactors: [0, 3, Number.NaN, 0.5, 4] } }
+    expect(availableBoostFactors(dirty)).toEqual([3, 4])
     const empty = { ...config, speed: { ...config.speed, boostFactors: [] } }
     expect(availableBoostFactors(empty)).toEqual([2])
   })
   test('isValidBoostFactor', () => {
     expect(isValidBoostFactor(1)).toBe(true)
-    expect(isValidBoostFactor(8)).toBe(true)
+    expect(isValidBoostFactor(4)).toBe(true)
     expect(isValidBoostFactor(0.99)).toBe(false)
     expect(isValidBoostFactor(Number.NaN)).toBe(false)
   })
@@ -126,22 +124,21 @@ describe('пол на длительность ускоренного шага (
     expect(effectiveStepMs(at(3, 360))).toBe(120)
   })
 
-  test('×8 на 360 мс упирается в пол: 90 мс, как ×4; эффективный множитель 4', () => {
-    const s8 = at(8, 360)
-    expect(effectiveStepMs(s8)).toBe(90)
-    expect(effectiveStepMs(s8)).toBe(effectiveStepMs(at(4, 360)))
-    expect(effectiveBoostFactor(s8)).toBe(4)
-    expect(getBoostFactor(s8)).toBe(8)
+  test('×4 на 240 мс упирается в пол: 90 мс, как ×3; эффективный множитель 240/90', () => {
+    const s4 = at(4, 240)
+    expect(effectiveStepMs(s4)).toBe(90)
+    expect(effectiveStepMs(s4)).toBe(effectiveStepMs(at(3, 240)))
+    expect(effectiveBoostFactor(s4)).toBeCloseTo(240 / 90, 9)
+    expect(getBoostFactor(s4)).toBe(4)
   })
 
-  test('на медленном старте ×8 ещё отличается от ×4', () => {
-    expect(effectiveStepMs(at(8, 1080))).toBe(135)
+  test('на медленном старте пол не мешает: ×4 на 1080 мс даёт 270, эффективный множитель 4', () => {
     expect(effectiveStepMs(at(4, 1080))).toBe(270)
-    expect(effectiveBoostFactor(at(8, 1080))).toBe(8)
+    expect(effectiveBoostFactor(at(4, 1080))).toBe(4)
   })
 
   test('без ускорения пол не действует, ускорение не делает шаг длиннее обычного', () => {
-    const s = createGame(floored, 20, 1, false, 8)
+    const s = createGame(floored, 20, 1, false, 4)
     startGame(s)
     s.stepMs = 60 // базовый темп ниже пола
     expect(effectiveStepMs(s)).toBe(60)
@@ -150,14 +147,14 @@ describe('пол на длительность ускоренного шага (
   })
 
   test('нет пола в конфиге — прежнее поведение', () => {
-    expect(effectiveStepMs(at(8, 360, cfg))).toBe(45)
+    expect(effectiveStepMs(at(4, 180, cfg))).toBe(45)
   })
 
-  test('в игре: за те же 900 мс на ×8 шагов ровно столько же, сколько на ×4', () => {
+  test('в игре: за то же время на ×4 шагов ровно столько же, сколько на ×3, когда оба упёрлись в пол', () => {
     const run = (f: number) => {
       const s = createGame(floored, 100, 1, false, f)
       startGame(s)
-      s.stepMs = 360
+      s.stepMs = 240
       setBoost(s, true)
       s.boosting = true
       s.sinceStepMs = 0
@@ -165,6 +162,6 @@ describe('пол на длительность ускоренного шага (
       for (let i = 0; i < 60; i++) tick(s, floored, 15)
       return s.stepCount - before
     }
-    expect(run(8)).toBe(run(4))
+    expect(run(4)).toBe(run(3))
   })
 })

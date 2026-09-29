@@ -469,6 +469,7 @@ const shopView = createShopView(shopBodyEl, shopBalanceEl, menuBalanceEl, {
   config: shopRoot,
   items: () => shopItems,
   state: () => wallet.state,
+  obstacleGeometry: configJson.obstacles,
   onBuy(item: Item) {
     if (wallet.buy(item)) saveShop()
     shopView.render()
@@ -670,7 +671,7 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       unlockShop()
       coinsLineEl.classList.toggle('hidden', gained <= 0)
       coinsEarnedEl.textContent = t('over.coins', { n: gained }) + (mult > 1 ? ` ×${Math.round(mult * 100) / 100}` : '')
-      toShopBtn.classList.toggle('hidden', !hasAffordableNew(wallet.state, shopRoot))
+      toShopBtn.classList.toggle('hidden', !hasAffordableNew(wallet.state, shopRoot, configJson.obstacles))
       // Экран проигрыша и звук смерти запускаются в одном обработчике: анимация надписи и удар звука стартуют вместе.
       pendingIndex = commitRun(finalScore, durationMs)
       renderBoards(pendingIndex)

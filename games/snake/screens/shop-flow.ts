@@ -1,6 +1,7 @@
 // screens/shop-flow.ts — чистые решения витрины и потока вокруг магазина: без DOM, хранилища и времени.
 // Предметная часть — shop/ (кошелёк, каталог, покупки, надетое); здесь только то, что решает витрина.
 
+import { arenaHasObstacles } from '../core/rules'
 import {
   beginSession,
   buy,
@@ -10,6 +11,7 @@ import {
   earn,
   equip,
   isOwned,
+  selectedArenaSize,
   slotOf,
   type Item,
   type ItemKind,
@@ -52,8 +54,30 @@ export function isShopUnlocked(flags: { readonly finishedGame: boolean; readonly
  * Временные множители (расходники) не считаются: их можно докупать без конца, и кнопка светилась бы вечно.
  * Закрытые «скоро» и уже купленное тоже не считаются.
  */
-export function hasAffordableNew(s: ShopState, config: ShopRoot): boolean {
-  return catalog(config).some((it) => it.kind !== 'scoreMultTemporary' && itemStatus(s, it, config) === 'buyable')
+export function hasAffordableNew(s: ShopState, config: ShopRoot, geometry?: ObstacleGeometry): boolean {
+  return catalog(config).some(
+    (it) => it.kind !== 'scoreMultTemporary' && itemStatus(s, it, config) === 'buyable' && !isItemLocked(s, it, config, geometry),
+  )
+}
+
+/** Числа зоны очистки и стенок (config.obstacles), от которых зависит, бывают ли препятствия в кубе данного размера. */
+export interface ObstacleGeometry {
+  readonly clearRadius: number
+  readonly wallMargin: number
+}
+
+/**
+ * Раздел «Препятствия» бессмысленен, пока надета арена, где препятствий не бывает (5³: зона очистки накрывает весь куб).
+ * Выбор плотности при этом НЕ стирается: он хранится и вернётся вместе с большой ареной. Нет геометрии — не заперто.
+ */
+export function obstaclesLocked(s: ShopState, config: ShopRoot, geometry: ObstacleGeometry | undefined): boolean {
+  if (geometry === undefined) return false
+  return !arenaHasObstacles(selectedArenaSize(s, config), geometry.clearRadius, geometry.wallMargin)
+}
+
+/** Предмет нельзя ни купить, ни надеть прямо сейчас, хотя в остальном доступен: плотность препятствий при арене без препятствий. */
+export function isItemLocked(s: ShopState, item: Item, config: ShopRoot, geometry: ObstacleGeometry | undefined): boolean {
+  return item.kind === 'obstacleDensity' && obstaclesLocked(s, config, geometry)
 }
 
 export interface RunResult {
