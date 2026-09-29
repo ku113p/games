@@ -114,7 +114,7 @@ describe('tickPitchRatio', () => {
 // Значения зеркалят config.json → sound.blips (tick, click) и sound.sfx.volume; при правке баланса менять вместе.
 describe('громкость тика на выходе', () => {
   const bus = 0.5
-  const tick = { wave: 'triangle', gain: 0.13, attackMs: 1, decayMs: 110, minGapMs: 90, speed: { ...speed, fastGain: 0.5 } }
+  const tick = { wave: 'triangle', gain: 0.26, attackMs: 1, decayMs: 110, minGapMs: 90, speed: { ...speed, fastGain: 0.5 } }
   const click = { wave: 'square', gain: 0.25, attackMs: 2, decayMs: 50 }
   // Форм-фактор RMS/пик несущей: квадрат 1, треугольник 1/√3, синус 1/√2.
   const shape = { square: 1, triangle: 1 / Math.sqrt(3), sine: 1 / Math.SQRT2, sawtooth: 1 / Math.sqrt(3) } as const
@@ -135,12 +135,21 @@ describe('громкость тика на выходе', () => {
   const at = (ms: number) => loudness(tick as never, tickGainFactor(ms, tick.speed))
   const btn = loudness(click as never, 1)
 
-  test('на старте тик заметно тише кнопки, но не в разы: 0.3–0.6 по пику и по RMS', () => {
+  // Верхняя граница поднята с 0.6 до 1.2 по прямому решению дизайнера: он послушал тик в игре, под музыкой,
+  // и сказал «звук хода можно раза в 2 громче» (gain 0.13 → 0.26). Это решение на слух, а не подгонка под код.
+  // Нижняя граница 0.3 остаётся: она ловит настоящую регрессию (тик уже уходил в неслышимое).
+  test('на старте тик не тише 0.3 от кнопки и не громче 1.2 от неё (пик и RMS)', () => {
     const t = at(1080)
     expect(t.peak / btn.peak).toBeGreaterThan(0.3)
-    expect(t.peak / btn.peak).toBeLessThan(0.6)
+    expect(t.peak / btn.peak).toBeLessThan(1.2)
     expect(t.rms / btn.rms).toBeGreaterThan(0.3)
-    expect(t.rms / btn.rms).toBeLessThan(0.6)
+    expect(t.rms / btn.rms).toBeLessThan(1.2)
+  })
+  test('тик остаётся фоновым: не громче половины яблока и трети смерти (пик)', () => {
+    const appleGain = 0.6 // config.json → sound.blips.eat.gain
+    const deathGain = 0.85 // config.json → sound.blips.death.gain
+    expect(at(1080).peak).toBeLessThan(0.5 * appleGain * bus)
+    expect(at(1080).peak).toBeLessThan(0.34 * deathGain * bus)
   })
   test('на самом быстром темпе тик не тише 0.25 от стартового (пик и RMS)', () => {
     for (const ms of [540, 360, 180]) {
@@ -148,7 +157,7 @@ describe('громкость тика на выходе', () => {
       expect(at(ms).rms / at(1080).rms).toBeGreaterThanOrEqual(0.25)
     }
   })
-  test('на пределе ускорения тик не тише 0.02 на выходе (было 0.0075 — «не слышно вообще»)', () => {
+  test('на пределе ускорения тик не тише 0.02 на выходе (уходил в 0.0075 — «не слышно вообще»)', () => {
     expect(at(180).peak).toBeGreaterThanOrEqual(0.02)
     expect(at(180).rms).toBeGreaterThanOrEqual(0.004)
   })

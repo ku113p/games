@@ -138,7 +138,7 @@
         "sweepMs": 30,
         "attackMs": 1,
         "decayMs": 110,
-        "gain": 0.13,
+        "gain": 0.26,
         "combo": false,
         "speed": {
           "slowStepMs": 1080,
