@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { comboSemitones, semitoneRatio, tickAudible, tickGainFactor, tickPitchRatio, type SpeedConfig } from './sfx'
+import { blipEnvelope, comboSemitones, semitoneRatio, tickAudible, tickGainFactor, tickPitchRatio, type SpeedConfig } from './sfx'
 
 const combo = { semitonesPerApple: 1, maxSemitones: 12 }
 
@@ -107,5 +107,67 @@ describe('tickPitchRatio', () => {
   })
   test('jitterCents 0 — ровно одна нота', () => {
     expect(tickPitchRatio(3, 0)).toBe(1)
+  })
+})
+
+// Громкость тика: страховка от «звук есть, а не слышно» (тик уже уходил в 0.0075 на выходе при кнопке 0.125).
+// Значения зеркалят config.json → sound.blips (tick, click) и sound.sfx.volume; при правке баланса менять вместе.
+describe('громкость тика на выходе', () => {
+  const bus = 0.5
+  const tick = { wave: 'triangle', gain: 0.13, attackMs: 1, decayMs: 110, minGapMs: 90, speed: { ...speed, fastGain: 0.5 } }
+  const click = { wave: 'square', gain: 0.25, attackMs: 2, decayMs: 50 }
+  // Форм-фактор RMS/пик несущей: квадрат 1, треугольник 1/√3, синус 1/√2.
+  const shape = { square: 1, triangle: 1 / Math.sqrt(3), sine: 1 / Math.SQRT2, sawtooth: 1 / Math.sqrt(3) } as const
+  const WINDOW_MS = 100
+
+  function loudness(b: { wave: keyof typeof shape; gain: number; attackMs: number; decayMs: number }, factor: number) {
+    const peak = b.gain * factor * bus
+    let sum = 0
+    let audibleMs = 0
+    const dt = 0.1
+    for (let t = 0; t < WINDOW_MS; t += dt) {
+      const e = blipEnvelope(t, b.attackMs, b.decayMs, b.gain * factor) * bus
+      sum += e * e * dt
+      if (e >= peak * 0.0316) audibleMs += dt // до −30 дБ от пика
+    }
+    return { peak, rms: shape[b.wave] * Math.sqrt(sum / WINDOW_MS), audibleMs }
+  }
+  const at = (ms: number) => loudness(tick as never, tickGainFactor(ms, tick.speed))
+  const btn = loudness(click as never, 1)
+
+  test('на старте тик заметно тише кнопки, но не в разы: 0.3–0.6 по пику и по RMS', () => {
+    const t = at(1080)
+    expect(t.peak / btn.peak).toBeGreaterThan(0.3)
+    expect(t.peak / btn.peak).toBeLessThan(0.6)
+    expect(t.rms / btn.rms).toBeGreaterThan(0.3)
+    expect(t.rms / btn.rms).toBeLessThan(0.6)
+  })
+  test('на самом быстром темпе тик не тише 0.25 от стартового (пик и RMS)', () => {
+    for (const ms of [540, 360, 180]) {
+      expect(at(ms).peak / at(1080).peak).toBeGreaterThanOrEqual(0.25)
+      expect(at(ms).rms / at(1080).rms).toBeGreaterThanOrEqual(0.25)
+    }
+  })
+  test('на пределе ускорения тик не тише 0.02 на выходе (было 0.0075 — «не слышно вообще»)', () => {
+    expect(at(180).peak).toBeGreaterThanOrEqual(0.02)
+    expect(at(180).rms).toBeGreaterThanOrEqual(0.004)
+  })
+  test('у тика есть тело: слышимая часть (до −30 дБ) не короче 30 мс', () => {
+    for (const ms of [1080, 360, 180]) expect(at(ms).audibleMs).toBeGreaterThanOrEqual(30)
+  })
+  test('громкость на темпе убывает монотонно, без скачков вверх', () => {
+    let prev = Infinity
+    for (const ms of [1080, 900, 720, 540, 360, 180]) {
+      const p = at(ms).peak
+      expect(p).toBeLessThanOrEqual(prev)
+      prev = p
+    }
+  })
+  test('слышимое тело не налезает на следующий озвученный тик', () => {
+    // Ближайшие озвучиваемые тики: шаг 300 мс без пропусков или через один на быстром ходу (2 × 180 = 360).
+    const nearest = Math.min(tick.speed.skipBelowStepMs, tick.speed.skipEvery * 180)
+    expect(at(180).audibleMs).toBeLessThan(nearest)
+    expect(tick.attackMs + tick.decayMs).toBeLessThanOrEqual(nearest)
+    expect(tick.minGapMs).toBeGreaterThanOrEqual(90)
   })
 })

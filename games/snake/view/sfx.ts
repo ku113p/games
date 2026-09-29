@@ -110,6 +110,19 @@ export function tickPitchRatio(index: number, jitterCents: number): number {
   return Math.pow(2, (unit * jitterCents) / 1200)
 }
 
+/**
+ * Огибающая блипа в момент tMs от старта: линейная атака от SILENCE до peak за attackMs, затем экспонента peak → SILENCE за decayMs.
+ * Ровно то, что строит play() через setValueAtTime/linearRamp/exponentialRamp. Чистая функция; нужна тестам громкости.
+ * Важно: decayMs — время спада на все 60 дБ (peak/SILENCE), слышимая часть (до −30 дБ) ≈ половина decayMs,
+ * поэтому «тук» длиной 40 мс требует decayMs около 100, а не 40.
+ */
+export function blipEnvelope(tMs: number, attackMs: number, decayMs: number, peak: number): number {
+  if (tMs <= 0) return SILENCE
+  if (tMs < attackMs) return SILENCE + ((peak - SILENCE) * tMs) / attackMs
+  if (tMs >= attackMs + decayMs) return SILENCE
+  return peak * Math.pow(SILENCE / peak, (tMs - attackMs) / decayMs)
+}
+
 // Нижняя граница экспоненциальной огибающей (exponentialRamp не умеет в 0). Техническая константа WebAudio.
 const SILENCE = 0.0001
 const MS = 0.001
