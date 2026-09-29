@@ -3,7 +3,7 @@
 // (attach/detach сцены). Все пассы хранятся в полях и освобождаются в dispose():
 // EffectComposer.dispose() трогает только свои таргеты и copyPass.
 
-import { WebGLRenderer, Scene, PerspectiveCamera, Vector2 } from 'three'
+import { WebGLRenderer, WebGLRenderTarget, HalfFloatType, Scene, PerspectiveCamera, Vector2 } from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
@@ -18,6 +18,12 @@ import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
 // голова, яблоко и яркие рёбра змейки.
 // Параметры bloom (сила, радиус, порог) — оформительские, не балансовые числа: см. palette.ts.
 
+// Сглаживание геометрии. Штатный antialias: true у WebGLRenderer сглаживает только дефолтный
+// фреймбуфер (канвас), а весь кадр рисуется в render target композера, поэтому без своего
+// multisampled target тонкие рёбра и линии рвутся лесенкой. Число сэмплов MSAA (WebGL2):
+// 4 — обычно, 0 — выключить сглаживание целиком (композер вернётся к обычному target'у без samples).
+export const MSAA_SAMPLES = 4
+
 export class PostFx {
   private composer: EffectComposer
   private renderPass: RenderPass
@@ -27,11 +33,27 @@ export class PostFx {
   private glitchDurationMs: number
   private glitchElapsed = 0
   private glitchActive = false
+  private msaaTarget: WebGLRenderTarget | null = null
 
   constructor(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, config: Config, width: number, height: number) {
     this.glitchDurationMs = config.camera.glitchMs
 
-    this.composer = new EffectComposer(renderer)
+    // Свой target с samples (тип как у штатного: HalfFloat, размер в физических px).
+    // RenderPass пишет в readBuffer композера, поэтому MSAA нужен только ему: writeBuffer
+    // (используется глитчем) остаётся без сэмплов, чтобы не платить памятью за два multisampled буфера.
+    let target: WebGLRenderTarget | undefined
+    if (MSAA_SAMPLES > 0) {
+      const pr = renderer.getPixelRatio()
+      target = new WebGLRenderTarget(Math.max(1, Math.floor(width * pr)), Math.max(1, Math.floor(height * pr)), {
+        type: HalfFloatType,
+        samples: MSAA_SAMPLES,
+      })
+    }
+    this.composer = new EffectComposer(renderer, target)
+    if (MSAA_SAMPLES > 0) {
+      this.msaaTarget = this.composer.readBuffer
+      this.composer.writeBuffer.samples = 0
+    }
     this.renderPass = new RenderPass(scene, camera)
     this.composer.addPass(this.renderPass)
 
@@ -85,6 +107,9 @@ export class PostFx {
       }
     }
     this.composer.render(dtMs / 1000)
+    // Глитч меняет буферы местами (нечётное число swap'ов): возвращаем multisampled в readBuffer,
+    // иначе на следующем кадре RenderPass рисовал бы в несглаженный.
+    if (this.msaaTarget && this.composer.readBuffer !== this.msaaTarget) this.composer.swapBuffers()
   }
 
   dispose(): void {

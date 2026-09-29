@@ -15,14 +15,15 @@ import {
   InstancedInterleavedBuffer,
   InterleavedBufferAttribute,
   InstancedBufferGeometry,
-  LineSegments,
   InstancedBufferAttribute,
   DataTexture,
+  DoubleSide,
   Mesh,
   NearestFilter,
   RedFormat,
   ShaderMaterial,
   UnsignedByteType,
+  Vector2,
   Vector3,
   type Scene,
 } from 'three'
@@ -44,6 +45,10 @@ import {
 // Это габарит ПЛОСКОСТЕЙ граней и рёбер-контуров. Щель между соседями закрывают не им,
 // а вылет кромок граней к соседу (obstacle-shell.ts): контур и одиночный куб не меняются.
 const OBSTACLE_SCALE = 0.98
+// Ширина рёбер-контуров (оформительские числа). Минимум в CSS-пикселях: было 1 px линией GL, дизайнер
+// жаловался на тонкие и рвущиеся грани. Мировая ширина в клетках — чтобы вблизи ребро было объёмнее.
+const OBSTACLE_EDGE_MIN_PX = 2.2
+const OBSTACLE_EDGE_WORLD_W = 0.04
 const COMMON = /* glsl */ `
 uniform float uHalf;
 uniform vec3 uHead;
@@ -51,15 +56,47 @@ uniform vec3 uHead;
 `
 
 // Рёбра: aCenter — центр отрезка длиной в клетку, aAxis — вдоль какой оси (0/1/2).
+// НЕ линии GL (те всегда 1 px и на дальних препятствиях рвутся и мерцают), а экранная лента:
+// на инстанс ребра — квад position = (вдоль [-0.5, 0.5], сторона ±1). Концы отрезка переводятся
+// в пиксели, лента расширяется на полуширину поперёк и чуть вдоль (стыки в углах закрыты).
+// Ширина — не меньше uMinPx (в физических пикселях: OBSTACLE_EDGE_MIN_PX * pixelRatio) и не меньше
+// мировой uWorldW, спроецированной на экран: вблизи ребро толще, вдали не тоньше пикселей,
+// которые MSAA композера способно сгладить. Отрезок обрезается по ближней плоскости.
 const VERT = /* glsl */ `
 attribute vec3 aCenter;
 attribute float aAxis;
+uniform vec2 uRes;
+uniform float uMinPx;
+uniform float uWorldW;
 ${COMMON}
 void main() {
-  vec3 p = aAxis < 0.5 ? position : (aAxis < 1.5 ? position.yxz : position.zyx);
-  vec3 world = p + aCenter;
-  vec4 mvPosition = viewMatrix * vec4(world, 1.0);
-  gl_Position = projectionMatrix * mvPosition;
+  vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
+  vec3 wa = aCenter - 0.5 * dirv;
+  vec3 wb = aCenter + 0.5 * dirv;
+  vec4 ca = projectionMatrix * (viewMatrix * vec4(wa, 1.0));
+  vec4 cb = projectionMatrix * (viewMatrix * vec4(wb, 1.0));
+  const float NEAR_W = 0.05;
+  if (ca.w < NEAR_W && cb.w < NEAR_W) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
+  vec4 ca0 = ca;
+  if (ca.w < NEAR_W) ca = mix(ca, cb, (NEAR_W - ca.w) / (cb.w - ca.w));
+  if (cb.w < NEAR_W) cb = mix(cb, ca0, (NEAR_W - cb.w) / (ca0.w - cb.w));
+  vec2 half_ = 0.5 * uRes;
+  vec2 sa = ca.xy / ca.w * half_;
+  vec2 sb = cb.xy / cb.w * half_;
+  vec2 d = sb - sa;
+  float dl = length(d);
+  d = dl > 1e-4 ? d / dl : vec2(1.0, 0.0);
+  vec2 nrm = vec2(-d.y, d.x);
+  bool atB = position.x > 0.0;
+  vec4 c = atB ? cb : ca;
+  vec2 sc = atB ? sb : sa;
+  float wpx = max(uMinPx, uWorldW * projectionMatrix[1][1] * half_.y / c.w);
+  vec2 sp = sc + d * ((atB ? 0.5 : -0.5) * wpx) + nrm * (position.y * 0.5 * wpx);
+  gl_Position = vec4(sp / half_ * c.w, c.z, c.w);
+  vec4 mvPosition = viewMatrix * vec4(atB ? wb : wa, 1.0);
   #include <fog_vertex>
 }
 `
@@ -166,7 +203,8 @@ const GHOST_TEX_W = 256
 
 export class ObstaclesView {
   private scene: Scene
-  private lines: LineSegments | null = null
+  private lines: Mesh | null = null
+  private readonly res = new Vector2(1, 1)
   private material: ShaderMaterial | null = null
   private opaque: Mesh | null = null
   private ghost: Mesh | null = null
@@ -224,16 +262,31 @@ export class ObstaclesView {
       uHalf: { value: half },
     }
 
-    // Контур: инстанс на ребро, база — отрезок вдоль x длиной OBSTACLE_SCALE.
+    // Контур: инстанс на ребро, база — квад (вдоль отрезка x сторона), позиции собирает вершинный шейдер.
     const geometry = new InstancedBufferGeometry()
-    geometry.setAttribute('position', new Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0], 3))
+    geometry.setAttribute(
+      'position',
+      new Float32BufferAttribute([-0.5, -1, 0, 0.5, -1, 0, 0.5, 1, 0, -0.5, -1, 0, 0.5, 1, 0, -0.5, 1, 0], 3),
+    )
     const edgeBuf = new InstancedInterleavedBuffer(shell.edges, 4)
     geometry.setAttribute('aCenter', new InterleavedBufferAttribute(edgeBuf, 3, 0))
     geometry.setAttribute('aAxis', new InterleavedBufferAttribute(edgeBuf, 1, 3))
     geometry.instanceCount = shell.edgeCount
-    this.material = new ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true })
-    const lines = new LineSegments(geometry as BufferGeometry, this.material)
+    const edgeUniforms = {
+      ...uniforms,
+      uRes: { value: this.res },
+      uMinPx: { value: OBSTACLE_EDGE_MIN_PX },
+      uWorldW: { value: OBSTACLE_EDGE_WORLD_W },
+    }
+    this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide })
+    const lines = new Mesh(geometry as BufferGeometry, this.material)
     lines.frustumCulled = false
+    // Размер буфера кадра (физические px) и pixelRatio — перед отрисовкой, без аллокаций.
+    const minPx = edgeUniforms.uMinPx
+    lines.onBeforeRender = (renderer) => {
+      renderer.getDrawingBufferSize(this.res)
+      minPx.value = OBSTACLE_EDGE_MIN_PX * renderer.getPixelRatio()
+    }
     this.lines = lines
     this.scene.add(lines)
 
