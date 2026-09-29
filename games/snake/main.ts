@@ -1,5 +1,9 @@
 // main.ts - the game assembly point: wires core/ (rules), view/ (three.js) and input/
-// (touch + keyboard). Holds the requestAnimationFrame loop. No allocations or await in the frame.
+// (touch + keyboard). Holds the requestAnimationFrame loop. The steady-state frame path (frame -> step ->
+// tick -> dispatchEvents -> view.render) does not allocate or await. What is allowed to break that is
+// rare, one-off or off by default: event handlers that fire once (the queueMicrotask on 'died', opening
+// the demo screen, DOM updates), and the debug perf panel / benchmark (frame() only takes that branch
+// when perfPanel is not null).
 
 import { createGame, type Config } from './core/rules'
 import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
@@ -591,7 +595,7 @@ interface Session {
   stick: Stick
   /** Boost sources (finger on the button, Shift/Space): on while at least one holds. */
   boost: BoostHold
-  /** Current camera mode; mirrors GameState.mode via the modeChanged event. */
+  /** Current mode (core Mode: plane or free), not just the camera: it also picks the pad layout and whether the third axis is enabled in input. Mirrors GameState.mode, updated on the modeChanged event. */
   mode: 'plane' | 'free'
   /** Show the explainer screen at the transition (only the player's very first game). */
   explainTransition: boolean
@@ -1127,7 +1131,7 @@ function onWindowResize(): void {
 window.addEventListener('resize', onWindowResize)
 window.addEventListener('orientationchange', onWindowResize)
 
-// --- game loop: requestAnimationFrame, dt passed to the core, no allocations/await ---
+// --- game loop: requestAnimationFrame, dt passed to the core; steady-state frames do not allocate or await (see the header of this file for the exceptions) ---
 
 // Whether to draw the scene under the game-over screen (it is opaque, so it is wasted). true - the old behavior.
 const RENDER_WHEN_DEAD = false

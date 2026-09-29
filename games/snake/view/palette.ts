@@ -67,7 +67,7 @@ export const CUBE_EDGE_THICKNESS_MIN = 0.07
 export const CUBE_EDGE_THICKNESS_MAX = 0.2
 
 // Head projection on the walls: very quiet, clearly dimmer than the edges and the snake.
-// Luminance (linear color * alpha) is below the bloom threshold 0.25.
+// Luminance (linear color * alpha) is below BLOOM_THRESHOLD.
 export const MARK_COLOR = new Color()
 export const MARK_LINE_ALPHA = 0.12
 export const MARK_SQUARE_ALPHA = 0.2
@@ -127,7 +127,7 @@ export const MINIMAP_APPLE_ALPHA = 0.85
 // An apple outside the slice (projection) or outside the window (arrow at the edge) is quieter than an "apple here", but still visible.
 export const MINIMAP_APPLE_RING_ALPHA = 0.95
 
-// Direction rays. Linear luminance is safely below the bloom threshold 0.8:
+// Direction rays. Linear luminance is safely below BLOOM_THRESHOLD (0.75):
 // five rays instead of one must not add a halo.
 export const RAY_MAIN_BRIGHTNESS = 0.48
 export const RAY_SIDE_BRIGHTNESS = 0.2
@@ -135,7 +135,7 @@ export const RAY_SIDE_BRIGHTNESS = 0.2
 // warm red-orange, linear luminance about 0.35, below the bloom threshold.
 export const RAY_DANGER_COLOR = new Color()
 // The hit-face fill is solid and so visually heavier than the old frame: brightness is reduced,
-// and the color's linear luminance stays below the bloom threshold 0.8 (currently about 0.16).
+// and the color's linear luminance stays below BLOOM_THRESHOLD (currently about 0.16).
 export const RAY_HIT_FILL_BRIGHTNESS = 0.5
 // Head signals. Four states, read by COLOR (not by pulsing): idle is a calm muted
 // light yellow (below the bloom threshold, no glow: the head is distinguishable but not at maximum brightness);
@@ -171,7 +171,7 @@ export const OBSTACLE_GHOST_ALPHA = 0.08
 // from the RADIUS: a wider, softer halo rather than a brighter one. To roll back to the old look, use the "was" values.
 // Threshold 0.75: bright lines pass with a margin; the grid, rays and dim stripes (luminance below 0.5)
 // do not glow. The white hint dots (0.9) are just above the threshold and give a tiny spark, which is fine.
-// Was 0.8, now 0.75.
+// (Was 0.8, now 0.75; the other comments in the view/ files refer to this value.)
 export const BLOOM_THRESHOLD = 0.75
 // Was 0.22, now 0.26: barely touched.
 export const BLOOM_STRENGTH = 0.26
@@ -181,7 +181,7 @@ export const BLOOM_RADIUS = 0.45
 // a threshold below 0.7 makes the dim body stripes and the obstacle faces glow as well.
 
 // Lattice hint: white dots, linear luminance 0.9 (about 0.95 after sRGB, white)
-// with bloom threshold 0.75 (was 0.8): almost no halo, only a tiny spark. Alpha counts toward luminance: 1.0 * 0.9.
+// with BLOOM_THRESHOLD 0.75: almost no halo, only a tiny spark. Alpha counts toward luminance: 1.0 * 0.9.
 export const DOT_BASE_COLOR = new Color(1, 1, 1)
 export const DOT_BASE_ALPHA = 0.9
 

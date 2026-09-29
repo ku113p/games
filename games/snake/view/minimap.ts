@@ -28,7 +28,7 @@
 // head level), the snake body follows the same rule with the green-cyan gradient as in the game,
 // the head is the most prominent marker: a point along the heading in map axes, and if the snake moves
 // perpendicular to the map (along the Y axis) - nested chevrons "out of the screen" (up: they diverge from the center;
-// the map is a top view, up = toward the eye) or "into the screen" (down: they converge to the center) with a pulse on every step.
+// the map is a top view, up = toward the eye) or "into the screen" (down: they converge to the center) with a pulse each time the head enters a new cell (not on turn-in-place steps, where the head does not move).
 // The apple is always visible:
 //  - diamond: the apple is right here, at head level (in the slice);
 //  - empty diamond outline with a stem up/down: the apple is in the window but on another level (projection);
@@ -119,7 +119,7 @@ const CHEV_THICK = 0.3 // stroke thickness
 const CHEV_R0 = 0.55 // radius of the inner layer
 const CHEV_GAP = 0.8 // step between layers
 const CHEV_SCALE = 1.4 // overall chevron scale (the head marker must be no smaller than the point-triangle)
-const PULSE_MS = 200 // chevron pulse on every step
+const PULSE_MS = 200 // chevron pulse on every real move of the head (see render)
 const PULSE_GAIN = 0.5 // scale gain at the start of the pulse
 // Apple stem (apple in the window but on another level): map units.
 const LEG_PER_CELL = 0.5 // stem length per cell of height difference
@@ -489,7 +489,7 @@ export class MiniMap {
 
   /**
    * Head marker: a point along the heading in map axes; when moving along the slice normal (Y axis) - nested chevrons:
-   * up (toward the eye above the map) they diverge from the center "out of the screen", down they converge "into the screen". The pulse is on a step.
+   * up (toward the eye above the map) they diverge from the center "out of the screen", down they converge "into the screen". The pulse fires when render sees a new head cell or a changed length, so not on turn-in-place steps.
    */
   private placeHead(px: number, py: number, hmx: number, hmy: number, vy: number): void {
     const tri = this.headTri
@@ -629,12 +629,12 @@ export class MiniMap {
     // together with the camera and hints, not on the next step.
     const f = viewFrame(s)
 
-    // Layers: rebuilt only when head/size/game/length changes (i.e. once per step).
+    // Layers: rebuilt only when head/size/game/length changes (i.e. once per real step; turn-in-place steps change none of these).
     const key = hd.x + size * (hd.y + size * hd.z)
     if (this.obstaclesDirty || key !== this.obstacleKey || snakeLength(s) !== this.bodyLen) {
       this.obstaclesDirty = false
       this.obstacleKey = key
-      this.pulseT0 = performance.now() // step: chevron pulse
+      this.pulseT0 = performance.now() // the head moved or the snake grew (or a new game): chevron pulse
       this.refresh(s, hd.x, hd.y, hd.z)
     }
 

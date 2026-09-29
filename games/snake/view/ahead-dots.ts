@@ -36,8 +36,8 @@
 // fogVisibility - an alpha multiplier). Only the fade at the window edges (edge) remains; it is not depth.
 //
 // Plane mode: depth is not shown (the first game looks like a flat snake) -
-// a single layer of nodes at the camera remains; as the camera flies (freeAmount)
-// the other layers fade in.
+// only the layer of nodes at the head's own depth (within half a lattice step along the view
+// depth axis, see nodeAlpha) remains; as the camera flies (freeAmount) the other layers fade in.
 
 import { BufferGeometry, Float32BufferAttribute, LineSegments, Points, ShaderMaterial, Vector3, type Scene } from 'three'
 import type { Config } from '../core/rules'

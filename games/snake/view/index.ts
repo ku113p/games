@@ -52,10 +52,11 @@ export interface View {
 }
 
 // Pixel ratio limit protects weak phones from fillrate overuse (perf-settings.ts: MAX_PIXEL_RATIO).
-// Cap on the number of render buffer pixels, MPix (0 means no cap, as before). The cost of MSAA and bloom grows
-// linearly with pixels: on a retina monitor the buffer is 5-8 MPix, on a phone ~1.3. Enabling it lowers pixelRatio
-// on large windows and makes the picture softer; for the designer to decide (see the report), so it is off by default.
-// The value lives in perf.megapixelCap (view/perf-settings.ts): the debug panel changes it.
+// Cap on the number of render buffer pixels, MPix (0 means no cap). The cost of MSAA and bloom grows
+// linearly with pixels: on a retina monitor the buffer is 5-8 MPix, on a phone ~1.3. A cap lowers pixelRatio
+// on large windows and makes the picture softer, so only the "Low" quality tier sets one (config.json: quality.levels);
+// "High" and "Medium" have none. The value lives in perf.megapixelCap (view/perf-settings.ts): the quality level
+// and the debug panel change it.
 
 function pixelRatioFor(cssW: number, cssH: number): number {
   let pr = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)

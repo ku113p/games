@@ -1,6 +1,8 @@
 # Layer contract - games/snake
 
 Three agents write the layers in parallel. The signatures below are law and must not be changed.
+The base blocks below (state, rules, commands, queries, view, input, config) show the CURRENT contract as it is in the code;
+the addenda after them explain why some parts look the way they do.
 Project: games/snake (paths from the repository root)
 Repository rules: AGENTS.md (read in full)
 Design: games/snake/DESIGN.md (read in full)
@@ -48,6 +50,7 @@ Random only through the seed in the state, the core is deterministic. Time comes
 ```ts
 export interface Vec3 { x: number; y: number; z: number }
 export interface Frame { right: Vec3; up: Vec3; depth: Vec3 }
+export type Mode = 'plane' | 'free'
 export type Phase = 'ready' | 'running' | 'dead'
 export type ScreenDir = 'left' | 'right' | 'up' | 'down'
 export type AxisDir = 'into' | 'out'
@@ -61,22 +64,30 @@ export interface GameState {
   apple: Vec3
   heading: Vec3
   frame: Frame
-  pendingTurn: Vec3 | null   // input buffer, applied on the next step
-  pendingRoll: 0 | 1         // 1 = roll the frame on the next step
-  pendingRollAxis: Vec3 | null
+  pendingTurn: Vec3 | null   // input buffer: the new heading, applied on the next step
+  rolledSinceStep: boolean   // the frame was rolled by turnAxis, the next step is a turn in place (no movement)
+  mode: Mode                 // 'plane' | 'free', see Addendum 2
+  stepCount: number          // successful moves made in the game (a turn-in-place step is not one)
   growth: number             // how many cells are still to be grown
   phase: Phase
   score: number
   applesEaten: number
-  stepMs: number
+  stepMs: number             // base step duration (with the pace and the speed-up applied)
+  boostRequested: boolean    // the boost button is held right now (setBoost)
+  boosting: boolean          // boost is active: takes boostRequested on a step boundary (tick)
+  boostFactor: number        // boost factor of this game (chosen before the start)
+  paceScale: number          // scale of the whole pace curve of this game (1 = as in config.speed)
+  minBoostedStepMs: number   // floor on a boosted step (config.speed.minEffectiveStepMs; 0 = no floor)
   sinceStepMs: number
   elapsedMs: number
-  demoTurnPending: boolean   // demo turn: once, after the first apple
+  demoTurnPending: boolean   // demo turn: once, on step demo.afterSteps of the player's first game
   rngState: number
 }
 
 export function cellKey(x: number, y: number, z: number, size: number): number
 export function nextRandom(s: GameState): number   // mulberry32, mutates rngState
+export function boostedStepMs(s: GameState): number   // stepMs / boostFactor, not below minBoostedStepMs
+export function effectiveStepMs(s: GameState): number // boostedStepMs while `boosting`, otherwise stepMs
 ```
 
 ### core/rules.ts
@@ -84,19 +95,37 @@ export function nextRandom(s: GameState): number   // mulberry32, mutates rngSta
 ```ts
 import type { GameState, Vec3 } from './state'
 export interface Config { /* shape = config.json, type it fully */ }
+export interface GameOptions { obstacleMult?: number; paceScale?: number }   // chosen in the shop before the start
 
-export function createGame(config: Config, size: number, seed: number, isFirstGameEver: boolean): GameState
+export function createGame(config: Config, size: number, seed: number, isFirstGameEver: boolean,
+                           boostFactor?: number,       // default: config.speed.boostFactor
+                           options?: GameOptions): GameState
 export function generateObstacles(size: number, density: number, stickiness: number,
-                                  clearCells: Set<number>, rng: () => number): Set<number>
+                                  clearCells: Set<number>, rng: () => number,
+                                  wallMargin?: number): Set<number>   // default 0
+export function fillDeadZones(size: number, obstacles: Set<number>, clearCells: Set<number>): void
+export function arenaHasObstacles(size: number, clearRadius: number, wallMargin: number): boolean
+export function isInWallMargin(x: number, y: number, z: number, size: number, margin: number): boolean
 export function spawnApple(s: GameState): Vec3
 export function rotateFrame(s: GameState, axis: Vec3): void
-export function speedAfterApples(config: Config, apples: number): number
+export function rotateFrameOf(frame: Frame, axis: Vec3): void          // the same over an arbitrary Frame
+export function reorientFrameFree(s: GameState, newHeading: Vec3): void // 'free' mode: frame follows a turn
+export function enterFreeFrame(s: GameState, sign: -1 | 1): void        // demo transition plane -> free
+export function initFreeStartFrame(s: GameState): void                 // start directly in 'free'
+export function speedAfterApples(config: Config, apples: number, paceScale?: number): number  // paceScale default 1
+export function isValidBoostFactor(f: number): boolean
+export function availableBoostFactors(config: Config): number[]
+export function sanitizePaceScale(scale: number): number
+export function sanitizeObstacleMult(mult: number): number
 ```
 
 `generateObstacles` - cubes and obstacle clusters (stickiness is set by stickiness 0..1).
-**Hard requirement: no dead zones.** After generation, a flood fill
-from the start cell over the 6 neighbors; if not all free cells are reachable,
-the unreachable ones are filled with obstacles or the generation is repeated. A test is mandatory.
+`density` is the fraction of cube cells; `createGame` passes `config.obstacles.density * options.obstacleMult`.
+Cells in `clearCells` and cells closer than `wallMargin` to a cube wall never hold an obstacle.
+**Hard requirement: no dead zones.** After generation, `fillDeadZones` does a flood fill
+from `clearCells` over the 6 neighbors; the free cells it does not reach are filled with obstacles
+(the generation is not repeated). A test is mandatory.
+`arenaHasObstacles` tells whether a cube of this size can hold any obstacle at all (false for cubes up to 11 cells with the current config).
 
 ### core/commands.ts
 
@@ -105,23 +134,28 @@ export type GameEvent =
   | { type: 'started' }
   | { type: 'moved' }
   | { type: 'turned'; heading: Vec3 }
+  | { type: 'turnedInPlace'; heading: Vec3 }
   | { type: 'axisTurned'; rollAxis: Vec3; direction: AxisDir }
   | { type: 'ate'; apple: Vec3; score: number }
   | { type: 'appleSpawned'; apple: Vec3 }
   | { type: 'speedUp'; stepMs: number }
+  | { type: 'boostChanged'; on: boolean }
   | { type: 'demoTurn' }
+  | { type: 'modeChanged'; mode: Mode }
   | { type: 'died'; cause: DeathCause }
 
 export function startGame(s: GameState): GameEvent[]
+export function setBoost(s: GameState, on: boolean): GameEvent[]
 export function turnInPlane(s: GameState, dir: ScreenDir): GameEvent[]
 export function turnAxis(s: GameState, dir: AxisDir): GameEvent[]
 export function tick(s: GameState, config: Config, dtMs: number): GameEvent[]
 ```
 
-`tick` accumulates `sinceStepMs` and makes steps while there is enough time. Events are returned
-in the same reusable array (no allocations in the hot path).
-Demo turn: if `demoTurnPending` and the first apple has been eaten, the core itself does
-`turnAxis(s, 'into')` and adds the `demoTurn` event.
+`tick` caps `dtMs` at `config.loop.maxFrameMs`, accumulates `sinceStepMs` and makes steps while there is enough time.
+Events are returned in the same reusable array (no allocations in the hot path).
+Demo turn: if `demoTurnPending` and `stepCount >= config.demo.afterSteps`, the core itself makes the plane to free
+transition (a turn-in-place step into a random free side, see Addendum 1 and Addendum 3) and adds `turnedInPlace`,
+`modeChanged` and `demoTurn`, in that order. `boostChanged` is emitted by `setBoost` only (see Addendum 4).
 
 ### core/queries.ts - read-only
 
@@ -130,8 +164,22 @@ export function head(s: GameState): Vec3
 export function isAlive(s: GameState): boolean
 export function snakeLength(s: GameState): number
 export function cameraFrame(s: GameState): Frame
+export function viewFrame(s: GameState): Frame                 // cameraFrame with the buffered turn applied, Addendum 4
 export function score(s: GameState): number
 export function forEachObstacle(s: GameState, fn: (x: number, y: number, z: number) => void): void
+export function forEachSnakeSegment(s: GameState, fn: (x: number, y: number, z: number, index: number) => void): void
+export function applePos(s: GameState): Readonly<Vec3>
+export function cubeSize(s: GameState): number
+export function elapsedMs(s: GameState): number
+export function gameMode(s: GameState): Mode
+export function stepProgress(s: GameState): number             // 0..1 within the running step
+export function intendedHeading(s: GameState): Readonly<Vec3>  // pendingTurn ?? heading
+export function isBoosting(s: GameState): boolean              // REQUESTED boost
+export function isBoostActive(s: GameState): boolean           // ACTIVE boost
+export function getBoostFactor(s: GameState): number
+export function effectiveBoostFactor(s: GameState): number     // how many times shorter a boosted step really is (floor applied)
+export function stepsToCrash(s: GameState, horizon: number): number  // 0 = no crash within horizon
+export function appleOnCourse(s: GameState): boolean
 ```
 
 ## view/ - three.js, subscribed to events
@@ -143,9 +191,15 @@ export interface View {
   resize(width: number, height: number): void
   handle(event: GameEvent, s: GameState): void
   render(s: GameState, dtMs: number): void
+  setCameraTilt(yaw: number, pitch: number): void   // tilt from the player, rad, within +-1
+  setFogOn(on: boolean): void
+  applyPerf(width: number, height: number): void    // debug (perf panel), cold path
+  readPerf(out: PerfSnapshot): void                 // debug, no allocations
+  gpuInfo(): GpuInfo                                // debug, cold path
   dispose(): void
 }
-export function createView(canvas: HTMLCanvasElement, config: Config, s: GameState): View
+export function createView(canvas: HTMLCanvasElement, config: Config, s: GameState,
+                           cosmetics?: CosmeticsInput): View
 ```
 
 Reads state **only** through `core/queries`. Does not call commands.
@@ -167,31 +221,54 @@ export type InputScheme = 'swipes' | 'taps'
 export interface InputHandlers {
   onTurn(dir: ScreenDir): void
   onAxis(dir: AxisDir): void
+  axisEnabled?(): boolean                             // false in 'free': third-axis taps and Q/E are ignored
+  onBoost?(on: boolean): void                         // held / released, always in pairs
+  onCameraTiltBy?(dYaw: number, dPitch: number): void // increment, rad
+  onCameraZoomBy?(factor: number): void               // increment: > 1 farther, < 1 closer
+  onCameraReset?(): void
+  onPause?(): void                                    // Escape
 }
 export function attachInput(el: HTMLElement, scheme: InputScheme,
                             config: Config, h: InputHandlers): () => void  // returns detach
 ```
 
-- `'swipes'` (default): a swipe is a turn in the plane; a single tap anywhere is `into`;
-  a double tap is `out`.
-- `'taps'`: a tap on a direction zone is a turn; a tap in the center zone is `into`;
-  a double tap in the center is `out`. The size of the center zone is `config.input.centerZoneFraction`.
-- Keyboard (PC, works in both schemes): arrows/WASD - the plane, **Q** and **E** - the third axis.
+- `'swipes'` (default): a swipe is a turn in the plane; a single tap anywhere is `into`
+  (it waits `config.input.doubleTapMs` for a second tap); a double tap is `out`.
+  A swipe is at least `config.input.swipeMinPx`.
+- `'taps'`: the canvas only tilts the camera. Turns and the third axis come from the corner pad
+  (`input/pad.ts`, `attachPad(root, handlers)`, separate DOM buttons over the canvas): four arrow buttons,
+  and `into` / `out` buttons that are hidden in `'free'`.
+- Keyboard (PC, works in both schemes): arrows/WASD - the plane, **Q** and **E** - the third axis,
+  Shift/Space (hold) - boost, R - camera reset, Escape - pause.
 - Tap zones ≥ 44 px. No hover. Input must not break on an orientation change.
 
 ## config.json - all balance values
 
 ```json
 {
-  "cube": { "sizes": [20, 50, 100], "default": 20 },
+  "cube": { "sizes": [5, 20, 50, 100], "default": 20 },
   "snake": { "startLength": 3, "growPerApple": 1 },
-  "speed": { "startStepMs": 180, "minStepMs": 60, "stepMsPerApple": 4 },
-  "obstacles": { "density": 0.02, "stickiness": 0.6, "clearRadius": 4 },
-  "camera": { "rollMs": 260, "microPauseMs": 90, "glitchMs": 180, "distanceFactor": 1.6 },
-  "demo": { "autoTurnAfterApples": 1 },
-  "input": { "doubleTapMs": 240, "swipeMinPx": 24, "centerZoneFraction": 0.28 }
+  "speed": { "startStepMs": 1080, "minStepMs": 360, "stepMsPerApple": 24,
+             "boostFactor": 1.5, "boostFactors": [1.5, 2, 3, 4], "minEffectiveStepMs": 60 },
+  "obstacles": { "density": 0.03, "stickiness": 0.6, "clearRadius": 4, "wallMargin": 1 },
+  "camera": { "rollMs": 260, "microPauseMs": 90, "glitchMs": 180, "distanceFactor": 1.6,
+              "followDistance": 4, "followHeight": 2.4, "lateralOffset": 0.7, "lookAheadDistance": 10,
+              "lookDownOffset": 1.5, "modeSwitchMs": 1400, "zoomMin": 0.5, "zoomMax": 2,
+              "zoomWheelPerPx": 0.0012, "zoomPinchGain": 1, "zoomFollowMs": 120 },
+  "hints": { "latticeAt": "corners", "latticeStep": 4, "compassHideDist": 1.5, "compassFullDist": 3 },
+  "headSignal": { "dangerHorizon": 2, "riseMs": 50, "fallMs": 400 },
+  "demo": { "afterSteps": 5 },
+  "loop": { "maxFrameMs": 100 },
+  "minimap": { "windowCells": 20, "levelWindowCells": 10 },
+  "fog": { "density": 0.06, "defaultOn": true },
+  "input": { "doubleTapMs": 240, "swipeMinPx": 24, "tiltRadPerPx": 0.005, "twoFingerLockPx": 10,
+             "stick": { "sizeVmin": 24, "sizeMinPx": 88, "sizeMaxPx": 112, "deadZone": 0.2,
+                        "curve": 1.5, "maxRadPerSec": 1.2, "tapMaxMs": 250 } }
 }
 ```
+
+`config.json` also holds the sections `quality`, `leaderboard`, `sound`, `palettes` and `shop`; they are not repeated here.
+Analytics settings live in `analytics/config.json`.
 
 A magic number in code instead of config is a review error.
 
@@ -209,12 +286,7 @@ A magic number in code instead of config is a review error.
 
 ## New queries in core/queries.ts (added by the core agent, used by the view agent)
 
-```ts
-export function forEachSnakeSegment(s: GameState, fn: (x: number, y: number, z: number, index: number) => void): void
-export function applePos(s: GameState): Readonly<Vec3>
-export function cubeSize(s: GameState): number
-export function elapsedMs(s: GameState): number
-```
+`forEachSnakeSegment`, `applePos`, `cubeSize`, `elapsedMs`. Their signatures are in the core/queries.ts block above.
 
 AGENTS.md rule 2: the view reads state ONLY through queries. Reading
 `s.snake`, `s.apple`, `s.size`, `s.elapsedMs` directly from the view is a violation, remove it.
@@ -223,9 +295,9 @@ AGENTS.md rule 2: the view reads state ONLY through queries. Reading
 
 **The core never reports a roll that it will not perform.**
 The camera orientation must at any moment be derivable from `cameraFrame(s)`.
-Right now `turnAxis` emits `axisTurned` immediately, and `turnInPlane` later silently cancels the roll -
-the camera moves away, the world does not. How to fix it is up to the core agent, but the invariant is mandatory
-and tests for exactly these scenarios must appear:
+The review found that `turnAxis` emitted `axisTurned` immediately, and `turnInPlane` later silently canceled the roll -
+the camera moved away, the world did not. Now the frame is rolled at the moment of the command and `turnInPlane` does not cancel it.
+The invariant is mandatory and tests for exactly these scenarios must exist:
 
 1. `turnAxis('into')`, then `turnInPlane` before the step, then the step.
 2. `turnAxis('into')`, then `turnAxis('out')` before the step, then the step.
@@ -260,7 +332,8 @@ behind the head and full 3D opens up. The camera transition is the twist.
 
 ## Mode in the state
 
-`GameState.mode: 'plane' | 'free'`. The start of a game is always `'plane'`. On the demo turn
+`GameState.mode: 'plane' | 'free'`. The first game of the player starts as `'plane'`; every later game starts
+right away as `'free'` (`createGame` with `isFirstGameEver = false`). On the demo turn
 (`demo.afterSteps`) the core switches to `'free'` and emits an event. It never goes back.
 
 ### Mode `'plane'` - as now
@@ -349,7 +422,9 @@ The `pointsIntoNeck` check was added - such a swipe is ignored.
 # Addendum 4 - boost and the obstacle margin from the walls
 
 **Boost.** `setBoost(s, on): GameEvent[]` (core/commands.ts). While boost is active, a step lasts
-`stepMs / boostFactor` (`config.speed.boostFactor`, currently 2); the speed-up per apple works on top, and the `speedUp` event
+`stepMs / boostFactor`, but not shorter than the floor `config.speed.minEffectiveStepMs` (currently 60 ms, `boostedStepMs` in core/state.ts).
+The factor is chosen before the start and passed to `createGame` (by default `config.speed.boostFactor`, currently 1.5;
+the factors on offer are the list `config.speed.boostFactors`, currently 1.5, 2, 3, 4). The speed-up per apple works on top, and the `speedUp` event
 still carries the base `stepMs`. **Pressing and releasing take effect from the next step:**
 the current step is finished at the pace at which it began (the duration is not changed retroactively).
 Two `GameState` fields: `boostRequested` (requested, changed by `setBoost`) and `boosting` (active, `effectiveStepMs`
@@ -357,7 +432,7 @@ depends on it). `tick` copies `boosting = boostRequested` right after each step 
 step, a demo step) - that is the step boundary; the step duration is taken anew on each iteration
 of the loop, so inside one long frame the first step goes at the old pace, the rest at the new one.
 The event `{ type: 'boostChanged'; on }` is emitted immediately and only on a real change of the **request** (`tick` does not
-emit it); outside the `running` phase `setBoost` does nothing. `boostFactor` is a copy of config per game (`setBoost` does not
+emit it); outside the `running` phase `setBoost` does nothing. `boostFactor` is a field of the game state, set once in `createGame` (`setBoost` does not
 receive config). New game: `boostRequested = false`, `boosting = false`. Everything counted as a step slot is boosted,
 including the turn-in-place step. `elapsedMs` is real time; the cap on steps per frame is computed from the boosted
 step if boost is requested. Queries: `isBoosting(s)` - **requested** (button highlight without delay, in

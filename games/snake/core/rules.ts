@@ -106,7 +106,7 @@ export function fillDeadZones(size: number, obstacles: Set<number>, clearCells: 
 /**
   * Whether an obstacle can appear at all in a cube of this size. The head stands in the middle of the cube with a clear zone around it
   * (clearRadius on every axis), and the outer layer of thickness wallMargin is taken by walls: if the whole allowed area lies
-  * inside the clear zone, there will be no obstacles at any density (currently that is cubes up to 11 cells, including 5³).
+  * inside the clear zone, there will be no obstacles at any density (with the config values clearRadius 4 and wallMargin 1 that is every cube up to 11 cells, including 5³; from 12 on there are obstacles).
  */
 export function arenaHasObstacles(size: number, clearRadius: number, wallMargin: number): boolean {
   const mid = Math.floor(size / 2)

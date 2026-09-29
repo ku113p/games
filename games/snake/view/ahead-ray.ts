@@ -6,8 +6,8 @@
 // The main ray ends at a cube wall, obstacle, the snake's own body or
 // the apple. The obstacle is highlighted: an obstacle/body by a solid fill of the face the ray
 // hits (the one facing the head), a wall by a fill of its face (the same; a filled
-// square, not a frame). An apple under the ray does not change color (the head gives the target signal, SnakeView)
-// (see appleTargeted). Side rays do not highlight obstacles: four
+// square, not a frame). An apple under the ray does not change the ray color (the head gives the target signal, SnakeView);
+// the hit is still recorded in appleTargeted, but nothing reads it any more. Side rays do not highlight obstacles: four
 // highlights at once would ripple.
 //
 // Plane mode: side rays only in the screen plane (±right, ±up from viewFrame),
@@ -87,7 +87,7 @@ export class AheadRay {
   // Side directions of the current frame (pre-allocated, 4 x 3).
   private readonly sideDirs = new Int8Array(SIDE_MAX * 3)
 
-  /** true if the main ray hits the apple (the apple does not change color; the field is kept for compatibility). */
+  /** true if the main ray hits the apple. Still computed and forwarded (DirectionHint, AppleView.update), but no consumer uses it: the ray color and the apple do not depend on it. */
   appleTargeted = false
 
   private sides: boolean

@@ -20,7 +20,7 @@ export interface LeaderboardConfig {
   alphabet: string
   /** Default name until the player has picked anything. */
   defaultName: string
-  /** Name of an entry carried over from the old single high score (it had no name symbols). */
+  /** Name of an entry carried over from the old single high score (that score had no name at all; the placeholder is deliberately outside the alphabet, so it never looks like a name a player picked). */
   legacyName: string
   /** A score below this does not make the table (0 points is not a result). */
   minScore: number

@@ -245,9 +245,10 @@ const GHOST_TEX_W = 256
 // in ~0.3-0.6% of pixels (thin 1-2 px spots where edge ribbons overlap) which ribbon lies on top changes: before, it was
 // decided by the order in the shared buffer, now by the chunk order.
 const OBSTACLE_CHUNK_CELLS = 25
-// Chunk draw order is fixed (renderOrder = layer + chunk index * step), not by depth as three.js sorts
-// objects with equal renderOrder: where fragments are equal in depth (seams of joining faces) or edge ribbons overlap,
-// the winner is decided by draw order, and with depth sorting it would switch sides as the camera moves.
+// Chunk draw order is fixed (renderOrder = layer + chunk index * step). Without it, objects with equal
+// renderOrder are sorted by three.js by distance to the camera, so the order of two chunks could flip as the camera moves.
+// That matters where fragments are equal in depth (seams of joining faces) or edge ribbons overlap: the winner is
+// decided by draw order, so a depth-sorted order would make the winning side switch as the camera moves.
 // Layers are the same as before: opaque faces < transparent faces < near-cells (2) < edges.
 const CHUNK_ORDER_STEP = 0.001
 const GHOST_ORDER = 1

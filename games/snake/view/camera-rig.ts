@@ -8,12 +8,12 @@
 // free: the camera sits followDistance behind the head (along -heading = +depth),
 //   shifted lateralOffset to the right (frame.right), raised by followHeight
 //   (frame.up), looking at a point lookAheadDistance ahead of the head along the heading and lookDownOffset below the line of travel (-up).
-//   Position, look-at point and up are taken straight from the targets; the exponential catch-up
-//   (FOLLOW_SMOOTHING_ENABLED) is off.
-// The lock to the heading vector is rigid: the pose is computed straight from viewFrame(s) and the head
-// cell every frame, with no catch-up and no inertia. If the head jumps a cell, the camera
-// jumps by exactly the same amount, keeping its position relative to the heading vector.
-// The player's tilt is an add-on on top of this pose (an orbit around the same head); the
+//   The targets (position, look-at point, up, head) are recomputed from the core's truth every
+//   frame; the shown pose follows them with an exponential catch-up (FOLLOW_SMOOTHING_ENABLED,
+//   currently on, time constant FOLLOW_SMOOTH_MS), so the camera does not jerk on every step.
+//   With the flag off the pose is taken straight from the targets (a rigid lock to the
+//   heading vector, no inertia).
+// The player's tilt is an add-on on top of this pose (an orbit around the same smoothed head); the
 // base is not shifted by it and does not lose the vector.
 // Mode change (detected from state, the modeChanged event is not needed): a flight over
 //   config.camera.modeSwitchMs from the pose actually shown to the live target
@@ -35,11 +35,11 @@ const CAMERA_FAR_PADDING = 4 // multiplier of size: margin beyond the far face o
 const SAME_ORIENTATION_DOT = 1 - 1e-6
 
 // Styling constants for the flight and follow (not balance numbers).
-// Smoothing of the free camera following the head. OFF by the designer's decision:
-// the pose is taken straight from the state (rigid lock to the heading vector). To bring
-// the inertia back, just set FOLLOW_SMOOTHING_ENABLED = true.
+// Smoothing of the free camera following the head. Currently ON: the shown pose lags the
+// targets computed from the state (see updateFree). Set it to false for a rigid lock, where
+// the pose is taken straight from the state with no inertia.
 const FOLLOW_SMOOTHING_ENABLED = true
-const FOLLOW_SMOOTH_MS = 130 // time constant of the exponential catch-up (if enabled)
+const FOLLOW_SMOOTH_MS = 130 // time constant of the exponential catch-up (used only while FOLLOW_SMOOTHING_ENABLED)
 const FLIGHT_FOV_KICK_DEG = 22 // how many degrees wider the FOV gets at mid-flight
 const FLIGHT_SWING_FRAC = 0.35 // sideways arc of the flight, as a fraction of the cube size
 const FLIGHT_GLITCH_MID = 0.5 // fraction of the flight at which the second glitch fires

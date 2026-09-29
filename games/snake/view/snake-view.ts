@@ -51,7 +51,7 @@ const SLIDE_FRACTION = 0.4
 // Thickness of the frame beams (cells). The head has the same shape as the body: it differs by color/brightness.
 const SEGMENT_BEAM = 0.1
 // Soft head "breathing" (size and brightness), only if there is no prefers-reduced-motion.
-// Safety: one breath = one sine cycle, max frequency 1000/1100 ≈ 0.9 Hz (< 3 flashes/s),
+// Safety: one breath = one sine cycle, the fastest one is the danger breath, 1000/DANGER_PERIOD_MS = 1000/1100 ≈ 0.9 Hz (idle: 1000/1600 ≈ 0.6 Hz), both < 3 flashes/s,
 // no jumps: only a smooth low-amplitude sine. The danger color changes by smooth transition, not by blinking.
 const HEAD_PULSE = 0.05
 const HEAD_PULSE_PERIOD_MS = 1600

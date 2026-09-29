@@ -13,9 +13,9 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import type { Config } from '../core/rules'
 import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from './palette'
 
-// The designer said twice that the halo was too strong, and the outline style produces many thin
-// glowing lines, so the bloom is reduced with a margin: weak, narrow, with the threshold
-// above the luminance of the grid/obstacles/even segments. Only the
+// The designer said more than once that the halo was too strong (palette.ts keeps the history of the
+// values), and the outline style produces many thin glowing lines, so the bloom is kept weak (low
+// strength) and the threshold sits above the luminance of the grid/obstacles/even segments. Only the
 // head, the apple and the bright snake edges visibly glow.
 // The bloom parameters (strength, radius, threshold) are styling, not balance numbers: see palette.ts.
 
@@ -29,7 +29,7 @@ export const MSAA_SAMPLES = 4
  * Antialiasing method (cold path, set from perf-settings). Measurements on Intel integrated graphics (ANGLE/D3D11) showed that
  * MSAA in a HalfFloat target causes a hitch every other frame regardless of the sample count and pixel count, hence several methods.
  * - samples: MSAA sample count (0 means no MSAA).
- * - byteTarget: an 8-bit target (RGBA8, hardware sRGB) instead of HalfFloat: light above 1.0 is clipped (see the report).
+ * - byteTarget: an 8-bit target (RGBA8, hardware sRGB) instead of HalfFloat: light above 1.0 is clipped, so the HDR glow colors lose their overshoot. Only an experiment (perf panel, benchmark): no quality tier uses it.
  * - resolveDepth: resolve (blit) the multisampled depth; three does this by default even though nothing reads it.
  * - smaa: SMAA post-process antialiasing (after OutputPass, in sRGB); MSAA is not used with it.
  */
@@ -90,7 +90,7 @@ export class PostFx {
     this.reducedMotion?.addEventListener('change', this.onReducedMotionChange)
   }
 
-  /** Cold path: build the composer and passes for the current msaa/size/scene. Called from the constructor and setMsaa. */
+  /** Cold path: build the composer and passes for the current msaa/size/scene. Called from the constructor and setAa. */
   private build(): void {
     const renderer = this.renderer
     // Our own target with samples (default type same as the stock one: HalfFloat, size in physical px).

@@ -1,6 +1,8 @@
 // Trace from the head along the heading: how far the path is free and
-// what it hits. Same logic as ahead-ray.ts (private there; ahead-ray itself is left alone,
-// it is the fallback mode), but without drawing. Allocation-free per frame.
+// what it hits. The same logic as the private trace in ahead-ray.ts, but without drawing: NearCells
+// needs the trace (and the body map) without depending on the ray layer. AheadRay is not a fallback: it is a live layer
+// (HINT_RAY in direction-hint.ts) and keeps its own copy of this logic, so a rule change has to be made in both places.
+// Allocation-free per frame.
 // A body segment counts as an obstacle only if it is still in place when the head arrives
 // (the tail moves away in d steps: segments with index >= length - d are free).
 

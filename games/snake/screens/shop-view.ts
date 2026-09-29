@@ -1,4 +1,4 @@
-// screens/shop-view.ts — the shop storefront: DOM on top of the item part (shop-stub.ts, later shop/).
+// screens/shop-view.ts — the shop storefront: DOM on top of the item part (shop/).
 // Cold path: redrawn in full on open, purchase, equip and language change. No game logic:
 // what can be bought or equipped is decided by the item part, and the flow (main.ts) only gets "buy" and "equip".
 

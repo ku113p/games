@@ -63,18 +63,18 @@ export const COMPASS_FOLLOW_MS = 90
 /**
  * Brightness window by STRAIGHT-LINE distance to the apple, cells: closer than hide the compass is off (the apple is right by the head anyway),
  * from full it is fully visible, in between it fades smoothly. Lives in config.hints (compassHideDist / compassFullDist, hint balance
- * values, AGENTS.md §4.5). Paths around obstacles and the tail are longer than the straight line, so the window is narrow: we fade only point-blank.
- * The values below are fallbacks while the keys are not in config.json; after the merge the config takes precedence.
+ * values, AGENTS.md section 4, rule 5). Paths around obstacles and the tail are longer than the straight line, so the window is narrow: we fade only point-blank.
+ * The values below are fallbacks for the constructor when `hints` is omitted (or a key is missing); they duplicate config.json (compass-view.test.ts uses them as the window) and are not read when the config is passed in.
  */
 export const COMPASS_HIDE_DIST_FALLBACK = 1.5
 export const COMPASS_FULL_DIST_FALLBACK = 3
 
-/** Part of Config that the compass reads (the Config type in core/rules.ts is narrow until the keys are added there). */
+/** Part of Config that the compass reads (the keys are optional here so the compass can be built without a config; Config["hints"] in core/rules.ts already has them as required). */
 export interface CompassHints {
   compassHideDist?: number
   compassFullDist?: number
 }
-/** Maximum opacity and color brightness (linear apple brightness ~1, bloom threshold 0.8). */
+/** Maximum opacity and color brightness (linear apple brightness ~1, BLOOM_THRESHOLD is 0.75). */
 export const COMPASS_ALPHA = 0.95
 export const COMPASS_BRIGHTNESS = 0.9
 /** Minimum angle between the arrow and the camera view axis, degrees; 0 means do not tilt (the arrow degenerates into a circle). */

@@ -183,7 +183,7 @@ export function worstHeadPair(st: HeadStates, v: Vision): { de: number; pair: st
   return { de: best, pair }
 }
 
-/** Acceptance thresholds (IDEAS.md §4.4-4.5): delta E >= 30 for normal vision, >= 20 for deuteranopia and protanopia; tritanopia is informational. */
+/** Acceptance thresholds (IDEAS.md, sections 4.4-4.5): delta E >= 30 for normal vision, >= 20 for deuteranopia and protanopia; tritanopia is informational. */
 export const PASS_NORMAL = 30
 export const PASS_DEUT_PROT = 20
 /**

@@ -51,7 +51,9 @@ describe('danger signal on the head and photosensitivity', () => {
     expect(riseMs).toBeGreaterThanOrEqual(2 * (1000 / 30) * 0.75)
   })
 
-  test('cycle faster than 3 Hz: color swing is no worse than before the signal speed-up (110/320 ms, floor 90 ms) — 0.68', () => {
+  // The baseline is a frozen reference, not the config: the earlier, slower signal (rise 110 ms, fall 320 ms, step floor 90 ms)
+  // whose worst swing was measured at 0.68. The current values come from config.headSignal / config.speed.minEffectiveStepMs.
+  test('cycle faster than 3 Hz: color swing with the config rise/fall and step floor is no worse than the frozen baseline (rise 110 ms, fall 320 ms, floor 90 ms: 0.68)', () => {
     const before = worstFastSwing(110, 320, [90, 120, 180])
     expect(before).toBeCloseTo(0.68, 1)
     const now = worstFastSwing(riseMs, fallMs, [floor, 67.5, 75, 90])

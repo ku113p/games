@@ -1,6 +1,6 @@
 # Snake 3D
 
-> Status: this file was reconciled with the code and the commit history on 2026-09-30. The "Designer decisions" section at the end is what he has already decided;
+> Status: on 2026-09-30 the numbers, names and prices in this file (speed, boost, shop, hints, sound, analytics, arena rules) were checked line by line against `config.json` and the code. The "Designer decisions" section at the end is what he has already decided;
 > "Designer decision needed" is what is still open. Everything above is already implemented; if something is written down differently from how you decided it, fix it here
 > and we'll bring the code into line. Quotes in quotation marks are your own words from the work sessions.
 
@@ -63,7 +63,8 @@ Chosen in the shop before the start (see "Shop"). They cannot be changed inside 
 
 - **Arena size:** 20³ (default), 50³, 100³ and the tight 5³ (see below).
 - **The 5³ arena is without obstacles only.** In a 5³ cube the clear zone around the head (radius 4) covers the whole cube, so there are
-  no obstacles at any density (the same in all cubes up to 11³); we do not scale the clear zone and we do not add obstacles to 5³
+  no obstacles at any density. The same holds for every cube up to 11³ (there the clear zone together with the free outer layer
+  leaves no room for obstacles; `arenaHasObstacles`, and the shipped sizes are 5, 20, 50 and 100). We do not scale the clear zone and we do not add obstacles to 5³
   (designer decision: "5*3 — no obstacles only"). While 5³ is equipped, the "Obstacles" section in the shop is locked: a caption with
   the reason on top, the buy and equip buttons inactive, "No obstacles" in the section header. The chosen density is **not erased**:
   it is kept and takes effect again as soon as the player equips a bigger arena.
@@ -72,7 +73,7 @@ Chosen in the shop before the start (see "Shop"). They cannot be changed inside 
   Your decision: "an empty arena should be expensive, but not too expensive."
 - **Pace - four tiers:** "Calm" (slower than standard), "Normal" (default), "Fast", "Very fast".
   A tier stretches or squeezes the whole speed-up curve at once, so its shape and the apple at which the speed cap is reached
-  do not change. "Very fast" starts faster than the current speed cap - that is why it is expensive.
+  do not change. "Very fast" halves every step (it starts at 540 ms and its speed cap is 180 ms instead of 360 ms) - that is why it is expensive.
 - **Boost:** the factor, see below.
 
 ## Speed and boost
@@ -102,7 +103,7 @@ the first game must look like an ordinary flat snake.
 | Danger in 2 steps | along the heading in two steps there is a wall, an obstacle or your own body |
 | Danger in 1 step | the same in one step; danger overrides the goal |
 
-The heading is computed taking into account a turn that has already been entered but not yet executed. The color rises in 110 ms and fades in 320 ms, so that
+The heading is computed taking into account a turn that has already been entered but not yet executed. The color rises in 50 ms and fades in 400 ms (`config.headSignal`), so that
 on a fast step the head does not blink on every step. There is no blinking: the states differ by hue, and only a soft "breathing"
 of the head remains (it is off under "reduced motion" in the system). Reason: blinking about five times a second is dangerous for
 photosensitive people. **Any palette must keep these four states distinguishable** (normally and under color blindness);
@@ -154,7 +155,7 @@ it is open right away). What is bought is never taken away, the price does not r
 | Apple | "Diamond" - given; "Orb", "Star" | 15, 30 |
 | Arrow (compass) | "Default" - given; "Chevron", "Ring" | 20, 50 |
 
-The three cosmetic sections (snake, apple, arrow) also each contain one locked "???"/"Coming soon" slot - a coming-soon slot with no purchase.
+Every section of the shop also ends with one locked "Soon" slot (coming soon) - a slot with no purchase.
 
 **The coin multiplier** increases only what is credited to the wallet. **It does not affect the game score or the leaderboard** - otherwise
 someone who bought their way in would beat everyone. The permanent and temporary multipliers multiply together (the best of each kind is taken).
@@ -217,7 +218,7 @@ generated, there are no files:
 - **buttons** - a short quiet click;
 - **death** - a falling low sweep with noise;
 - **step tick** - a quiet soft "thud" on every step, of slightly varying pitch. It is **quieter during the speed-up**, so it does not turn into chatter:
-  the volume falls with the pace (at the speed cap several times quieter, but not below half of the starting one), and below 300 ms per step
+  the volume falls with the pace (from the full volume at a 1080 ms step down to half of it at 180 ms per step and shorter; at the standard speed cap of 360 ms it is 0.6 of the starting one), and below 300 ms per step
   every second tick sounds. If a step is immediately followed by an apple or death, the tick is not played, so as not to cover an important sound.
 Music and sounds can be turned off separately (settings and pause).
 

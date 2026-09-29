@@ -4,7 +4,7 @@
 //   HINT_LATTICE   lattice of nodes (ahead-dots.ts): background markup of space,
 //                  step and anchoring are in config.hints. About "where am I in 3D".
 //   HINT_RAY       ray ahead (ahead-ray.ts): dashed line from the head center, cut off at a wall /
-//                  obstacle / body, highlight of the obstacle, apple color under the sights.
+//                  obstacle / body, highlight of the face it hits (the apple does not recolor the ray).
 //   HINT_RAY_SIDES thin side rays of HINT_RAY (off by default: the near layer
 //                  replaced them).
 //   HINT_NEAR      near layer (near-cells.ts): dots at cell centers along the five
@@ -27,7 +27,7 @@ export const HINT_RAY_SIDES = false
 export const HINT_NEAR = true
 
 export interface DirectionHint {
-  /** true if the ray ahead hits the apple (the apple does not change color; the field is kept for compatibility). */
+  /** true if the ray ahead hits the apple. Still computed and passed on to AppleView.update, which ignores it: no consumer uses it. */
   appleTargeted: boolean
   update(s: GameState, dx: number, dy: number, dz: number, isSolid: SolidTest, freeAmount: number): void
   /** Frame buffer height in pixels; only the dots need it. */

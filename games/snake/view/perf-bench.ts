@@ -80,7 +80,8 @@ function stage(id: string, label: string, over: Partial<BenchStage>): BenchStage
   return { id, label, msaa: 0, aaByte: false, aaDepthResolve: true, smaa: false, bloom: true, bloomScale: 1, megapixelCap: 0, ...over }
 }
 
-// The MPix caps (cap-2.5, cap-1.5) from the earlier set were removed: the designer's measurement showed a cap does not cure the stall. The main question
+// The bench stages that only varied the MPix cap (cap-2.5, cap-1.5) were removed from this list: the designer's measurement showed a cap does not cure the stall.
+// The cap itself still exists (perf.megapixelCap, the panel button, and the "Low" quality tier via the q-low stage). The main question
 // now is which antialiasing does not tank Intel integrated graphics and what it does for the picture.
 export const BENCH_STAGES: readonly BenchStage[] = [
   stage('as-is', 'as is (MSAA4 half-float target, bloom, no cap)', { msaa: 4 }),
