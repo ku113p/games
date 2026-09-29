@@ -27,7 +27,7 @@ describe('качество', () => {
   test('applyQualityLevel выставляет связку', () => {
     const saved = { ...perf }
     applyQualityLevel(cfg.levels.medium)
-    expect([perf.megapixelCap, perf.msaa, perf.smaa, perf.bloom, perf.bloomScale]).toEqual([0, 0, false, true, 1])
+    expect([perf.megapixelCap, perf.msaa, perf.smaa, perf.bloom, perf.bloomScale]).toEqual([0, 0, true, true, 1])
     applyQualityLevel(cfg.levels.low)
     expect([perf.msaa, perf.bloom, perf.bloomScale]).toEqual([0, false, 1])
     applyQualityLevel(cfg.levels.high)
@@ -41,8 +41,13 @@ describe('качество', () => {
     expect(bufferMegapixels(1000, 1000, 0)).toBeCloseTo(1, 6)
   })
 
-  test('«среднее» — полное разрешение и свечение, без сглаживания (замер: без AA на Intel 0 промахов из 563)', () => {
-    expect(cfg.levels.medium).toEqual({ megapixelCap: 0, msaa: 0, bloom: 'full' })
+  test('«среднее» — полное разрешение и свечение, SMAA (замер на Intel: SMAA 8 промахов из 384, MSAA — затык через кадр)', () => {
+    expect(cfg.levels.medium).toEqual({ megapixelCap: 0, msaa: 0, smaa: true, bloom: 'full' })
+    // кандидаты обхода (8 бит, без resolve глубины) в ступени не берём: по замеру они не лечат затык, а 8 бит теряет гало сигналов
+    for (const id of QUALITY_IDS) {
+      expect(cfg.levels[id].aaByte ?? false).toBe(false)
+      expect(cfg.levels[id].aaDepthResolve ?? true).toBe(true)
+    }
   })
 
   test('сильная карта (телефон, дискретная): ступень по размеру буфера, «высокое» с MSAA остаётся умолчанием', () => {
@@ -58,6 +63,7 @@ describe('качество', () => {
     expect(autoQuality(bufferMegapixels(1280, 720, 1), cfg, 'weak')).toBe(cfg.autoWeakGpu) // и маленькое окно тоже
     expect(cfg.autoWeakGpu).toBe('medium')
     expect(cfg.levels[cfg.autoWeakGpu].msaa).toBe(0)
+    expect(cfg.levels[cfg.autoWeakGpu].smaa).toBe(true)
     expect(autoQuality(bufferMegapixels(3840, 2160, 1), cfg, 'weak')).toBe('low')
   })
 

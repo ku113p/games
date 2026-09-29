@@ -90,7 +90,7 @@ describe('этапы бенчмарка', () => {
     expect(smaa.smaa).toBe(true)
     expect(smaa.msaa).toBe(0)
     const med = BENCH_STAGES.find((s) => s.id === 'q-medium')!
-    expect([med.msaa, med.bloom, med.bloomScale, med.megapixelCap]).toEqual([0, true, 1, 0])
+    expect([med.msaa, med.smaa, med.bloom, med.bloomScale, med.megapixelCap]).toEqual([0, true, true, 1, 0])
   })
 
   test('applyBenchStage выставляет все поля perf', () => {
