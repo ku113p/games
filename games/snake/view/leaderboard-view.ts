@@ -30,6 +30,29 @@ export function renderBoard(el: HTMLElement, table: readonly ScoreEntry[], size:
   }
 }
 
+/**
+ * Строка рекорда №1 для главного экрана: «1 ABC 1240». Таблица пуста — подпись «Рекордов пока нет».
+ * Возвращает true, если рекорд есть (кнопка-вход в таблицу при пустой таблице выключается).
+ */
+export function renderTopLine(el: HTMLElement, table: readonly ScoreEntry[]): boolean {
+  el.replaceChildren()
+  const top = table[0]
+  if (top === undefined) {
+    const label = document.createElement('span')
+    label.className = 'empty-label'
+    label.textContent = t('records.empty')
+    el.appendChild(label)
+    return false
+  }
+  for (const [cls, text] of [['rank', '1'], ['name', top.name], ['score', String(top.score)]] as const) {
+    const cell = document.createElement('span')
+    cell.className = cls
+    cell.textContent = text
+    el.appendChild(cell)
+  }
+  return true
+}
+
 export interface Drum {
   /** Показать барабан с этим именем; onChange — на каждое изменение, onConfirm — «Готово» / Enter. */
   show(name: string, onChange: (name: string) => void, onConfirm: () => void): void

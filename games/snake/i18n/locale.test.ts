@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { LANGUAGES, ru, type TextKey } from './dictionaries'
-import { format, languageByCode, parseRich, resolveLanguage, translate } from './locale'
+import { format, languageByCode, languageShortLabel, parseRich, resolveLanguage, translate } from './locale'
 
 const code = (list: readonly (string | null | undefined)[]): string => resolveLanguage(list).code
 
@@ -137,5 +137,14 @@ describe('юридические тексты', () => {
       expect(l.dict['legal.terms.b3']).toContain('*Cyber Runner*')
       expect(l.dict['legal.terms.b3']).toContain('CC0 1.0')
     }
+  })
+})
+
+describe('languageShortLabel', () => {
+  test('все языки получают две латинские буквы, без повторов', () => {
+    const labels = LANGUAGES.map((l) => languageShortLabel(l))
+    expect(labels).toEqual(['EN', 'ES', 'PT', 'ZH', 'RU'])
+    for (const l of labels) expect(l).toMatch(/^[A-Z]{2}$/)
+    expect(new Set(labels).size).toBe(labels.length)
   })
 })

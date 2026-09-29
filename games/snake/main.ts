@@ -25,7 +25,8 @@ import {
 } from './input/gestures'
 import { attachInput, type InputHandlers, type InputScheme } from './input/index'
 import { createAudio, type SoundConfig } from './view/audio'
-import { createDrum, renderBoard } from './view/leaderboard-view'
+import { createDrum, renderBoard, renderTopLine } from './view/leaderboard-view'
+import { mountLangSwitch } from './view/lang-switch'
 import {
   insertEntry,
   migrateLegacy,
@@ -36,9 +37,9 @@ import {
   type LeaderboardConfig,
   type ScoreEntry,
 } from './scores/leaderboard'
-import { LANGUAGES } from './i18n/dictionaries'
-import { createLegalFlow, isPerfDebugRequested, isSelfStartingPerfMode } from './legal/flow'
-import { currentLanguage, initLanguage, onLanguageChange, setLanguage, t } from './i18n/runtime'
+import { isPerfDebugRequested, isSelfStartingPerfMode } from './legal/flow'
+import { ALL_SCREENS, createScreens, isHeld, visibleScreens, type ScreenId, type ScreenState } from './screens/screens'
+import { currentLanguage, initLanguage, onLanguageChange, t } from './i18n/runtime'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
 
@@ -53,6 +54,8 @@ const MUSIC_ON_KEY = 'snake:musicOn'
 const SFX_ON_KEY = 'snake:sfxOn'
 const FOG_ON_KEY = 'snake:fogOn'
 const QUALITY_KEY = 'snake:quality'
+const SIZE_KEY = 'snake:size'
+const SCHEME_KEY = 'snake:scheme'
 
 // --- DOM ---------------------------------------------------------------
 
@@ -70,7 +73,12 @@ const gameOverScreen = required<HTMLElement>('game-over')
 const finalScoreEl = required<HTMLElement>('final-score')
 const finalTimeEl = required<HTMLElement>('final-time')
 const gameOverBoardEl = required<HTMLElement>('game-over-board')
-const menuBoardEl = required<HTMLElement>('menu-board')
+const settingsScreen = required<HTMLElement>('settings')
+const recordsScreen = required<HTMLElement>('records')
+const recordsBoardEl = required<HTMLElement>('records-board')
+const recordLineBtn = required<HTMLButtonElement>('record-line')
+const openSettingsBtn = required<HTMLButtonElement>('open-settings')
+const backButtons = ['settings-back', 'settings-done', 'records-back', 'records-done'].map((id) => required<HTMLButtonElement>(id))
 const drumBlockEl = required<HTMLElement>('drum-block')
 const drumEl = required<HTMLElement>('drum')
 const drumOkBtn = required<HTMLButtonElement>('drum-ok')
@@ -92,7 +100,6 @@ const pauseToMenuBtn = required<HTMLButtonElement>('pause-to-menu')
 const padSideOptions = required<HTMLElement>('pad-side-options')
 const sizeOptions = required<HTMLElement>('size-options')
 const schemeOptions = required<HTMLElement>('scheme-options')
-const langOptions = required<HTMLElement>('lang-options')
 const legalWarningScreen = required<HTMLElement>('legal-warning')
 const legalWarningOkBtn = required<HTMLButtonElement>('legal-warning-ok')
 const legalTermsScreen = required<HTMLElement>('legal-terms')
@@ -171,8 +178,14 @@ let table: ScoreEntry[] = loadTable()
 // Последние выбранные символы подставляются в барабан по умолчанию.
 let initials = sanitizeName(storageGet(INITIALS_KEY), lbCfg)
 
+// Главный экран показывает только рекорд №1 (вход в таблицу); полная таблица — на экране рекордов.
+function renderTopRecord(): void {
+  recordLineBtn.disabled = !renderTopLine(recordLineBtn, table)
+}
+
 function renderBoards(highlight: number): void {
-  renderBoard(menuBoardEl, table, lbCfg.size, -1)
+  renderTopRecord()
+  renderBoard(recordsBoardEl, table, lbCfg.size, -1)
   renderBoard(gameOverBoardEl, table, lbCfg.size, highlight)
 }
 
@@ -331,8 +344,11 @@ syncQualityButtons()
 
 // --- меню: выбор размера куба и схемы управления ------------------------
 
-let selectedSize = config.cube.default
-let selectedScheme: InputScheme = 'swipes'
+// Размер и схема лежат на экране настроек, а не на виду: выбор запоминается между запусками.
+const storedSize = Number.parseInt(storageGet(SIZE_KEY) ?? '', 10)
+const storedScheme = storageGet(SCHEME_KEY)
+let selectedSize = config.cube.sizes.includes(storedSize) ? storedSize : config.cube.default
+let selectedScheme: InputScheme = storedScheme === 'taps' || storedScheme === 'swipes' ? storedScheme : 'swipes'
 
 function markSelected(container: HTMLElement, datasetKey: 'size' | 'scheme' | 'side', value: string): void {
   const buttons = container.querySelectorAll<HTMLButtonElement>('button')
@@ -351,6 +367,7 @@ sizeOptions.addEventListener('click', (e) => {
   const size = Number.parseInt(raw, 10)
   if (!config.cube.sizes.includes(size)) return
   selectedSize = size
+  storageSet(SIZE_KEY, String(size))
   markSelected(sizeOptions, 'size', raw)
 })
 
@@ -360,6 +377,7 @@ schemeOptions.addEventListener('click', (e) => {
   const raw = target.dataset['scheme']
   if (raw !== 'swipes' && raw !== 'taps') return
   selectedScheme = raw
+  storageSet(SCHEME_KEY, raw)
   markSelected(schemeOptions, 'scheme', raw)
 })
 
@@ -378,53 +396,33 @@ markSelected(sizeOptions, 'size', String(selectedSize))
 markSelected(schemeOptions, 'scheme', selectedScheme)
 markSelected(padSideOptions, 'side', padSide)
 
-// Переключатель языка: кнопки строятся из LANGUAGES (шестой язык = запись в i18n/dictionaries.ts).
-// Подписи — названия языков на них самих, поэтому не переводятся и не зависят от текущего языка.
-for (const lang of LANGUAGES) {
-  const btn = document.createElement('button')
-  btn.type = 'button'
-  btn.dataset['lang'] = lang.code
-  btn.lang = lang.code
-  btn.textContent = lang.native
-  langOptions.appendChild(btn)
-}
-
-function markLanguage(): void {
-  for (const btn of langOptions.querySelectorAll<HTMLButtonElement>('button')) {
-    const on = btn.dataset['lang'] === currentLanguage().code
-    btn.classList.toggle('selected', on)
-    btn.setAttribute('aria-pressed', String(on))
-  }
-}
-
-langOptions.addEventListener('click', (e) => {
-  const target = e.target
-  if (!(target instanceof HTMLButtonElement)) return
-  const code = target.dataset['lang']
-  if (code !== undefined) setLanguage(code, storage) // текст меняется сразу, выбор запоминается
-})
+// Переключатель языка (две буквы) — на главном экране и на обоих юридических: см. view/lang-switch.ts.
+for (const id of ['menu-lang', 'warning-lang', 'terms-lang']) mountLangSwitch(required<HTMLElement>(id), storage)
 
 // Динамические строки (не размеченные data-i18n) перерисовываются на смену языка.
 onLanguageChange(() => {
   syncSoundToggles()
   syncFogToggles()
   drum.relabel()
-  markLanguage()
+  renderTopRecord()
 })
-markLanguage()
 
-// --- юридические экраны перед меню ------------------------------------------
-// Предупреждение о мигающих огнях — при каждом открытии; условия — пока не сохранено согласие (legal/flow.ts).
-// Язык к этому моменту уже выбран (initLanguage выше: сохранённый, иначе браузера). Кнопки лежат внутри .screen,
-// поэтому общий делегат выше разблокирует звук на этом же касании: оно не «съедено».
-const legalFlow = createLegalFlow(storage, (step) => {
-  legalWarningScreen.classList.toggle('hidden', step !== 'warning')
-  legalTermsScreen.classList.toggle('hidden', step !== 'terms')
-  menuScreen.inert = step !== null // клавиатура и скринридер не должны уходить в меню под экраном
-  updateLegalMore()
-  if (step === 'warning') legalWarningOkBtn.focus({ preventScroll: true })
-  else if (step === 'terms') legalTermsOkBtn.focus({ preventScroll: true })
-})
+// --- экраны: что показано сейчас, решает screens/screens.ts (чистая логика с тестами), здесь только показ ---
+// Юридические экраны: предупреждение о мигающих огнях — при каждом открытии, условия — пока не сохранено согласие
+// (legal/flow.ts, внутри screens). Язык к этому моменту уже выбран (initLanguage выше) и меняется на самих экранах.
+// Кнопки лежат внутри .screen, поэтому общий делегат выше разблокирует звук на этом же касании: оно не «съедено».
+const screenEls: Record<ScreenId, HTMLElement> = {
+  warning: legalWarningScreen,
+  terms: legalTermsScreen,
+  menu: menuScreen,
+  settings: settingsScreen,
+  records: recordsScreen,
+  hud,
+  over: gameOverScreen,
+  pause: pauseScreen,
+  demo: demoScreen,
+}
+
 // Подсказка «текст продолжается»: класс more, пока под видимой частью осталось непрочитанное (стили — в index.html).
 const legalBodies = [legalWarningScreen, legalTermsScreen].map((s) => s.querySelector<HTMLElement>('.legal-body')!)
 function updateLegalMore(): void {
@@ -433,12 +431,40 @@ function updateLegalMore(): void {
 for (const b of legalBodies) b.addEventListener('scroll', updateLegalMore, { passive: true })
 window.addEventListener('resize', updateLegalMore)
 onLanguageChange(updateLegalMore)
-legalWarningOkBtn.addEventListener('click', () => legalFlow.confirm())
-legalTermsOkBtn.addEventListener('click', () => legalFlow.confirm())
+
+let shownLegal: ScreenState['legal'] = null
+function renderScreens(s: ScreenState): void {
+  const visible = visibleScreens(s)
+  for (const id of ALL_SCREENS) screenEls[id].classList.toggle('hidden', !visible.has(id))
+  // Клавиатура и скринридер не должны уходить в экран под юридическим.
+  const covered = s.legal !== null
+  menuScreen.inert = covered
+  settingsScreen.inert = covered
+  recordsScreen.inert = covered
+  updateLegalMore()
+  if (s.legal !== shownLegal) {
+    shownLegal = s.legal
+    if (s.legal === 'warning') legalWarningOkBtn.focus({ preventScroll: true })
+    else if (s.legal === 'terms') legalTermsOkBtn.focus({ preventScroll: true })
+  }
+}
+
+const screens = createScreens(storage, renderScreens)
+renderScreens(screens.state) // разметка стартует с видимым предупреждением: приводим её к состоянию до первого показа
+
+legalWarningOkBtn.addEventListener('click', () => screens.confirmLegal())
+legalTermsOkBtn.addEventListener('click', () => screens.confirmLegal())
+recordLineBtn.addEventListener('click', () => screens.openRecords())
+openSettingsBtn.addEventListener('click', () => screens.openSettings())
+for (const btn of backButtons) btn.addEventListener('click', () => screens.back())
+// Escape на настройках и рекордах — назад (в игре его читает ввод партии, там back ничего не делает).
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') screens.back()
+})
 // Самозапускающийся замер (?perf=bench, ?perf=freeze) стартует сам через полсекунды: непрозрачный экран поверх
 // канваса испортил бы числа, поэтому экраны пропускаются (согласие не пишется). Простой ?perf экраны не трогает.
-if (isSelfStartingPerfMode(location.search)) legalFlow.skipAll()
-else legalFlow.start()
+if (isSelfStartingPerfMode(location.search)) screens.skipLegal()
+else screens.start()
 
 // --- игровая сессия ------------------------------------------------------
 
@@ -469,13 +495,10 @@ let bench: BenchRun | null = null
 /** Идёт бенчмарк: логика игры заморожена, ввод игнорируется, партия не может умереть. */
 let benchActive = false
 
-// Пауза живёт здесь, ядро о ней не знает: пока пауза, tick() просто не вызывается.
-// Две независимые причины: вкладка скрыта (нужен тап «Продолжить») и экран демо-поворота.
-let pausedByVisibility = false
-let demoExplainerOpen = false
-
+// Пауза живёт в screens (ядро о ней не знает): пока пауза, tick() просто не вызывается.
+// Две независимые причины: вкладка скрыта / кнопка (нужен тап «Продолжить») и экран демо-поворота.
 function isPaused(): boolean {
-  return pausedByVisibility || demoExplainerOpen || benchActive
+  return isHeld(screens.state) || benchActive
 }
 
 // Параметры последней партии — «Ещё раз» перезапускает с ними.
@@ -514,8 +537,7 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       // Экран с паузой — только в самой первой игре игрока; дальше переход бесшумный.
       // Камера при этом доигрывает полёт (render продолжает идти).
       if (s.explainTransition && ev.mode === 'free') {
-        demoExplainerOpen = true
-        demoScreen.classList.remove('hidden')
+        screens.openDemo()
         s.stick.release()
         s.boost.releaseAll() // экран объяснения закрывает кнопки: не оставляем ускорение залипшим
       }
@@ -527,7 +549,6 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
       s.pad?.clearQueued()
       padEl.classList.add('hidden')
       hideBoostAndPause()
-      hidePauseScreens()
       const finalScore = score(s.state)
       const durationMs = elapsedMs(s.state)
       finalScoreEl.textContent = String(finalScore)
@@ -555,20 +576,12 @@ function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session)
         closeDrum()
       }
       audio.play('death')
-      hud.classList.add('hidden')
-      gameOverScreen.classList.remove('hidden')
+      screens.died()
       break
     }
     default:
       break
   }
-}
-
-function hidePauseScreens(): void {
-  pausedByVisibility = false
-  demoExplainerOpen = false
-  pauseScreen.classList.add('hidden')
-  demoScreen.classList.add('hidden')
 }
 
 function dispatchEvents(s: Session, events: GameEvent[]): void {
@@ -642,7 +655,6 @@ function syncPerfVisibility(): void {
 }
 
 function endSession(): void {
-  hidePauseScreens()
   padEl.classList.add('hidden')
   hideBoostAndPause()
   if (session === null) return
@@ -779,9 +791,7 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   }
   session = s
 
-  menuScreen.classList.add('hidden')
-  gameOverScreen.classList.add('hidden')
-  hud.classList.remove('hidden')
+  screens.startGame()
   hudScore.textContent = '0'
   showPad(scheme, s.mode)
   showBoostAndPause()
@@ -796,10 +806,8 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
 function returnToMenu(): void {
   // Выход с паузы посреди партии: набранный счёт идёт в таблицу с запомненными символами, как при смерти (без барабана).
   if (session !== null && isAlive(session.state) && !benchActive) commitRun(score(session.state), elapsedMs(session.state))
-  gameOverScreen.classList.add('hidden')
-  hud.classList.add('hidden')
   closeDrum()
-  menuScreen.classList.remove('hidden')
+  screens.toMenu()
   endSession()
 }
 
@@ -816,8 +824,7 @@ pauseToMenuBtn.addEventListener('click', returnToMenu)
 // --- пауза: сворачивание вкладки и экран демо-поворота -------------------
 
 function resumeFromPause(): void {
-  pausedByVisibility = false
-  pauseScreen.classList.add('hidden')
+  screens.resume()
   lastFrameTime = null // пропущенное время не проживаем
 }
 
@@ -825,13 +832,11 @@ function resumeFromPause(): void {
 function pauseNow(): void {
   const s = session
   if (benchActive) return
-  if (s === null || !isAlive(s.state) || pausedByVisibility) return
-  pausedByVisibility = true
+  if (s === null || !isAlive(s.state) || !screens.pause()) return
   // Ускорение на паузе выключается всегда: после «Продолжить» игрок сам зажмёт заново.
   s.boost.releaseAll()
   s.stick.release()
-  // Поверх экрана демо второй экран не нужен: после его закрытия игра продолжится сама.
-  if (!demoExplainerOpen) pauseScreen.classList.remove('hidden')
+  // Поверх экрана демо экран паузы не показывается (screens): после закрытия демо он проявится сам.
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -851,11 +856,8 @@ pauseBtn.addEventListener('click', pauseNow)
 resumeBtn.addEventListener('click', resumeFromPause)
 
 demoContinueBtn.addEventListener('click', () => {
-  demoExplainerOpen = false
-  demoScreen.classList.add('hidden')
+  screens.closeDemo() // если вкладку сворачивали, пока висел экран демо, экран паузы проявится сам
   lastFrameTime = null
-  // Если вкладку сворачивали, пока висел экран демо, — теперь нужна обычная пауза.
-  if (pausedByVisibility) pauseScreen.classList.remove('hidden')
 })
 
 // --- отладочная панель и бенчмарк ----------------------------------------
@@ -1010,8 +1012,8 @@ function step(now: number): void {
   const dtMs = rawDt > config.loop.maxFrameMs ? config.loop.maxFrameMs : rawDt
   lastFrameTime = now
 
-  if (pausedByVisibility) return
-  if (!demoExplainerOpen && !benchActive) {
+  if (screens.state.paused) return
+  if (!screens.state.demo && !benchActive) {
     dispatchEvents(s, tick(s.state, config, dtMs))
     const st = s.stick.state
     if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)

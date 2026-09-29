@@ -737,40 +737,199 @@
       }
       :lang(zh) .field > span,
       :lang(zh) .board-title,
+      :lang(zh) .screen-head h2,
       :lang(zh) .tap-to-play,
       :lang(zh) .screen h1 {
         letter-spacing: 0.02em;
       }
-      /* Переключатель языка компактнее: пять кнопок должны занимать две строки, а не съедать экран. */
-      #lang-options button {
-        padding: 8px 12px;
-        font-size: 15px;
+      /* Переключатель языка: строка кнопок из двух букв, тише кнопки игры. Один на главном и на юридических экранах.
+         Каждая кнопка 44x44 (AGENTS.md, раздел 5); выбранный язык подсвечен обычным .selected. */
+      .lang-switch {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
       }
-      /* Меню длиннее экрана (низкий телефон, пять языков): прокручивается, а не обрезается сверху.
-         Автоотступ у заголовка прижимает содержимое вниз, пока оно помещается, и схлопывается, когда нет. */
+      .lang-switch button {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        background: transparent;
+        border-color: rgba(57, 255, 224, 0.28);
+        opacity: 0.8;
+      }
+      .lang-switch button.selected {
+        opacity: 1;
+        box-shadow: 0 0 8px rgba(57, 255, 224, 0.45);
+      }
+      /* Иконочная кнопка (шестерёнка, назад): 48x48, значок 24. */
+      .icon-btn {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        border-color: rgba(57, 255, 224, 0.28);
+      }
+      .icon-btn svg {
+        width: 24px;
+        height: 24px;
+      }
+      /* Главный экран: название, рекорд, кнопка игры, подвал. Кнопка игры крупнее всего остального и в нижней половине;
+         свободное место делится автоотступами между названием и кнопкой. Если экран низкий (альбом) — прокручивается. */
       #menu {
         justify-content: flex-start; /* flex-end при переполнении уводит верх за край, до него не докрутить */
         overflow-y: auto;
         touch-action: pan-y;
-      }
-      #menu > h1 {
-        margin-top: auto;
-      }
-      /* Кнопка старта всегда на виду, даже если меню прокручивается. */
-      #menu .tap-to-play {
-        position: sticky;
-        bottom: max(0px, env(safe-area-inset-bottom));
-        flex-shrink: 0;
+        gap: 12px;
       }
       #menu > * {
         flex-shrink: 0;
       }
+      #menu > h1 {
+        margin-top: auto;
+        margin-bottom: 0;
+        font-size: clamp(34px, 11vw, 52px);
+      }
+      #menu .tap-to-play {
+        margin-top: auto;
+        min-height: 76px;
+        font-size: 19px;
+        letter-spacing: 0.04em;
+      }
+      /* Строка рекорда №1: тап открывает таблицу. Тихая: без заливки, чтобы не спорить с кнопкой игры. */
+      .record-line {
+        display: inline-flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 8px 20px;
+        background: transparent;
+        border-color: rgba(57, 255, 224, 0.22);
+        border-radius: 999px;
+        font-variant-numeric: tabular-nums;
+      }
+      .record-line::before {
+        content: '▸';
+        color: var(--neon);
+        opacity: 0.8;
+      }
+      .record-line .rank {
+        opacity: 0.6;
+      }
+      .record-line .name {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.22em;
+        color: var(--neon);
+      }
+      .record-line .score {
+        font-weight: 700;
+        font-size: 18px;
+      }
+      .record-line .empty-label {
+        font-size: 14px;
+        opacity: 0.6;
+      }
+      .record-line:disabled {
+        cursor: default;
+        border-color: transparent;
+      }
+      .record-line:disabled::before {
+        content: none;
+      }
+      .menu-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: min(100%, 420px);
+      }
+      /* Экраны второго уровня (настройки, рекорды): шапка со стрелкой назад, прокручиваемое тело, кнопка «Назад» внизу. */
+      .screen.sub {
+        justify-content: flex-start;
+        gap: 12px;
+      }
+      .screen.sub > * {
+        flex-shrink: 0;
+      }
+      .screen-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: min(100%, 420px);
+      }
+      .screen-head h2 {
+        margin: 0;
+        font-size: clamp(22px, 6vw, 28px);
+      }
+      .screen-head .icon-btn {
+        margin-left: -8px;
+      }
+      .screen.sub > .sub-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: min(100%, 420px);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+        touch-action: pan-y;
+        padding: 2px;
+      }
+      .sub-body > * {
+        flex-shrink: 0;
+      }
+      #records-board .board-row {
+        padding: 14px 14px;
+      }
+      #records-board .board-row .name,
+      #records-board .board-row .score {
+        font-size: 22px;
+      }
+      #records-board .board-row .time {
+        font-size: 15px;
+      }
+      /* Три кнопки качества в одну строку, даже на 360 px. */
+      .sub-body .options {
+        gap: 8px;
+      }
+      .sub-body .quality-options {
+        flex-wrap: nowrap;
+      }
+      .sub-body .quality-options button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-left: 6px;
+        padding-right: 6px;
+      }
+      button.wide {
+        width: min(100%, 420px);
+        min-height: 52px;
+      }
+      /* Переключатель языка на юридическом экране — первая строка текста, справа. */
+      .legal-body > .lang-switch {
+        align-self: flex-end;
+      }
       @media (max-height: 720px) {
         #menu {
+          gap: 8px;
+        }
+        #menu .tap-to-play {
+          min-height: 64px;
+        }
+        .screen.sub {
+          gap: 8px;
+        }
+        .sub-body {
           gap: 10px;
         }
-        #menu .field {
-          gap: 6px;
+        .sub-body .field {
+          gap: 4px;
         }
       }
       /* Юридические экраны (предупреждение о мигающих огнях, условия): поверх меню, без анимации и мигания.
@@ -882,69 +1041,91 @@
         <div class="score-pill"><span data-i18n="hud.score"></span> <span id="score">0</span></div>
       </div>
 
+      <!-- Главный экран голый: название, рекорд №1 (тап — таблица), кнопка игры, шестерёнка и язык. -->
       <div id="menu" class="screen">
         <h1 data-i18n="menu.title"></h1>
 
-        <div class="field">
-          <span data-i18n="menu.size"></span>
-          <div id="size-options" class="options" role="radiogroup" data-i18n-aria="aria.size">
-            <button type="button" data-size="20">20³</button>
-            <button type="button" data-size="50">50³</button>
-            <button type="button" data-size="100">100³</button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span data-i18n="menu.scheme"></span>
-          <div id="scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
-            <button type="button" data-scheme="swipes" data-i18n="scheme.swipes"></button>
-            <button type="button" data-scheme="taps" data-i18n="scheme.taps"></button>
-          </div>
-        </div>
-
-        <div class="field" id="pad-side-field">
-          <span data-i18n="menu.padSide"></span>
-          <div id="pad-side-options" class="options" role="radiogroup" data-i18n-aria="aria.padSide">
-            <button type="button" data-side="left" data-i18n="side.left"></button>
-            <button type="button" data-side="right" data-i18n="side.right"></button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span data-i18n="menu.sound"></span>
-          <div class="options sound-toggles" role="group" data-i18n-aria="aria.sound">
-            <button type="button" data-snd="music" aria-pressed="true"></button>
-            <button type="button" data-snd="sfx" aria-pressed="true"></button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span data-i18n="menu.view"></span>
-          <div class="options" role="group" data-i18n-aria="aria.view">
-            <button type="button" data-fog aria-pressed="true"></button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span data-i18n="menu.quality"></span>
-          <div class="options quality-options" role="radiogroup" data-i18n-aria="aria.quality">
-            <button type="button" data-quality="high" data-i18n="quality.high"></button>
-            <button type="button" data-quality="medium" data-i18n="quality.medium"></button>
-            <button type="button" data-quality="low" data-i18n="quality.low"></button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span data-i18n="menu.language"></span>
-          <div id="lang-options" class="options" role="radiogroup" data-i18n-aria="aria.language"></div>
-        </div>
-
-        <div class="board-wrap">
-          <p class="board-title" data-i18n="board.title"></p>
-          <ol id="menu-board" class="board"></ol>
-        </div>
+        <button type="button" id="record-line" class="record-line" data-i18n-aria="aria.records"></button>
 
         <button type="button" id="tap-to-play" class="tap-to-play" data-i18n="tapToPlay"></button>
+
+        <div class="menu-footer">
+          <button type="button" id="open-settings" class="icon-btn" data-i18n-aria="aria.settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg></button>
+          <div id="menu-lang" class="lang-switch"></div>
+        </div>
+      </div>
+
+      <div id="settings" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="settings-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="settings.title"></h2>
+        </header>
+
+        <div class="sub-body">
+          <div class="field">
+            <span data-i18n="menu.size"></span>
+            <div id="size-options" class="options" role="radiogroup" data-i18n-aria="aria.size">
+              <button type="button" data-size="20">20³</button>
+              <button type="button" data-size="50">50³</button>
+              <button type="button" data-size="100">100³</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.scheme"></span>
+            <div id="scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
+              <button type="button" data-scheme="swipes" data-i18n="scheme.swipes"></button>
+              <button type="button" data-scheme="taps" data-i18n="scheme.taps"></button>
+            </div>
+          </div>
+
+          <div class="field" id="pad-side-field">
+            <span data-i18n="menu.padSide"></span>
+            <div id="pad-side-options" class="options" role="radiogroup" data-i18n-aria="aria.padSide">
+              <button type="button" data-side="left" data-i18n="side.left"></button>
+              <button type="button" data-side="right" data-i18n="side.right"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.sound"></span>
+            <div class="options sound-toggles" role="group" data-i18n-aria="aria.sound">
+              <button type="button" data-snd="music" aria-pressed="true"></button>
+              <button type="button" data-snd="sfx" aria-pressed="true"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.view"></span>
+            <div class="options" role="group" data-i18n-aria="aria.view">
+              <button type="button" data-fog aria-pressed="true"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.quality"></span>
+            <div class="options quality-options" role="radiogroup" data-i18n-aria="aria.quality">
+              <button type="button" data-quality="high" data-i18n="quality.high"></button>
+              <button type="button" data-quality="medium" data-i18n="quality.medium"></button>
+              <button type="button" data-quality="low" data-i18n="quality.low"></button>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" id="settings-done" class="secondary wide" data-i18n="nav.back"></button>
+      </div>
+
+      <div id="records" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="records-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="records.title"></h2>
+        </header>
+
+        <div class="sub-body">
+          <ol id="records-board" class="board"></ol>
+        </div>
+
+        <button type="button" id="records-done" class="secondary wide" data-i18n="nav.back"></button>
       </div>
 
       <div id="game-over" class="screen hidden">
@@ -1002,6 +1183,7 @@
       </div>
       <div id="legal-warning" class="screen legal" role="alertdialog" aria-modal="true" aria-labelledby="legal-warning-title">
         <div class="legal-body">
+          <div id="warning-lang" class="lang-switch"></div>
           <h2 id="legal-warning-title" data-i18n="legal.warn.title"></h2>
           <p data-i18n-rich="legal.warn.p1"></p>
           <p data-i18n-rich="legal.warn.p2"></p>
@@ -1012,6 +1194,7 @@
 
       <div id="legal-terms" class="screen legal hidden" role="dialog" aria-modal="true" aria-labelledby="legal-terms-title">
         <div class="legal-body">
+          <div id="terms-lang" class="lang-switch"></div>
           <h2 id="legal-terms-title" data-i18n="legal.terms.title"></h2>
           <ul>
             <li data-i18n-rich="legal.terms.b1"></li>

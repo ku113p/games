@@ -61,3 +61,8 @@ export function parseRich(src: string): RichSpan[] {
   if (last < src.length) out.push({ text: src.slice(last), style: 'plain' })
   return out
 }
+
+/** Двухбуквенная подпись языка для компактного переключателя: EN, ES, PT, ZH, RU (главный подтег заглавными). */
+export function languageShortLabel(lang: Pick<Language, 'primary'>): string {
+  return lang.primary.toUpperCase()
+}
