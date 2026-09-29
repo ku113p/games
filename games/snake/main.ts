@@ -3,7 +3,7 @@
 
 import { createGame, type Config } from './core/rules'
 import { setBoost, startGame, tick, turnAxis, turnInPlane, type GameEvent } from './core/commands'
-import type { AxisDir, GameState, ScreenDir } from './core/state'
+import { effectiveStepMs, type AxisDir, type GameState, type ScreenDir } from './core/state'
 import { cubeSize, elapsedMs, gameMode, isAlive, score, snakeLength } from './core/queries'
 import { createView, type View } from './view/index'
 import { resetUserCamera, userCamera } from './view/camera-rig'
@@ -454,7 +454,7 @@ function syncViewSize(view: View): void {
   view.resize(canvas.clientWidth, canvas.clientHeight)
 }
 
-function handleGameEvent(ev: GameEvent, s: Session): void {
+function handleGameEvent(ev: GameEvent, next: GameEvent | undefined, s: Session): void {
   switch (ev.type) {
     case 'started':
       audio.newRound()
@@ -464,6 +464,11 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
       hudScore.textContent = String(ev.score)
       break
     case 'moved':
+      // Тик шага: тише и реже с ростом темпа (см. blips.tick). Яблоко и смерть в этом же такте свой звук
+      // приносят сами (события идут следом за moved), тик под ними не нужен.
+      if (next === undefined || (next.type !== 'ate' && next.type !== 'died')) audio.play('tick', effectiveStepMs(s.state))
+      s.pad?.clearQueued()
+      break
     case 'turnedInPlace':
       // Змейка выполнила команду — подсветку «принято, ждёт шага» на пульте гасим.
       s.pad?.clearQueued()
@@ -539,7 +544,7 @@ function dispatchEvents(s: Session, events: GameEvent[]): void {
     const ev = events[i]
     if (ev === undefined) continue
     s.view.handle(ev, s.state)
-    handleGameEvent(ev, s)
+    handleGameEvent(ev, events[i + 1], s)
   }
 }
 

@@ -129,6 +129,25 @@
         "gain": 0.25,
         "combo": false
       },
+      "tick": {
+        "wave": "triangle",
+        "freqFrom": 520,
+        "freqTo": 400,
+        "sweepMs": 22,
+        "attackMs": 1,
+        "decayMs": 24,
+        "gain": 0.1,
+        "combo": false,
+        "speed": {
+          "slowStepMs": 1080,
+          "fastStepMs": 180,
+          "fastGain": 0.15,
+          "skipBelowStepMs": 300,
+          "skipEvery": 2,
+          "jitterCents": 70,
+          "minGapMs": 60
+        }
+      },
       "death": {
         "wave": "sawtooth",
         "freqFrom": 330,

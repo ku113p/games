@@ -20,7 +20,7 @@ export interface Audio {
   resume(): void
   /** Заглушить контекст (вкладка скрыта). */
   suspend(): void
-  play(name: SfxName): void
+  play(name: SfxName, stepMs?: number): void
   /** Новая партия: комбо яблок с базовой ноты. */
   newRound(): void
   setMusicOn(on: boolean): void
@@ -69,8 +69,8 @@ export function createAudio(cfg: SoundConfig | undefined, musicUrl: string, init
     suspend() {
       if (ctx !== null && ctx.state === 'running') void ctx.suspend().catch(() => {})
     },
-    play(name) {
-      if (sfxOn) sfx?.play(name)
+    play(name, stepMs) {
+      if (sfxOn) sfx?.play(name, stepMs)
     },
     newRound() {
       sfx?.resetCombo()

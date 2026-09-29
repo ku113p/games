@@ -6,7 +6,7 @@
 // Больше ничего. Старт партии намеренно НЕ заведён: его дизайнер не заказывал.
 // Смерть ('death') — тот же путь; ей нужны два необязательных слоя блипа: `layer` (второй тон) и `noise` (шумовой всплеск).
 
-export type SfxName = 'eat' | 'click' | 'death'
+export type SfxName = 'eat' | 'click' | 'death' | 'tick'
 
 /** Второй осциллятор на ту же огибающую: тон основного × ratio (0.5 — октавой ниже, для веса). */
 export interface LayerConfig {
@@ -23,6 +23,27 @@ export interface NoiseConfig {
   filterTo: number
 }
 
+/**
+ * Зависимость звука шага от темпа (только у 'tick'). stepMs — действующая длительность шага с учётом ускорения.
+ * Чем короче шаг, тем тише тик: на разгоне с ускорением он уходит в фон, а не стрекочет.
+ */
+export interface SpeedConfig {
+  /** Длительность шага, при которой тик звучит на полную громкость (и дольше). */
+  slowStepMs: number
+  /** Длительность шага, при которой громкость падает до fastGain (и короче). */
+  fastStepMs: number
+  /** Множитель громкости на fastStepMs, 0..1. Между slow и fast — линейно по длительности шага. */
+  fastGain: number
+  /** Шаги короче этого озвучиваются не все, а каждый skipEvery-й; 0 — озвучивать все. */
+  skipBelowStepMs: number
+  /** Каждый какой шаг озвучивать на быстром ходу (2 — через один). */
+  skipEvery: number
+  /** Разброс высоты тона от шага к шагу, ±центов (100 — полутон); 0 — одна нота. */
+  jitterCents: number
+  /** Не чаще, чем раз в столько мс (защита, если за кадр случилось несколько шагов). */
+  minGapMs: number
+}
+
 export interface BlipConfig {
   wave: OscillatorType
   freqFrom: number
@@ -35,6 +56,7 @@ export interface BlipConfig {
   combo: boolean
   layer?: LayerConfig
   noise?: NoiseConfig
+  speed?: SpeedConfig
 }
 
 export interface ComboConfig {
@@ -45,7 +67,8 @@ export interface ComboConfig {
 }
 
 export interface Sfx {
-  play(name: SfxName): void
+  /** stepMs нужен только 'tick' (темп шага для громкости и пропусков); остальным не нужен. */
+  play(name: SfxName, stepMs?: number): void
   /** Новая партия: комбо возвращается к базовой ноте. */
   resetCombo(): void
 }
@@ -61,6 +84,32 @@ export function semitoneRatio(semitones: number): number {
   return Math.pow(2, semitones / 12)
 }
 
+/** Громкость тика от длительности шага: 1 на медленном ходу, fastGain на быстром, между — линейно. Чистая функция. */
+export function tickGainFactor(stepMs: number, speed: SpeedConfig): number {
+  const span = speed.slowStepMs - speed.fastStepMs
+  if (!(span > 0) || !(stepMs === stepMs)) return 1
+  const t = Math.min(1, Math.max(0, (speed.slowStepMs - stepMs) / span))
+  return 1 + (speed.fastGain - 1) * t
+}
+
+/** Озвучивать ли шаг номер `index` при данной длительности шага (на быстром ходу — каждый skipEvery-й). Чистая функция. */
+export function tickAudible(stepMs: number, index: number, speed: SpeedConfig): boolean {
+  if (speed.skipBelowStepMs <= 0 || speed.skipEvery <= 1) return true
+  if (stepMs >= speed.skipBelowStepMs) return true
+  return index % speed.skipEvery === 0
+}
+
+/** Детерминированный множитель частоты тика номер `index`: псевдослучайный сдвиг в ±jitterCents. Чистая функция. */
+export function tickPitchRatio(index: number, jitterCents: number): number {
+  if (jitterCents <= 0) return 1
+  let h = Math.imul(index + 1, 0x9e3779b1)
+  h ^= h >>> 15
+  h = Math.imul(h, 0x85ebca6b)
+  h ^= h >>> 13
+  const unit = ((h >>> 0) / 4294967296) * 2 - 1 // [-1, 1)
+  return Math.pow(2, (unit * jitterCents) / 1200)
+}
+
 // Нижняя граница экспоненциальной огибающей (exponentialRamp не умеет в 0). Техническая константа WebAudio.
 const SILENCE = 0.0001
 const MS = 0.001
@@ -74,6 +123,8 @@ export function createSfx(
   combo: ComboConfig,
 ): Sfx {
   let comboIndex = 0
+  let tickIndex = 0
+  let lastTickAt = -Infinity
   // Буфер белого шума нужен только смерти: создаётся лениво один раз и переиспользуется.
   let noiseBuffer: AudioBuffer | null = null
 
@@ -87,12 +138,23 @@ export function createSfx(
     return noiseBuffer
   }
 
-  function play(name: SfxName): void {
+  function play(name: SfxName, stepMs?: number): void {
     const b = blips[name]
-    const ratio = b.combo ? semitoneRatio(comboSemitones(comboIndex, combo)) : 1
+    let ratio = b.combo ? semitoneRatio(comboSemitones(comboIndex, combo)) : 1
     if (b.combo) comboIndex++
+    let peak = b.gain
 
     const t0 = ctx.currentTime
+    const sp = b.speed
+    if (sp !== undefined && stepMs !== undefined) {
+      const idx = tickIndex++
+      if (!tickAudible(stepMs, idx, sp)) return
+      if ((t0 - lastTickAt) * 1000 < sp.minGapMs) return
+      peak = b.gain * tickGainFactor(stepMs, sp)
+      if (!(peak > SILENCE)) return // gain: 0 в конфиге — тик выключен, нода не создаётся
+      lastTickAt = t0
+      ratio *= tickPitchRatio(idx, sp.jitterCents)
+    }
     const attackEnd = t0 + b.attackMs * MS
     const end = attackEnd + b.decayMs * MS
 
@@ -103,7 +165,7 @@ export function createSfx(
 
     const env = ctx.createGain()
     env.gain.setValueAtTime(SILENCE, t0)
-    env.gain.linearRampToValueAtTime(b.gain, attackEnd)
+    env.gain.linearRampToValueAtTime(peak, attackEnd)
     env.gain.exponentialRampToValueAtTime(SILENCE, end)
 
     osc.connect(env)
@@ -162,6 +224,7 @@ export function createSfx(
     play,
     resetCombo() {
       comboIndex = 0
+      tickIndex = 0
     },
   }
 }
