@@ -1,8 +1,8 @@
 // i18n/runtime.ts — текущий язык, сохранение выбора, применение к DOM. Холодный путь (меню, смена языка).
-// Разметка помечается атрибутами: data-i18n="ключ" (текст), data-i18n-aria="ключ" (aria-label).
+// Разметка помечается атрибутами: data-i18n="ключ" (текст), data-i18n-rich="ключ" (текст с **жирным**/*курсивом*), data-i18n-aria="ключ" (aria-label).
 
 import { LANGUAGES, type Language, type TextKey } from './dictionaries'
-import { languageByCode, resolveLanguage, translate } from './locale'
+import { languageByCode, parseRich, resolveLanguage, translate } from './locale'
 
 export const LANG_KEY = 'snake:lang'
 
@@ -33,6 +33,18 @@ export function applyToDocument(root: ParentNode = document): void {
   document.title = t('doc.title')
   for (const el of root.querySelectorAll<HTMLElement>('[data-i18n]')) {
     el.textContent = t(el.dataset['i18n'] as TextKey)
+  }
+  // data-i18n-rich: то же, но с **жирным** и *курсивом* из словаря; узлы строятся через DOM, не innerHTML.
+  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-rich]')) {
+    const spans = parseRich(t(el.dataset['i18nRich'] as TextKey))
+    el.replaceChildren(
+      ...spans.map((sp) => {
+        if (sp.style === 'plain') return document.createTextNode(sp.text)
+        const node = document.createElement(sp.style === 'bold' ? 'strong' : 'em')
+        node.textContent = sp.text
+        return node
+      }),
+    )
   }
   for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-aria]')) {
     el.setAttribute('aria-label', t(el.dataset['i18nAria'] as TextKey))

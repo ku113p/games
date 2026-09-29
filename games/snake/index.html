@@ -773,6 +773,74 @@
           gap: 6px;
         }
       }
+      /* Юридические экраны (предупреждение о мигающих огнях, условия): поверх меню, без анимации и мигания.
+         Текст прокручивается, кнопка всегда внизу и на виду. */
+      .screen.legal {
+        z-index: 20;
+        justify-content: flex-start;
+        background: var(--bg);
+      }
+      .screen.legal .legal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+        max-width: 420px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        text-align: left;
+        font-size: 17px;
+        line-height: 1.5;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        position: relative;
+      }
+      /* Подсказка «текст продолжается» (класс more ставит main.ts, пока снизу осталось непрочитанное): текст гаснет
+         к фону и по центру стоит стрелка вниз. Всё статично: экран про мигающие огни, анимации здесь нет. */
+      .screen.legal .legal-body.more::after {
+        content: '▼';
+        position: sticky;
+        bottom: 0;
+        flex-shrink: 0;
+        height: 64px;
+        margin-top: -78px; /* 64px высоты + 14px gap: подсказка не прибавляет прокручиваемой высоты */
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 2px;
+        font-size: 16px;
+        line-height: 1;
+        color: var(--accent);
+        background: linear-gradient(transparent, var(--bg) 75%);
+        pointer-events: none;
+      }
+      .screen.legal .legal-body > h2 {
+        margin: auto 0 0; /* короткий текст прижат к кнопке, длинный — прокручивается с самого верха */
+        text-align: center;
+      }
+      .screen.legal .legal-body > :not(h2) {
+        margin: 0;
+        flex-shrink: 0;
+      }
+      .screen.legal ul {
+        padding-left: 20px;
+      }
+      .screen.legal li + li {
+        margin-top: 12px;
+      }
+      .screen.legal .tap-to-play {
+        flex-shrink: 0;
+      }
+      .screen.legal strong {
+        color: var(--accent);
+      }
+      @media (max-height: 720px) {
+        .screen.legal .legal-body {
+          font-size: 16px;
+          gap: 10px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -931,6 +999,28 @@
         <p data-i18n="demo.p2"></p>
         <p class="hint" data-i18n="demo.hint"></p>
         <button type="button" id="demo-continue" class="tap-to-play" data-i18n="demo.continue"></button>
+      </div>
+      <div id="legal-warning" class="screen legal" role="alertdialog" aria-modal="true" aria-labelledby="legal-warning-title">
+        <div class="legal-body">
+          <h2 id="legal-warning-title" data-i18n="legal.warn.title"></h2>
+          <p data-i18n-rich="legal.warn.p1"></p>
+          <p data-i18n-rich="legal.warn.p2"></p>
+          <p data-i18n-rich="legal.warn.p3"></p>
+        </div>
+        <button type="button" id="legal-warning-ok" class="tap-to-play" data-i18n="legal.warn.ok"></button>
+      </div>
+
+      <div id="legal-terms" class="screen legal hidden" role="dialog" aria-modal="true" aria-labelledby="legal-terms-title">
+        <div class="legal-body">
+          <h2 id="legal-terms-title" data-i18n="legal.terms.title"></h2>
+          <ul>
+            <li data-i18n-rich="legal.terms.b1"></li>
+            <li data-i18n-rich="legal.terms.b2"></li>
+            <li data-i18n-rich="legal.terms.b3"></li>
+            <li data-i18n-rich="legal.terms.b4"></li>
+          </ul>
+        </div>
+        <button type="button" id="legal-terms-ok" class="tap-to-play" data-i18n="legal.terms.ok"></button>
       </div>
     </div>
 

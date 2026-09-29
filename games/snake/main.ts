@@ -37,6 +37,7 @@ import {
   type ScoreEntry,
 } from './scores/leaderboard'
 import { LANGUAGES } from './i18n/dictionaries'
+import { createLegalFlow, isPerfDebugRequested, isSelfStartingPerfMode } from './legal/flow'
 import { currentLanguage, initLanguage, onLanguageChange, setLanguage, t } from './i18n/runtime'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
@@ -92,6 +93,10 @@ const padSideOptions = required<HTMLElement>('pad-side-options')
 const sizeOptions = required<HTMLElement>('size-options')
 const schemeOptions = required<HTMLElement>('scheme-options')
 const langOptions = required<HTMLElement>('lang-options')
+const legalWarningScreen = required<HTMLElement>('legal-warning')
+const legalWarningOkBtn = required<HTMLButtonElement>('legal-warning-ok')
+const legalTermsScreen = required<HTMLElement>('legal-terms')
+const legalTermsOkBtn = required<HTMLButtonElement>('legal-terms-ok')
 
 // --- localStorage: рекорд и флаг «первая игра вообще» ------------------
 
@@ -407,6 +412,33 @@ onLanguageChange(() => {
   markLanguage()
 })
 markLanguage()
+
+// --- юридические экраны перед меню ------------------------------------------
+// Предупреждение о мигающих огнях — при каждом открытии; условия — пока не сохранено согласие (legal/flow.ts).
+// Язык к этому моменту уже выбран (initLanguage выше: сохранённый, иначе браузера). Кнопки лежат внутри .screen,
+// поэтому общий делегат выше разблокирует звук на этом же касании: оно не «съедено».
+const legalFlow = createLegalFlow(storage, (step) => {
+  legalWarningScreen.classList.toggle('hidden', step !== 'warning')
+  legalTermsScreen.classList.toggle('hidden', step !== 'terms')
+  menuScreen.inert = step !== null // клавиатура и скринридер не должны уходить в меню под экраном
+  updateLegalMore()
+  if (step === 'warning') legalWarningOkBtn.focus({ preventScroll: true })
+  else if (step === 'terms') legalTermsOkBtn.focus({ preventScroll: true })
+})
+// Подсказка «текст продолжается»: класс more, пока под видимой частью осталось непрочитанное (стили — в index.html).
+const legalBodies = [legalWarningScreen, legalTermsScreen].map((s) => s.querySelector<HTMLElement>('.legal-body')!)
+function updateLegalMore(): void {
+  for (const b of legalBodies) b.classList.toggle('more', b.scrollHeight - b.scrollTop - b.clientHeight > 4)
+}
+for (const b of legalBodies) b.addEventListener('scroll', updateLegalMore, { passive: true })
+window.addEventListener('resize', updateLegalMore)
+onLanguageChange(updateLegalMore)
+legalWarningOkBtn.addEventListener('click', () => legalFlow.confirm())
+legalTermsOkBtn.addEventListener('click', () => legalFlow.confirm())
+// Самозапускающийся замер (?perf=bench, ?perf=freeze) стартует сам через полсекунды: непрозрачный экран поверх
+// канваса испортил бы числа, поэтому экраны пропускаются (согласие не пишется). Простой ?perf экраны не трогает.
+if (isSelfStartingPerfMode(location.search)) legalFlow.skipAll()
+else legalFlow.start()
 
 // --- игровая сессия ------------------------------------------------------
 
@@ -939,7 +971,7 @@ window.addEventListener('keydown', (e) => {
 
 {
   const p = new URLSearchParams(location.search).get('perf')
-  if (p !== null && p !== '0' && p !== 'false') {
+  if (isPerfDebugRequested(location.search)) {
     ensurePerfPanel().open()
     if (p === 'bench') setTimeout(startBench, 500)
     else if (p === 'freeze') setTimeout(startFreeze, 500)

@@ -38,3 +38,26 @@ export function format(template: string, params?: Readonly<Record<string, string
 export function translate(dict: Dictionary, key: TextKey, params?: Readonly<Record<string, string | number>>): string {
   return format(dict[key], params)
 }
+
+/**
+ * Разметка в словарях: `**жирный**` и `*курсив*` (курсив — название произведения). Возвращает куски по порядку;
+ * DOM собирает runtime.ts (без innerHTML). Незакрытые звёздочки остаются обычным текстом.
+ */
+export interface RichSpan {
+  readonly text: string
+  readonly style: 'plain' | 'bold' | 'italic'
+}
+
+export function parseRich(src: string): RichSpan[] {
+  const out: RichSpan[] = []
+  const re = /\*\*([^*]+)\*\*|\*([^*]+)\*/g
+  let last = 0
+  for (let m = re.exec(src); m !== null; m = re.exec(src)) {
+    if (m.index > last) out.push({ text: src.slice(last, m.index), style: 'plain' })
+    if (m[1] !== undefined) out.push({ text: m[1], style: 'bold' })
+    else out.push({ text: m[2] as string, style: 'italic' })
+    last = m.index + m[0].length
+  }
+  if (last < src.length) out.push({ text: src.slice(last), style: 'plain' })
+  return out
+}

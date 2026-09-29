@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { LANGUAGES, ru, type TextKey } from './dictionaries'
-import { format, languageByCode, resolveLanguage, translate } from './locale'
+import { format, languageByCode, parseRich, resolveLanguage, translate } from './locale'
 
 const code = (list: readonly (string | null | undefined)[]): string => resolveLanguage(list).code
 
@@ -99,4 +99,43 @@ describe('словари', () => {
       for (const k of keys) expect(lang.dict[k].toUpperCase()).not.toContain('GAME OVER')
     })
   }
+})
+
+describe('parseRich', () => {
+  test('жирный и курсив', () => {
+    expect(parseRich('a **b** c *d*.')).toEqual([
+      { text: 'a ', style: 'plain' },
+      { text: 'b', style: 'bold' },
+      { text: ' c ', style: 'plain' },
+      { text: 'd', style: 'italic' },
+      { text: '.', style: 'plain' },
+    ])
+  })
+  test('без разметки и с незакрытой звёздочкой — обычный текст', () => {
+    expect(parseRich('abc')).toEqual([{ text: 'abc', style: 'plain' }])
+    expect(parseRich('a * b')).toEqual([{ text: 'a * b', style: 'plain' }])
+  })
+})
+
+describe('юридические тексты', () => {
+  const keys = Object.keys(ru).filter((k) => k.startsWith('legal.')) as TextKey[]
+  test('во всех языках есть все юридические ключи, непустые', () => {
+    expect(keys.length).toBe(11)
+    for (const l of LANGUAGES) for (const k of keys) expect(l.dict[k].trim().length).toBeGreaterThan(0)
+  })
+  test('разметка ** сбалансирована в каждом языке', () => {
+    for (const l of LANGUAGES) for (const k of keys) expect((l.dict[k].match(/\*\*/g) ?? []).length % 2).toBe(0)
+  })
+  test('жирное предупреждение и жирное «не собирает» есть в каждом языке', () => {
+    for (const l of LANGUAGES) {
+      expect(l.dict['legal.warn.p2']).toContain('**')
+      expect(l.dict['legal.terms.b2']).toContain('**')
+    }
+  })
+  test('название музыки и лицензия сохранены в каждом языке', () => {
+    for (const l of LANGUAGES) {
+      expect(l.dict['legal.terms.b3']).toContain('*Cyber Runner*')
+      expect(l.dict['legal.terms.b3']).toContain('CC0 1.0')
+    }
+  })
 })
