@@ -86,7 +86,8 @@ export class PostFx {
     this.glitchPass.enabled = false
   }
 
-  resize(width: number, height: number): void {
+  resize(width: number, height: number, pixelRatio: number): void {
+    this.composer.setPixelRatio(pixelRatio)
     this.composer.setSize(width, height)
   }
 

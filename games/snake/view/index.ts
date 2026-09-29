@@ -44,6 +44,16 @@ export interface View {
 
 // Ограничение pixel ratio — защита слабых телефонов от перерасхода fillrate.
 const MAX_PIXEL_RATIO = 2
+// Потолок числа пикселей буфера отрисовки, МПикс (0 — без потолка, как было). Стоимость MSAA и bloom растёт
+// линейно с пикселями: на ретина-мониторе буфер 5-8 МПикс, на телефоне ~1.3. Включение снижает pixelRatio
+// на больших окнах и делает картинку мягче; решать дизайнеру (см. отчёт), поэтому по умолчанию выключен.
+const MAX_RENDER_MEGAPIXELS = 0
+
+function pixelRatioFor(cssW: number, cssH: number): number {
+  let pr = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)
+  if (MAX_RENDER_MEGAPIXELS > 0) pr = Math.min(pr, Math.sqrt((MAX_RENDER_MEGAPIXELS * 1e6) / Math.max(1, cssW * cssH)))
+  return pr
+}
 
 interface Shared {
   canvas: HTMLCanvasElement
@@ -56,7 +66,7 @@ function getShared(canvas: HTMLCanvasElement): Shared {
   if (shared && shared.canvas === canvas) return shared
   disposeSharedRenderer()
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO))
+  renderer.setPixelRatio(pixelRatioFor(canvas.clientWidth || canvas.width || 1, canvas.clientHeight || canvas.height || 1))
   renderer.toneMapping = NoToneMapping
   renderer.setClearColor(new Color(BACKGROUND_COLOR), 1)
   shared = { canvas, renderer, postFx: null }
@@ -79,7 +89,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   const cameraRig = new CameraRig(config)
   const cubeFrame = new CubeFrame(scene)
   const wallGrid = new WallGrid(scene)
-  const miniMap = new MiniMap(config.minimap.windowCells)
+  const miniMap = new MiniMap(config.minimap.windowCells, config.minimap.levelWindowCells)
   const snakeView = new SnakeView(scene)
   const obstaclesView = new ObstaclesView(scene)
   const appleView = new AppleView(scene)
@@ -99,7 +109,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
   let postFx = sh.postFx
   if (postFx) {
     postFx.attach(scene, cameraRig.camera, config)
-    postFx.resize(initialWidth, initialHeight)
+    postFx.resize(initialWidth, initialHeight, renderer.getPixelRatio())
   } else {
     postFx = new PostFx(renderer, scene, cameraRig.camera, config, initialWidth, initialHeight)
     sh.postFx = postFx
@@ -132,11 +142,13 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
 
   return {
     resize(width: number, height: number): void {
+      const pr = pixelRatioFor(width, height)
+      if (pr !== renderer.getPixelRatio()) renderer.setPixelRatio(pr)
       renderer.setSize(width, height, false)
       cameraRig.resize(width, height)
       miniMap.resize(width, height)
       aheadRay.setViewportHeight?.(height * renderer.getPixelRatio())
-      fx.resize(width, height)
+      fx.resize(width, height, pr)
     },
 
     setCameraTilt(yaw: number, pitch: number): void {

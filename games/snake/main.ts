@@ -112,6 +112,34 @@ function saveTable(t: readonly ScoreEntry[]): void {
   storageSet(LEADERBOARD_KEY, JSON.stringify(t))
 }
 
+// Запись сохраняется сразу при смерти, а вращение барабана только помечает её «грязной»: на каждое
+// нажатие (и на автоповтор удержания) писать в localStorage синхронно незачем. Сброс на диск: по таймеру
+// после последнего изменения, при «Готово», уходе со страницы и скрытии вкладки, так что перезагрузка
+// посреди ввода результат (и выбранные буквы) не теряет. 0 — писать сразу, как раньше.
+const SAVE_DEBOUNCE_MS = 400
+let saveTimer = 0
+let saveDirty = false
+
+function flushSave(): void {
+  window.clearTimeout(saveTimer)
+  if (!saveDirty) return
+  saveDirty = false
+  saveTable(table)
+  storageSet(INITIALS_KEY, initials)
+}
+
+function scheduleSave(): void {
+  saveDirty = true
+  window.clearTimeout(saveTimer)
+  if (SAVE_DEBOUNCE_MS <= 0) flushSave()
+  else saveTimer = window.setTimeout(flushSave, SAVE_DEBOUNCE_MS)
+}
+
+window.addEventListener('pagehide', flushSave)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushSave()
+})
+
 // Первый запуск новой версии: таблицы ещё нет, а старый одиночный рекорд есть — он становится одной записью.
 function loadTable(): ScoreEntry[] {
   const parsed = parseTable(storageGet(LEADERBOARD_KEY), lbCfg)
@@ -148,6 +176,7 @@ function commitRun(finalScore: number, durationMs: number): number {
 }
 
 function closeDrum(): void {
+  flushSave()
   pendingIndex = -1
   drum.hide()
   drumBlockEl.classList.add('hidden')
@@ -377,7 +406,7 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
       pendingIndex = commitRun(finalScore, durationMs)
       renderBoards(pendingIndex)
       if (pendingIndex >= 0) {
-        // Попал в таблицу: барабан вместо кнопок, пока игрок не нажмёт «Готово». Запись уже сохранена, каждый поворот барабана её обновляет.
+        // Попал в таблицу: барабан вместо кнопок, пока игрок не нажмёт «Готово». Запись уже сохранена; повороты барабана сбрасываются на диск отложенно (scheduleSave).
         gameOverActionsEl.classList.add('hidden')
         drumBlockEl.classList.remove('hidden')
         drum.show(
@@ -385,10 +414,10 @@ function handleGameEvent(ev: GameEvent, s: Session): void {
           (name) => {
             if (pendingIndex < 0) return
             initials = name
-            storageSet(INITIALS_KEY, name)
             table = renameEntry(table, pendingIndex, name)
-            saveTable(table)
-            renderBoards(pendingIndex)
+            scheduleSave()
+            // Меню под экраном проигрыша скрыто: перерисовываем только видимую таблицу (меню обновит closeDrum).
+            renderBoard(gameOverBoardEl, table, lbCfg.size, pendingIndex)
           },
           closeDrum,
         )
@@ -694,6 +723,9 @@ window.addEventListener('orientationchange', onWindowResize)
 
 // --- игровой цикл: requestAnimationFrame, dt наружу, без аллокаций/await ---
 
+// Рисовать ли сцену под экраном проигрыша (он непрозрачный, так что зря). true — прежнее поведение.
+const RENDER_WHEN_DEAD = false
+
 let lastFrameTime: number | null = null
 
 function frame(now: number): void {
@@ -713,6 +745,9 @@ function frame(now: number): void {
     const st = s.stick.state
     if (st.x !== 0 || st.y !== 0) applyStick(st.x, st.y, dtMs)
   }
+  // Экран проигрыша непрозрачный и целиком закрывает холст: рисовать за ним сцену с постобработкой
+  // незачем (полный кадр GPU конкурирует с нажатиями барабана). RENDER_WHEN_DEAD = true возвращает как было.
+  if (!RENDER_WHEN_DEAD && !isAlive(s.state)) return
   // На паузе демо render идёт дальше: камера доигрывает доворот за экраном объяснения.
   s.view.render(s.state, dtMs)
 }

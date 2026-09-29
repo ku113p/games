@@ -233,6 +233,8 @@ const OCCLUDER_REACH = 24 // дальше этого от головы не ищ
 const OCCLUDER_MAX_ACTIVE = 2048 // потолок одновременно тающих клеток
 const GHOST_FADE_MS = 140 // постоянная времени плавного перехода
 const GHOST_TEX_W = 256
+// true — всегда гонять прозрачный проход по всем граням (как было); false — только когда есть что рисовать.
+const GHOST_PASS_ALWAYS = false
 
 export class ObstaclesView {
   private scene: Scene
@@ -515,6 +517,9 @@ export class ObstaclesView {
       }
     }
     if (changed) this.ghostTex.needsUpdate = true
+    // Прозрачный проход гоняет вершинный шейдер по ВСЕМ граням (на 100³ ~130k инстансов), а рисует единицы.
+    // Пока тающих клеток нет (g == 0 у всех) и плоская фаза не даёт веса, он ничего не рисует: прячем меш целиком.
+    if (this.ghost) this.ghost.visible = GHOST_PASS_ALWAYS || this.activeCount > 0 || freeAmount < 1
   }
 
   /** Есть ли препятствие в клетке (набор собирается на 'started'). Без аллокаций. */
