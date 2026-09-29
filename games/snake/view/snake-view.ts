@@ -26,6 +26,8 @@ import type { GameState } from '../core/state'
 import { snakeLength, forEachSnakeSegment, elapsedMs, intendedHeading, stepProgress, stepsToCrash, appleOnCourse } from '../core/queries'
 import configJson from '../config.json'
 import { InstancedPool } from './pool'
+import { TailGuides } from './tail-guides'
+import type { SnakeSkin } from './cosmetics'
 import { beamGeometry, cubeEdgeSegments } from './outline'
 import {
   SNAKE_BODY_COLOR,
@@ -78,6 +80,12 @@ export class SnakeView {
   private px = new Float32Array(0)
   private py = new Float32Array(0)
   private pz = new Float32Array(0)
+  // Сглаженные позиции и масштаб сегментов кадра: нужны направляющим хвоста (звено между соседями).
+  private gx = new Float32Array(0)
+  private gy = new Float32Array(0)
+  private gz = new Float32Array(0)
+  private gk = new Float32Array(0)
+  private readonly guides: TailGuides | null
 
   private headMesh: Mesh
   private headMaterial: MeshBasicMaterial
@@ -139,6 +147,10 @@ export class SnakeView {
     this.px = new Float32Array(cap)
     this.py = new Float32Array(cap)
     this.pz = new Float32Array(cap)
+    this.gx = new Float32Array(cap)
+    this.gy = new Float32Array(cap)
+    this.gz = new Float32Array(cap)
+    this.gk = new Float32Array(cap)
   }
 
   private place(i: number, length: number, glide: number): void {
@@ -148,6 +160,10 @@ export class SnakeView {
     const y = this.py[back]! + (this.py[i]! - this.py[back]!) * glide
     const z = this.pz[back]! + (this.pz[i]! - this.pz[back]!) * glide
 
+    this.gx[i] = x
+    this.gy[i] = y
+    this.gz[i] = z
+    this.gk[i] = 1
     if (i === 0) {
       this.headX = x
       this.headY = y
@@ -163,6 +179,7 @@ export class SnakeView {
       const f = MathUtils.smoothstep(dist, FADE_NEAR_CELLS, FADE_FAR_CELLS)
       k = MathUtils.lerp(1, MathUtils.lerp(FADE_MIN_SCALE, 1, f), this.fadeAmount)
     }
+    this.gk[i] = k
     // Тело — инстансы 0..length-2 (голова рисуется отдельно).
     const idx = i - 1
     this.matrix.makeScale(k, k, k).setPosition(x, y, z)
@@ -173,8 +190,9 @@ export class SnakeView {
     this.pool.mesh.setColorAt(idx, this.color)
   }
 
-  constructor(scene: Scene, signalCfg: HeadSignalConfig = configJson.headSignal) {
+  constructor(scene: Scene, signalCfg: HeadSignalConfig = configJson.headSignal, skin: SnakeSkin = 'classic') {
     this.signalCfg = signalCfg
+    this.guides = skin === 'tailGuides' ? new TailGuides(scene) : null
     const geometry = beamGeometry(cubeEdgeSegments(SEGMENT_SCALE / 2), SEGMENT_BEAM)
     const material = new MeshBasicMaterial()
     this.pool = new InstancedPool(scene, geometry, material, 8)
@@ -194,6 +212,7 @@ export class SnakeView {
   /** Холодный путь: вызывать из handle() при 'started'/'moved'/'ate'. */
   ensureCapacity(s: GameState): void {
     this.pool.ensureCapacity(Math.max(1, snakeLength(s) - 1))
+    this.guides?.ensureCapacity(snakeLength(s))
   }
 
   /**
@@ -220,6 +239,7 @@ export class SnakeView {
     const glide = MathUtils.smoothstep(stepProgress(s), 0, SLIDE_FRACTION)
     for (let i = 0; i < length; i++) this.place(i, length, glide)
     this.pool.markDirty()
+    this.guides?.update(length, this.gx, this.gy, this.gz, this.gk, SNAKE_BODY_COLOR, SNAKE_TAIL_COLOR, SNAKE_BODY_GLOW_BOOST, this.denom)
 
     // Направление головы берётся из ядра и меняется мгновенно по вводу, без сглаживания: змейка тактовая.
     const dir = intendedHeading(s)
@@ -285,6 +305,7 @@ export class SnakeView {
 
   dispose(): void {
     this.pool.dispose()
+    this.guides?.dispose()
     this.scene.remove(this.headMesh)
     this.headMesh.geometry.dispose()
     this.headMaterial.dispose()

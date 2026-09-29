@@ -32,6 +32,7 @@ import {
   Mesh,
   Quaternion,
   ShaderMaterial,
+  TorusGeometry,
   Vector3,
   type Camera,
   type Scene,
@@ -40,6 +41,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { GameState } from '../core/state'
 import { applePos, head } from '../core/queries'
 import { APPLE_COLOR } from './palette'
+import type { CompassSkin } from './cosmetics'
 
 // --- Оформительские константы (крутит дизайнер), не числа баланса -----------------
 /** false — компас не создаётся и не считается вовсе. */
@@ -83,6 +85,49 @@ export const COMPASS_SHADING = 0.7
 // Во сколько раз сжимается диапазон глубины стрелки у ближней плоскости (техническое число).
 const DEPTH_SQUASH = 0.02
 const CONE_SEGMENTS = 20
+
+// Виды стрелки (магазин). Все в единичной длине вдоль +Y с центром в нуле, как основная: та же высота, тот же доворот и та же яркость.
+// Шеврон: три вложенных конуса подряд (▲▲▲): круглые в сечении, поэтому с любого ракурса читаются как «вперёд».
+const CHEVRON_COUNT = 3
+const CHEVRON_RADIUS = 0.27
+const CHEVRON_LENGTH = 0.34 // высота одного конуса
+const CHEVRON_STEP = 0.29 // сдвиг острия от конуса к конусу назад
+// Кольцо: конус-остриё и охватывающее кольцо у его основания (кольцо перпендикулярно направлению).
+const RING_RADIUS = 0.3
+const RING_TUBE = 0.06
+const RING_Y = -0.2
+const RING_CONE_RADIUS = 0.2
+const RING_CONE_LEN = 0.6
+
+/** Геометрия стрелки по виду: default — древко и конус. Холодный путь. */
+export function compassGeometry(skin: CompassSkin): BufferGeometry {
+  const parts: BufferGeometry[] = []
+  if (skin === 'chevron') {
+    for (let k = 0; k < CHEVRON_COUNT; k++) {
+      const c = new ConeGeometry(CHEVRON_RADIUS, CHEVRON_LENGTH, CONE_SEGMENTS, 1)
+      c.translate(0, 0.5 - CHEVRON_LENGTH / 2 - k * CHEVRON_STEP, 0)
+      parts.push(c)
+    }
+  } else if (skin === 'ring') {
+    const cone = new ConeGeometry(RING_CONE_RADIUS, RING_CONE_LEN, CONE_SEGMENTS, 1)
+    cone.translate(0, 0.5 - RING_CONE_LEN / 2, 0)
+    const ring = new TorusGeometry(RING_RADIUS, RING_TUBE, 10, 28)
+    ring.rotateX(Math.PI / 2) // ось кольца — Y (направление)
+    ring.translate(0, RING_Y, 0)
+    parts.push(cone, ring)
+  } else {
+    const headLen = COMPASS_HEAD_FRACTION
+    const shaftLen = 1 - headLen
+    const cone = new ConeGeometry(COMPASS_HEAD_RADIUS, headLen, CONE_SEGMENTS, 1)
+    cone.translate(0, 0.5 - headLen / 2, 0)
+    const shaft = new CylinderGeometry(COMPASS_SHAFT_RADIUS, COMPASS_SHAFT_RADIUS, shaftLen, CONE_SEGMENTS, 1)
+    shaft.translate(0, -0.5 + shaftLen / 2, 0)
+    parts.push(cone, shaft)
+  }
+  const merged = mergeGeometries(parts, false)
+  for (const p of parts) p.dispose()
+  return merged
+}
 
 const VERTEX = /* glsl */ `
 varying vec3 vN;
@@ -135,20 +180,12 @@ export class CompassView {
   private readonly hideDist: number
   private readonly fullDist: number
 
-  constructor(scene: Scene, hints?: CompassHints) {
+  constructor(scene: Scene, hints?: CompassHints, skin: CompassSkin = 'default') {
     this.scene = scene
     this.hideDist = hints?.compassHideDist ?? COMPASS_HIDE_DIST_FALLBACK
     this.fullDist = hints?.compassFullDist ?? COMPASS_FULL_DIST_FALLBACK
-    // Стрелка вдоль +Y единичной длины, центр в начале: древко снизу, конус сверху.
-    const headLen = COMPASS_HEAD_FRACTION
-    const shaftLen = 1 - headLen
-    const cone = new ConeGeometry(COMPASS_HEAD_RADIUS, headLen, CONE_SEGMENTS, 1)
-    cone.translate(0, 0.5 - headLen / 2, 0)
-    const shaft = new CylinderGeometry(COMPASS_SHAFT_RADIUS, COMPASS_SHAFT_RADIUS, shaftLen, CONE_SEGMENTS, 1)
-    shaft.translate(0, -0.5 + shaftLen / 2, 0)
-    const g: BufferGeometry = mergeGeometries([cone, shaft], false)
-    cone.dispose()
-    shaft.dispose()
+    // Стрелка вдоль +Y единичной длины, центр в начале: для default древко снизу, конус сверху.
+    const g: BufferGeometry = compassGeometry(skin)
     this.material = new ShaderMaterial({
       uniforms: {
         uColor: { value: new Color().copy(APPLE_COLOR).multiplyScalar(COMPASS_BRIGHTNESS) },

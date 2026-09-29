@@ -40,7 +40,7 @@ import {
 import { isPerfDebugRequested, isSelfStartingPerfMode } from './legal/flow'
 import { ALL_SCREENS, createScreens, isHeld, visibleScreens, type ScreenId, type ScreenState } from './screens/screens'
 import { currentLanguage, initLanguage, onLanguageChange, t } from './i18n/runtime'
-import { SHOP_STORAGE_KEY, catalog, gameSetup, parse, serialize, type Item, type ShopRoot, type ShopState } from './shop'
+import { SHOP_STORAGE_KEY, catalog, equippedItem, gameSetup, parse, serialize, type Item, type ShopRoot, type ShopState, type Slot } from './shop'
 import { createWallet, grandfatherArena, hasAffordableNew, isShopUnlocked } from './screens/shop-flow'
 import { createShopView } from './screens/shop-view'
 import musicUrl from './assets/music/cyber-runner.mp3'
@@ -832,7 +832,18 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
   const boostFactor = setup === null ? config.speed.boostFactor : setup.boostFactor
   const state = createGame(config, size, seed, isFirstGameEver, boostFactor, setup === null ? {} : { obstacleMult: setup.obstacleMult, paceScale: setup.paceScale })
   setBoostLabel(state)
-  const view = createView(canvas, config, state)
+  // Косметика из магазина: палитра и скины приходят строками из payload, view о магазине не знает.
+  // В замере надетое не применяется — иначе цифры зависели бы от того, что куплено.
+  const worn = (slot: Slot, key: 'palette' | 'skin'): string | undefined =>
+    forBench
+      ? undefined
+      : (equippedItem(wallet.state, shopRoot, slot)?.payload as { palette?: string; skin?: string } | undefined)?.[key]
+  const view = createView(canvas, config, state, {
+    palette: worn('palette', 'palette'),
+    snakeSkin: worn('snakeSkin', 'skin'),
+    appleSkin: worn('appleSkin', 'skin'),
+    compassSkin: worn('compassSkin', 'skin'),
+  })
   view.setFogOn(fogOn)
 
   // Ускорение включено, пока держит хоть один источник: палец на кнопке или Shift/Space.

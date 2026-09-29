@@ -39,6 +39,53 @@ export function pyramidEdgeSegments(radius: number, height: number): number[] {
   return out
 }
 
+/** Окружность радиуса r в плоскости, перпендикулярной оси (0 — x, 1 — y, 2 — z), n отрезков: [ax,ay,az,bx,by,bz]*n. */
+export function circleSegments(radius: number, n: number, axis: 0 | 1 | 2): number[] {
+  const out: number[] = []
+  const pt = (k: number): [number, number, number] => {
+    const a = (k / n) * Math.PI * 2
+    const u = Math.cos(a) * radius
+    const v = Math.sin(a) * radius
+    return axis === 0 ? [0, u, v] : axis === 1 ? [u, 0, v] : [u, v, 0]
+  }
+  for (let k = 0; k < n; k++) {
+    const a = pt(k)
+    const b = pt(k + 1)
+    out.push(a[0], a[1], a[2], b[0], b[1], b[2])
+  }
+  return out
+}
+
+/** Звезда: два тетраэдра, вписанных в куб с полуразмером half (восемь вершин куба, двенадцать рёбер: диагонали граней). */
+export function stellaOctangulaSegments(half: number): number[] {
+  const tetra = (sign: 1 | -1): number[][] => [
+    [sign * half, sign * half, sign * half],
+    [sign * half, -sign * half, -sign * half],
+    [-sign * half, sign * half, -sign * half],
+    [-sign * half, -sign * half, sign * half],
+  ]
+  const out: number[] = []
+  for (const sign of [1, -1] as const) {
+    const t = tetra(sign)
+    for (let i = 0; i < 4; i++) {
+      for (let j = i + 1; j < 4; j++) out.push(...t[i]!, ...t[j]!)
+    }
+  }
+  return out
+}
+
+/** Те же отрезки, повёрнутые так, что диагональ куба (1,1,1) ложится на ось z: вид вдоль z даёт шестиконечную звезду, а не «песочные часы». */
+export function cornerOnZ(segments: number[]): number[] {
+  const q = new Quaternion().setFromUnitVectors(new Vector3(1, 1, 1).normalize(), new Vector3(0, 0, 1))
+  const v = new Vector3()
+  const out: number[] = []
+  for (let i = 0; i + 2 < segments.length; i += 3) {
+    v.set(segments[i]!, segments[i + 1]!, segments[i + 2]!).applyQuaternion(q)
+    out.push(v.x, v.y, v.z)
+  }
+  return out
+}
+
 /** Склеенная геометрия балок по отрезкам [ax,ay,az,bx,by,bz]*n; только position. */
 export function beamGeometry(segments: number[], thickness: number): BufferGeometry {
   const parts: BufferGeometry[] = []

@@ -14,12 +14,13 @@
 // Antialias канваса выключен: рендер идёт в RenderTarget composer'а, MSAA канваса ничего бы не сглаживал.
 // Сглаживание — свой способ в PostFx (MSAA-цель, 8-битная цель или постобработочный SMAA, view/perf-settings.ts: AA_PRESETS).
 
-import { WebGLRenderer, Scene, Color, NoToneMapping, MathUtils } from 'three'
+import { WebGLRenderer, Scene, NoToneMapping, MathUtils } from 'three'
 import type { GameState } from '../core/state'
 import type { GameEvent } from '../core/commands'
 import type { Config } from '../core/rules'
 import { viewFrame, cubeSize, head } from '../core/queries'
-import { BACKGROUND_COLOR, createFog } from './palette'
+import { BACKGROUND_COLOR, applyPaletteById, createFog, type PalettesConfig } from './palette'
+import { resolveCosmetics, type CosmeticsInput } from './cosmetics'
 import { CameraRig } from './camera-rig'
 import { PostFx } from './postprocessing'
 import { CubeFrame } from './cube-frame'
@@ -75,7 +76,7 @@ function getShared(canvas: HTMLCanvasElement): Shared {
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false })
   renderer.setPixelRatio(pixelRatioFor(canvas.clientWidth || canvas.width || 1, canvas.clientHeight || canvas.height || 1))
   renderer.toneMapping = NoToneMapping
-  renderer.setClearColor(new Color(BACKGROUND_COLOR), 1)
+  renderer.setClearColor(BACKGROUND_COLOR, 1)
   shared = { canvas, renderer, postFx: null }
   return shared
 }
@@ -88,22 +89,30 @@ export function disposeSharedRenderer(): void {
   shared = null
 }
 
-export function createView(canvas: HTMLCanvasElement, config: Config, s: GameState): View {
+/**
+ * `cosmetics` — что надето в магазине (палитра, вид змейки, яблока, стрелки); без него — вид по умолчанию.
+ * Применяется при создании вида, то есть при старте партии (холодный путь): смена набора на лету не поддерживается.
+ */
+export function createView(canvas: HTMLCanvasElement, config: Config, s: GameState, cosmetics?: CosmeticsInput): View {
+  const look = resolveCosmetics(cosmetics)
+  // Цвета — до создания любого объекта вида: материалы копируют цвет при создании.
+  applyPaletteById((config as { palettes?: PalettesConfig }).palettes, look.palette)
   const sh = getShared(canvas)
   const renderer = sh.renderer
+  renderer.setClearColor(BACKGROUND_COLOR, 1) // renderer общий между партиями, фон набора ставится каждый раз
 
   const scene = new Scene()
   const cameraRig = new CameraRig(config)
   const cubeFrame = new CubeFrame(scene)
   const wallGrid = new WallGrid(scene)
   const miniMap = new MiniMap(config.minimap.windowCells, config.minimap.levelWindowCells)
-  const snakeView = new SnakeView(scene)
+  const snakeView = new SnakeView(scene, undefined, look.snakeSkin)
   const obstaclesView = new ObstaclesView(scene)
-  const appleView = new AppleView(scene)
+  const appleView = new AppleView(scene, look.appleSkin)
   const fog = createFog()
   scene.fog = fog
   let fogOn = config.fog.defaultOn
-  const compass = COMPASS_ENABLED ? new CompassView(scene, config.hints as typeof config.hints & CompassHints) : null
+  const compass = COMPASS_ENABLED ? new CompassView(scene, config.hints as typeof config.hints & CompassHints, look.compassSkin) : null
   const aheadRay = createDirectionHint(scene, config)
 
   const initialWidth = canvas.clientWidth || canvas.width || 1

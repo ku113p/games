@@ -1,13 +1,36 @@
-// Неоновая палитра. Это оформительские константы (не числа баланса игры),
-// поэтому по правилам AGENTS.md/CONTRACT.md они не обязаны жить в config.json —
-// там только числа, влияющие на баланс/тайминги геймплея.
+// Палитра освещения.
+//
+// ЦВЕТА — ДАННЫЕ. Наборы цветов лежат в config.json (palettes.sets.<id>, hex-строки), какой из них надет — решает магазин.
+// Здесь живут ЖИВЫЕ объекты Color: остальной view импортирует их по прежним именам (SNAKE_BODY_COLOR, APPLE_COLOR, ...),
+// а applyPalette() при старте партии перезаписывает их на месте. Это холодный путь: в кадре ничего не создаётся и не читается из
+// конфига. Смена набора на лету не поддерживается (материалы копируют цвет при создании): только между партиями, до createView.
+//
+// ЯРКОСТЬ СВЕЧЕНИЯ ТОЖЕ СЧИТАЕТСЯ САМА. Bloom берёт линейную яркость 0.299R+0.587G+0.114B выше порога BLOOM_THRESHOLD.
+// В наборе хранится только оттенок; множитель для каждой роли = целевая яркость (config.palettes.glow) / яркость оттенка,
+// с потолком maxBoost. Так любой набор светится одинаково, а «сигналы горят, тихое не светится» выполняется без подбора ×3.0 руками.
+// Оформительские константы ниже (альфы, пороги) — не числа баланса; по AGENTS.md баланс живёт в config.json, а не они.
+// Проверка различимости сигналов головы — palette-math.ts (checkPalette) и palette.test.ts: набор, не прошедший её, в конфиг не попадает.
 
 import { Color, FogExp2, UniformsLib, UniformsUtils, type IUniform } from 'three'
+import configJson from '../config.json'
+import { boostsFor, type GlowTargets, type PaletteSet } from './palette-math'
 
-export const BACKGROUND_COLOR = 0x02030a
-// Цвет тумана: не чёрный фон, а видимый фон сцены (слабая вуаль стенок куба + bloom ≈ sRGB 30,34,58):
+export type { GlowTargets, PaletteSet } from './palette-math'
+
+/** Раздел config.palettes. */
+export interface PalettesConfig {
+  glow: GlowTargets
+  sets: Readonly<Record<string, PaletteSet>>
+}
+
+/** Набор по умолчанию и запасной, если выбранного нет в конфиге. */
+export const DEFAULT_PALETTE_ID = 'neon'
+
+/** Фон сцены и мини-карты (живой объект, см. applyPalette). */
+export const BACKGROUND_COLOR = new Color()
+// Цвет тумана: не чёрный фон, а видимый фон сцены (слабая вуаль стенок куба + bloom ≈ sRGB 30,34,58 у «Ночного неона»):
 // иначе дальние блоки чернеют дырами на светлой вуали, а не растворяются в ней.
-export const FOG_COLOR = 0x1e223a
+export const FOG_COLOR = new Color()
 
 // ТУМАН СЦЕНЫ. Единственный механизм затухания по дальности от КАМЕРЫ: экспоненциальный
 // FogExp2 (exp(-(ρ·d)²), d — глубина в кадре), цвет тумана = цвет фона, поэтому далёкое не
@@ -36,9 +59,8 @@ float fogVisibility(float viewDepth) {
 `
 
 // Рёбра куба-арены: светятся, но не заливают (bloom-порог BLOOM_THRESHOLD, см. блок Bloom ниже).
-// Неон-проход: было 1.6, стало 2.2 (ярче линия -> заметный мягкий ореол по рёбрам куба).
-export const CUBE_EDGE_BOOST = 2.2
-export const CUBE_EDGE_COLOR = new Color(0x1fb6ff).multiplyScalar(CUBE_EDGE_BOOST)
+// Множитель считает applyPalette (у «Ночного неона» 2.2: было 1.6, стало 2.2, ярче линия -> заметный мягкий ореол по рёбрам куба).
+export const CUBE_EDGE_COLOR = new Color()
 // Толщина ребра в клетках: size * k, в пределах [min, max].
 export const CUBE_EDGE_THICKNESS_PER_SIZE = 0.004
 export const CUBE_EDGE_THICKNESS_MIN = 0.07
@@ -46,27 +68,27 @@ export const CUBE_EDGE_THICKNESS_MAX = 0.2
 
 // Проекция головы на стенки: очень тихая, заметно тусклее рёбер и змейки.
 // Яркость (линейный цвет * альфа) ниже порога bloom 0.25.
-export const MARK_COLOR = new Color(0xd9b84a)
+export const MARK_COLOR = new Color()
 export const MARK_LINE_ALPHA = 0.12
 export const MARK_SQUARE_ALPHA = 0.2
 
 // Читаемость: тело и хвост яркие (сине-зелёный неон, яркость не падает ниже
 // уровня яркого сегмента), голова тёплая и ярче тела — не спутать ни с телом,
 // ни с яблоком (розовый).
-export const SNAKE_BODY_COLOR = new Color(0x3dffa6)
-export const SNAKE_TAIL_COLOR = new Color(0x18c8ff)
-export const SNAKE_HEAD_COLOR = new Color(0xfff27a)
+export const SNAKE_BODY_COLOR = new Color()
+export const SNAKE_TAIL_COLOR = new Color()
+export const SNAKE_HEAD_COLOR = new Color()
 // Чётные/нечётные сегменты чуть различаются по яркости — видно длину и движение.
 export const SNAKE_STRIPE_DIM = 0.72
 // Множитель яркости тела змейки (только вид змейки, мини-карта его не берёт).
 // Неон-проход: было 1.0 (тело не светилось вовсе), стало 1.25 — светятся яркие сегменты,
 // тусклые полосы (SNAKE_STRIPE_DIM) остаются ниже порога: полосатость не пропадает.
-export const SNAKE_BODY_GLOW_BOOST = 1.25
+export let SNAKE_BODY_GLOW_BOOST = 1.25
 
-export const APPLE_COLOR = new Color(0xff2d78)
+export const APPLE_COLOR = new Color()
 // Множитель яркости яблока (мини-карта его не берёт). Неон-проход: было 1.0 (линейная яркость
 // красно-розового ~0.34 — ниже порога, яблоко не светилось), стало 2.5.
-export const APPLE_GLOW_BOOST = 2.5
+export let APPLE_GLOW_BOOST = 2.5
 export const APPLE_EMISSIVE_PULSE_MIN = 0.6
 export const APPLE_EMISSIVE_PULSE_MAX = 1.35
 
@@ -74,22 +96,22 @@ export const APPLE_EMISSIVE_PULSE_MAX = 1.35
 // линия в 1 px стала яркой, но ореол у неё крошечный: сами грани не светятся.
 // Грани берут тот же цвет, поэтому OBSTACLE_FACE_BRIGHTNESS делится на множитель:
 // яркость граней осталась прежней (0.3 от прежнего цвета), меняется только линия.
-export const OBSTACLE_LINE_BOOST = 3.2
-export const OBSTACLE_COLOR = new Color(0x8f5cff).multiplyScalar(OBSTACLE_LINE_BOOST)
+// Цвет линии уже умножен на множитель (applyPalette), OBSTACLE_FACE_BRIGHTNESS делится на него.
+export const OBSTACLE_COLOR = new Color()
 
 // Сетка на стенках: тусклая, ниже порога bloom; каждая 5-я линия ярче.
-export const GRID_COLOR = new Color(0x2a8cff)
+export const GRID_COLOR = new Color()
 export const GRID_MINOR_ALPHA = 0.1
 export const GRID_MAJOR_ALPHA = 0.3
 
 // Мини-карта: приглушённая подсказка боковым зрением.
-export const MINIMAP_BG_COLOR = new Color(0x02030a)
+export const MINIMAP_BG_COLOR = new Color()
 export const MINIMAP_BG_ALPHA = 0.4
-export const MINIMAP_BORDER_COLOR = new Color(0x1fb6ff)
+export const MINIMAP_BORDER_COLOR = new Color()
 // Тихий край окна просмотра (мир за ним продолжается) — заметно тусклее стены.
 export const MINIMAP_BORDER_ALPHA = 0.22
 // Настоящая стена арены на карте: сплошная толстая линия по той стороне окна, где оно упёрлось.
-export const MINIMAP_WALL_COLOR = new Color(0x6fe3ff)
+export const MINIMAP_WALL_COLOR = new Color()
 export const MINIMAP_WALL_ALPHA = 0.95
 // Подписи осей («XZ» у карты сверху, «Y» у уровнемера).
 export const MINIMAP_LABEL_ALPHA = 0.6
@@ -111,7 +133,7 @@ export const RAY_MAIN_BRIGHTNESS = 0.48
 export const RAY_SIDE_BRIGHTNESS = 0.2
 // Подсветка того, во что упрётся основной луч (стенка, препятствие, тело):
 // тёплый красно-оранжевый, линейная яркость ~0.35 ниже порога bloom.
-export const RAY_DANGER_COLOR = new Color(0xff5a30)
+export const RAY_DANGER_COLOR = new Color()
 // Заливка грани удара сплошная и потому визуально тяжелее прежней рамки: яркость снижена,
 // линейная яркость цвета остаётся ниже порога bloom 0.8 (сейчас ~0.16).
 export const RAY_HIT_FILL_BRIGHTNESS = 0.5
@@ -123,18 +145,20 @@ export const RAY_HIT_FILL_BRIGHTNESS = 0.5
 // У чистого красного/розового яркость мала, поэтому им нужен множитель >2 (иначе гало нет), а у оранжевого
 // множитель поднимает и зелёный канал и сдвигает оттенок к жёлтому, поэтому берём оранжевый с малым G.
 // Было: голова 0xfff27a * 1.4 (яркость ~1.18, самое яркое пятно кадра); стало: * 0.7 (~0.59, без гало).
-export const HEAD_IDLE_BOOST = 0.7
+// Множители HEAD_* и цвета опасности считает applyPalette. У «Ночного неона»: обычная ×0.7, цель ×3.0, опасность-2 ×2.0, опасность-1 ×3.6.
+export let HEAD_IDLE_BOOST = 0.7
 export const HEAD_GOAL_COLOR = APPLE_COLOR
-export const HEAD_GOAL_BOOST = 3.0
-export const HEAD_DANGER_COLOR_FAR = new Color(0xff7000).multiplyScalar(2.0)
-export const HEAD_DANGER_COLOR_NEAR = new Color(0xff2010).multiplyScalar(3.6)
+export let HEAD_GOAL_BOOST = 3.0
+export const HEAD_DANGER_COLOR_FAR = new Color()
+export const HEAD_DANGER_COLOR_NEAR = new Color()
 
 // Грани препятствий: сплошные, непрозрачные (с записью глубины). Яркость граней
 // — доля цвета рёбер (рёбра 1.0, грани 0.3): куб читается объёмом с контуром, а не
 // сплошной заливкой. Оттенок по оси нормали (свет фиксирован в мире) даёт форму
 // даже там, где соседние грани одного цвета: +y светлее всего, z темнее всего,
 // отрицательные стороны ещё на NEG_SHADE тусклее.
-export const OBSTACLE_FACE_BRIGHTNESS = 0.3 / OBSTACLE_LINE_BOOST
+export const OBSTACLE_FACE_SHARE = 0.3
+export let OBSTACLE_FACE_BRIGHTNESS = OBSTACLE_FACE_SHARE
 export const OBSTACLE_FACE_SHADE_X = 0.85
 export const OBSTACLE_FACE_SHADE_Y = 1.0
 export const OBSTACLE_FACE_SHADE_Z = 0.65
@@ -175,8 +199,54 @@ export const NEAR_OCCLUDED_ALPHA = 0.3
 export const NEAR_DEPTH_BIAS = 0.9
 
 // Мини-карта: препятствия тише головы и яблока (фон, а не фигура).
-export const MINIMAP_OBSTACLE_COLOR = new Color(0x8f5cff)
+export const MINIMAP_OBSTACLE_COLOR = new Color()
 export const MINIMAP_OBSTACLE_ALPHA = 0.4
 // Тело змейки на карте: зелёно-голубой градиент как в игре (цвета SNAKE_*), ярче препятствий
 // и другого оттенка, но тише головы (жёлтый треугольник, alpha 0.9, поверх всего).
 export const MINIMAP_BODY_ALPHA = 0.7
+
+/**
+ * Применить набор цветов: перезаписать живые Color и множители на месте. Холодный путь, только между партиями (до createView).
+ * Ничего не знает о том, откуда взят набор.
+ */
+export function applyPalette(set: PaletteSet, glow: GlowTargets): void {
+  const b = boostsFor(set, glow)
+  BACKGROUND_COLOR.set(set.background)
+  FOG_COLOR.set(set.fog)
+  MINIMAP_BG_COLOR.set(set.background)
+  CUBE_EDGE_COLOR.set(set.edge).multiplyScalar(b.edge)
+  MARK_COLOR.set(set.mark)
+  SNAKE_BODY_COLOR.set(set.body)
+  SNAKE_TAIL_COLOR.set(set.tail)
+  SNAKE_HEAD_COLOR.set(set.head)
+  SNAKE_BODY_GLOW_BOOST = b.body
+  APPLE_COLOR.set(set.apple)
+  APPLE_GLOW_BOOST = b.apple
+  OBSTACLE_COLOR.set(set.obstacle).multiplyScalar(b.obstacleLine)
+  OBSTACLE_FACE_BRIGHTNESS = OBSTACLE_FACE_SHARE / b.obstacleLine
+  GRID_COLOR.set(set.grid)
+  MINIMAP_BORDER_COLOR.set(set.edge)
+  MINIMAP_WALL_COLOR.set(set.wall)
+  MINIMAP_OBSTACLE_COLOR.set(set.obstacle)
+  RAY_DANGER_COLOR.set(set.rayDanger)
+  HEAD_IDLE_BOOST = b.headIdle
+  HEAD_GOAL_BOOST = b.headGoal
+  HEAD_DANGER_COLOR_FAR.set(set.dangerFar).multiplyScalar(b.dangerFar)
+  HEAD_DANGER_COLOR_NEAR.set(set.dangerNear).multiplyScalar(b.dangerNear)
+}
+
+/**
+ * Применить набор по id из config.palettes. Неизвестный id: запасной DEFAULT_PALETTE_ID.
+ * Возвращает id, который применён на самом деле.
+ */
+export function applyPaletteById(given: PalettesConfig | undefined, id: string | undefined): string {
+  const palettes = given ?? (configJson.palettes as PalettesConfig) // конфиг без раздела (тестовый) — наборы из config.json
+  const want = id !== undefined && palettes.sets[id] !== undefined ? id : DEFAULT_PALETTE_ID
+  const set = palettes.sets[want]
+  if (set === undefined) return DEFAULT_PALETTE_ID
+  applyPalette(set, palettes.glow)
+  return want
+}
+
+// Цвета не должны быть пустыми до первой партии (модули вида создают материалы и в тестах).
+applyPaletteById(configJson.palettes as PalettesConfig, DEFAULT_PALETTE_ID)
