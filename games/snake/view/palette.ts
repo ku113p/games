@@ -99,6 +99,11 @@ export const MINIMAP_WALL_ALPHA = 0.95
 export const MINIMAP_LABEL_ALPHA = 0.6
 // Осевая линия уровнемера (вертикальная полоса «пол — потолок»): тихая, метки поверх.
 export const MINIMAP_LEVEL_TRACK_ALPHA = 0.35
+// Деления окна полосы (мелкие каждую клетку, крупные каждые N клеток мира) — мимо метки головы они «едут».
+export const MINIMAP_LEVEL_TICK_ALPHA = 0.3
+export const MINIMAP_LEVEL_TICK_MAJOR_ALPHA = 0.7
+// Жёлоб полосы во всю высоту арены: тонкая тихая линия, на ней две точки (я и яблоко).
+export const MINIMAP_TROUGH_ALPHA = 0.5
 export const MINIMAP_HEAD_ALPHA = 0.9
 export const MINIMAP_APPLE_ALPHA = 0.85
 // Яблоко вне среза (проекция) и вне окна (стрелка у края) тише «яблока здесь», но заметны.

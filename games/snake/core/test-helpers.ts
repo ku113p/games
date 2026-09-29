@@ -11,7 +11,7 @@ export const config: Config = {
   hints: { latticeAt: 'corners', latticeStep: 1 },
   demo: { afterSteps: 5 },
   loop: { maxFrameMs: 100 },
-  minimap: { windowCells: 20 },
+  minimap: { windowCells: 20, levelWindowCells: 10 },
   fog: { density: 0.05, defaultOn: true },
   input: { doubleTapMs: 240, swipeMinPx: 24, tiltRadPerPx: 0.005 },
 }

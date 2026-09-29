@@ -2,10 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import {
   clampToWindow,
   inWindow,
+  isMajorTick,
   isInWindow,
   levelFraction,
   touchesHighWall,
   touchesLowWall,
+  windowFraction,
   windowLength,
   windowStart,
 } from './map-window'
@@ -124,5 +126,47 @@ describe('levelFraction (уровнемер)', () => {
 
   test('не зависит от окна: монотонно растёт по всей высоте', () => {
     for (let y = 1; y < 50; y++) expect(levelFraction(y, 50)).toBeGreaterThan(levelFraction(y - 1, 50))
+  })
+})
+
+describe('окно полосы-уровнемера (windowFraction, isMajorTick)', () => {
+  const L = 10
+  test('метка головы в центре окна, пока не упёрлись в стены', () => {
+    for (let h = 5; h <= 94; h++) {
+      const s = windowStart(h, 100, L)
+      expect(windowFraction(h, s, L)).toBeCloseTo(0.55, 10)
+    }
+  })
+
+  test('один шаг = ровно одна клетка окна независимо от размера арены (у стены метка ходит)', () => {
+    for (const size of [20, 50, 100]) {
+      for (let h = 0; h < size - 1; h++) {
+        const a = windowFraction(h, windowStart(h, size, L), L)
+        const b = windowFraction(h + 1, windowStart(h + 1, size, L), L)
+        // В середине метка стоит, а мир едет на клетку; у стены метка едет на клетку. Кто-то один всегда.
+        const worldMove = windowStart(h + 1, size, L) - windowStart(h, size, L)
+        const markMove = Math.round((b - a) * L)
+        expect(Math.abs(worldMove - markMove)).toBe(1)
+        expect(worldMove === 1 || markMove === 1).toBe(true)
+      }
+    }
+  })
+
+  test('пол в окне только у пола, потолок только у потолка', () => {
+    expect(touchesLowWall(windowStart(2, 100, L))).toBe(true)
+    expect(touchesLowWall(windowStart(50, 100, L))).toBe(false)
+    expect(touchesHighWall(windowStart(97, 100, L), L, 100)).toBe(true)
+    expect(touchesHighWall(windowStart(50, 100, L), L, 100)).toBe(false)
+  })
+
+  test('фракция клетки вне окна выходит за 0..1 (яблоко вне окна)', () => {
+    expect(windowFraction(80, 40, L)).toBeGreaterThan(1)
+    expect(windowFraction(30, 40, L)).toBeLessThan(0)
+  })
+
+  test('крупные деления привязаны к миру: кратны N', () => {
+    expect(isMajorTick(0, 5)).toBe(true)
+    expect(isMajorTick(10, 5)).toBe(true)
+    expect(isMajorTick(7, 5)).toBe(false)
   })
 })

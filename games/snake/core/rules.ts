@@ -23,7 +23,7 @@ export interface Config {
   hints: { latticeAt: 'corners' | 'centers'; latticeStep: number }
   demo: { afterSteps: number }
   loop: { maxFrameMs: number }
-  minimap: { windowCells: number }
+  minimap: { windowCells: number; levelWindowCells: number }
   fog: { density: number; defaultOn: boolean }
   input: { doubleTapMs: number; swipeMinPx: number; tiltRadPerPx: number }
 }

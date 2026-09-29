@@ -41,7 +41,17 @@ export function touchesHighWall(start: number, len: number, size: number): boole
   return start + len >= size
 }
 
-/** Уровнемер: центр клетки v по всей высоте арены, доля 0..1 (0 — пол, 1 — потолок). Без окна и скролла. */
+/** Клетка v внутри окна, доля 0..1 по длине окна (центр клетки; 0 — низ окна, 1 — верх). Для полосы-уровнемера. */
+export function windowFraction(v: number, start: number, len: number): number {
+  return (v - start + 0.5) / len
+}
+
+/** Граница между клетками b-1 и b (мировая координата) «крупная»: кратна every. Деления привязаны к миру, не к окну. */
+export function isMajorTick(b: number, every: number): boolean {
+  return b % every === 0
+}
+
+/** Жёлоб полосы: центр клетки v по всей высоте арены, доля 0..1 (0 — пол, 1 — потолок). Общая картина, без окна. */
 export function levelFraction(v: number, size: number): number {
   return (v + 0.5) / size
 }

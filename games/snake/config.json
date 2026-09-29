@@ -28,8 +28,8 @@
     "microPauseMs": 90,
     "glitchMs": 180,
     "distanceFactor": 1.6,
-    "followDistance": 6,
-    "followHeight": 3.6,
+    "followDistance": 4,
+    "followHeight": 2.4,
     "lateralOffset": 0.7,
     "lookAheadDistance": 10,
     "lookDownOffset": 1.5,
@@ -51,7 +51,8 @@
     "maxFrameMs": 100
   },
   "minimap": {
-    "windowCells": 20
+    "windowCells": 20,
+    "levelWindowCells": 10
   },
   "fog": {
     "density": 0.06,
