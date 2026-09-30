@@ -33,7 +33,7 @@ export interface PaletteSet {
   wall: string
 }
 
-/** Target linear luminance (0.299R+0.587G+0.114B after the multiplier) per role: the multiplier is computed automatically. */
+/** Target linear luminance (bloom luminance, Rec.709 0.2126R+0.7152G+0.0722B, after the multiplier) per role: the multiplier is computed automatically. */
 export interface GlowTargets {
   headIdle: number
   headGoal: number
@@ -60,6 +60,19 @@ export interface GlowTargets {
   maxBoost: number
 }
 
+/**
+ * Per-set overrides of glow targets (config.palettes.glowOverrides). The same luminance on different hues lands differently on the colour-blind checks
+ * (a saturated blue obstacle and a cyan apple, a pink apple against a cyan tail): a few sets need one number nudged to keep the head signals distinguishable.
+ * Only what deviates is listed; everything else comes from palettes.glow.
+ */
+export type GlowOverrides = Readonly<Record<string, Partial<GlowTargets>>>
+
+/** The glow targets that apply to set `id`: palettes.glow with that set's overrides on top. */
+export function glowFor(glow: GlowTargets, overrides: GlowOverrides | undefined, id: string): GlowTargets {
+  const o = overrides?.[id]
+  return o === undefined ? glow : { ...glow, ...o }
+}
+
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/
 
 export function srgbToLinear(c: number): number {
@@ -76,14 +89,30 @@ export function hexToLinear(hex: string): Rgb {
   return [srgbToLinear(((n >> 16) & 255) / 255), srgbToLinear(((n >> 8) & 255) / 255), srgbToLinear((n & 255) / 255)]
 }
 
-/** The luminance the bloom threshold sees: computed from linear channels. */
-export function luminance(c: Rgb): number {
-  return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+/**
+ * The weights the bloom pass thresholds on: Rec.709 luminance, linear channels.
+ * NOT a style choice. three's LuminosityHighPassShader (used by UnrealBloomPass) calls three's built-in luminance(), which is
+ * REC709_LUMINANCE_COEFFICIENTS = [0.2126, 0.7152, 0.0722] in node_modules/three/build/three.core.js. Every glow target in
+ * config.palettes.glow is calibrated against this scale, so this is the only luminance formula for glow in the game:
+ * do not "tidy" it back to the Rec.601 weights (0.299/0.587/0.114): the game did that once and no glow number meant what it said.
+ */
+export const BLOOM_LUMINANCE_R = 0.2126
+export const BLOOM_LUMINANCE_G = 0.7152
+export const BLOOM_LUMINANCE_B = 0.0722
+
+/** Bloom luminance of scalar linear channels (allocation-free: the snake view calls it per segment per frame). */
+export function bloomLuminanceOf(r: number, g: number, b: number): number {
+  return BLOOM_LUMINANCE_R * r + BLOOM_LUMINANCE_G * g + BLOOM_LUMINANCE_B * b
+}
+
+/** The luminance the bloom threshold sees (Rec.709, see BLOOM_LUMINANCE_R): computed from linear channels. */
+export function bloomLuminance(c: Rgb): number {
+  return bloomLuminanceOf(c[0], c[1], c[2])
 }
 
 /** Multiplier that brings the color's luminance up to target; at most maxBoost. */
 export function boostFor(hex: string, target: number, maxBoost: number): number {
-  const l = luminance(hexToLinear(hex))
+  const l = bloomLuminance(hexToLinear(hex))
   return l <= 1e-6 ? maxBoost : Math.min(maxBoost, target / l)
 }
 
@@ -269,7 +298,7 @@ export function checkPalette(set: PaletteSet, g: GlowTargets): PaletteCheck[] {
     const value = deltaE(st[n], bg)
     out.push({ name: `${n}/background`, vision: 'normal', value, min: PASS_VS_BACKGROUND, ok: value >= PASS_VS_BACKGROUND })
   }
-  const lum = luminance(displayedLinear(set.obstacle, b.obstacleLine))
+  const lum = bloomLuminance(displayedLinear(set.obstacle, b.obstacleLine))
   out.push({ name: 'obstacle/edgeLuminance', vision: 'normal', value: lum, min: PASS_OBSTACLE_EDGE_LUM, ok: lum >= PASS_OBSTACLE_EDGE_LUM })
   return out
 }

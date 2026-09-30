@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { Scene } from 'three'
+import { ColorManagement, LinearSRGBColorSpace, Scene, Vector3 } from 'three'
 import config from '../config.json'
 import {
   HEX_RE,
@@ -8,7 +8,9 @@ import {
   checkPalette,
   headStates,
   hexToLinear,
-  luminance,
+  bloomLuminance,
+  bloomLuminanceOf,
+  glowFor,
   deltaE,
   displayedLinear,
   worstHeadPair,
@@ -23,6 +25,8 @@ import {
   SNAKE_BODY_COLOR,
   SNAKE_HEAD_COLOR,
   SNAKE_STRIPE_DIM,
+  APPLE_EMISSIVE_PULSE_MAX,
+  APPLE_EMISSIVE_PULSE_MIN,
   applyPaletteById,
   type PalettesConfig,
 } from './palette'
@@ -31,11 +35,13 @@ import { appleSegments } from './apple-view'
 import { compassGeometry } from './compass-view'
 import { TAIL_ARROWS, TailGuides } from './tail-guides'
 import { Color } from 'three'
-import { SnakeView } from './snake-view'
+import { DANGER_BREATH, SnakeView } from './snake-view'
 import { makeState, v } from '../core/test-helpers'
 
 const palettes = config.palettes as unknown as PalettesConfig
 const glow: GlowTargets = palettes.glow
+/** The glow targets that apply to a set (palettes.glow plus that set's overrides): what applyPalette uses. */
+const glowOf = (id: string): GlowTargets => glowFor(glow, palettes.glowOverrides, id)
 const ROLES: (keyof PaletteSet)[] = ['background', 'fog', 'body', 'tail', 'head', 'apple', 'dangerFar', 'dangerNear', 'rayDanger', 'obstacle', 'edge', 'grid', 'mark', 'wall']
 
 afterAll(() => {
@@ -76,7 +82,7 @@ const KNOWN_WEAK: Record<string, Record<string, number>> = {
 describe('palettes preserve the head signals (IDEAS §4)', () => {
   for (const [id, set] of Object.entries(palettes.sets)) {
     test(`${id}: all distinguishability checks pass`, () => {
-      const bad = checkPalette(set, glow).filter((c) => {
+      const bad = checkPalette(set, glowOf(id)).filter((c) => {
         if (c.ok) return false
         const floor = KNOWN_WEAK[id]?.[c.name]
         if (floor === undefined) return true
@@ -101,18 +107,46 @@ describe('palettes preserve the head signals (IDEAS §4)', () => {
 })
 
 describe('glow: multipliers are computed from luminance', () => {
-  test('Night Neon: the old hues give the old multipliers x0.7 / x3.0 / x2.0 / x3.6 / x2.5 / x1.25 / x2.2 / x3.2', () => {
-    const old: PaletteSet = { ...palettes.sets['neon']!, head: '#fff27a', apple: '#ff2d78', dangerFar: '#ff7000', dangerNear: '#ff2010', body: '#3dffa6', edge: '#1fb6ff', obstacle: '#8f5cff' }
-    // dangerFar is pinned to its old target (0.7882): the shipped one was raised so the warning outranks the neck, and this test is about the formula
-    const b = boostsFor(old, { ...glow, dangerFar: 0.7882 })
-    expect(b.headIdle).toBeCloseTo(0.7, 2)
-    expect(b.headGoal).toBeCloseTo(3.0, 2)
-    expect(b.dangerFar).toBeCloseTo(2.0, 2)
-    expect(b.dangerNear).toBeCloseTo(3.6, 2)
-    expect(b.apple).toBeCloseTo(2.5, 2)
-    expect(b.body).toBeCloseTo(1.25, 2)
-    expect(b.edge).toBeCloseTo(2.2, 2)
-    expect(b.obstacleLine).toBeCloseTo(3.2, 2)
+  test('the glow luminance is the one the bloom pass thresholds on: three\'s own Rec.709 coefficients', () => {
+    // UnrealBloomPass -> LuminosityHighPassShader -> three's luminance(): linear-sRGB (working space) coefficients. If three or the working space ever changes, this fails.
+    const w = ColorManagement.getLuminanceCoefficients(new Vector3(), LinearSRGBColorSpace)
+    expect([w.x, w.y, w.z]).toEqual([0.2126, 0.7152, 0.0722])
+    for (const c of [new Color('#3dffa6'), new Color('#ff2d78'), new Color('#8f5cff'), new Color('#fff27a')]) {
+      const three = c.r * w.x + c.g * w.y + c.b * w.z
+      expect(bloomLuminanceOf(c.r, c.g, c.b)).toBeCloseTo(three, 12)
+      expect(bloomLuminance(hexToLinear('#' + c.getHexString()))).toBeCloseTo(three, 3) // hexToLinear is the same sRGB decoding three applies
+    }
+    // the primaries: the weights themselves (the old Rec.601 formula gave 0.299 / 0.587 / 0.114 here)
+    expect(bloomLuminance([1, 0, 0])).toBeCloseTo(0.2126, 6)
+    expect(bloomLuminance([0, 1, 0])).toBeCloseTo(0.7152, 6)
+    expect(bloomLuminance([0, 0, 1])).toBeCloseTo(0.0722, 6)
+  })
+
+  test('the multiplier is target / bloom luminance: a color lands exactly on its target on the scale the bloom sees', () => {
+    expect(boostFor('#00ff00', 0.7152 * 2, 5)).toBeCloseTo(2, 6)
+    expect(boostFor('#ff0000', 0.2126 * 3, 5)).toBeCloseTo(3, 6)
+    for (const [id, set] of Object.entries(palettes.sets)) {
+      const g = glowOf(id)
+      const b = boostsFor(set, g)
+      const landed = (hex: string, k: number): number => bloomLuminance(hexToLinear(hex)) * k
+      expect(landed(set.head, b.headIdle), id).toBeCloseTo(g.headIdle, 6)
+      expect(landed(set.apple, b.headGoal), id).toBeCloseTo(g.headGoal, 6)
+      expect(landed(set.dangerFar, b.dangerFar), id).toBeCloseTo(g.dangerFar, 6)
+      expect(landed(set.dangerNear, b.dangerNear), id).toBeCloseTo(g.dangerNear, 6)
+      expect(landed(set.apple, b.apple), id).toBeCloseTo(g.apple, 6)
+      expect(landed(set.body, b.body), id).toBeCloseTo(g.body, 6)
+      expect(landed(set.edge, b.edge), id).toBeCloseTo(g.edge, 6)
+      expect(landed(set.obstacle, b.obstacleLine), id).toBeCloseTo(g.obstacleLine, 6)
+    }
+  })
+
+  test('glowFor: overrides sit on top of palettes.glow, only for the sets that list them', () => {
+    expect(glowFor(glow, undefined, 'neon')).toBe(glow)
+    expect(glowFor(glow, { neon: { obstacleLine: 0.5 } }, 'ice')).toBe(glow)
+    const g = glowFor(glow, { neon: { obstacleLine: 0.5 } }, 'neon')
+    expect(g.obstacleLine).toBe(0.5)
+    expect(g.headGoal).toBe(glow.headGoal)
+    for (const id of Object.keys(palettes.glowOverrides ?? {})) expect(palettes.sets[id], `override for an unknown set ${id}`).toBeDefined()
   })
 
   test('multiplier cap: a very dark color does not burn out', () => {
@@ -122,8 +156,9 @@ describe('glow: multipliers are computed from luminance', () => {
 
   for (const [id, set] of Object.entries(palettes.sets)) {
     test(`${id}: idle head is below the bloom threshold, danger in 2 steps and goal are above it, the bright body glows, the dim stripe does not`, () => {
-      const b = boostsFor(set, glow)
-      const lum = (hex: string, k: number): number => luminance(hexToLinear(hex)) * k
+      const g = glowOf(id)
+      const b = boostsFor(set, g)
+      const lum = (hex: string, k: number): number => bloomLuminance(hexToLinear(hex)) * k
       expect(lum(set.head, b.headIdle)).toBeLessThan(BLOOM_THRESHOLD)
       expect(lum(set.dangerFar, b.dangerFar)).toBeGreaterThan(BLOOM_THRESHOLD)
       expect(lum(set.dangerNear, b.dangerNear)).toBeGreaterThan(BLOOM_THRESHOLD)
@@ -133,25 +168,105 @@ describe('glow: multipliers are computed from luminance', () => {
       // tail: even a bright one must not light up the dim stripe
       expect(lum(set.tail, b.body) * SNAKE_STRIPE_DIM).toBeLessThan(BLOOM_THRESHOLD)
     })
+
+    test(`${id}: no threshold flicker: glowing states stay above the bloom threshold through the whole breath, quiet ones stay below`, () => {
+      const g = glowOf(id)
+      const b = boostsFor(set, g)
+      const lum = (hex: string, k: number): number => bloomLuminance(hexToLinear(hex)) * k
+      const T = BLOOM_THRESHOLD
+      // The danger head breathes by +-DANGER_BREATH (snake-view) and bloom cuts hard at the threshold: the trough must still clear it, with a margin.
+      const troughFar = lum(set.dangerFar, b.dangerFar) * (1 - DANGER_BREATH)
+      const troughNear = lum(set.dangerNear, b.dangerNear) * (1 - DANGER_BREATH)
+      expect(troughFar, 'danger in 2 steps, trough of the breath').toBeGreaterThan(T + 0.1)
+      expect(troughNear, 'danger in 1 step, trough of the breath').toBeGreaterThan(T + 0.1)
+      // The goal head does not breathe in brightness (only in size), so its margin is the plain one.
+      expect(lum(set.apple, b.headGoal), 'goal').toBeGreaterThan(T + 0.05)
+      // The idle head must stay dark: even at the top of a danger-sized breath.
+      expect(lum(set.head, b.headIdle) * (1 + DANGER_BREATH), 'idle at the top of a breath').toBeLessThan(T - 0.1)
+      // Head end (neck) and the bright body segments: a steady value clear of the threshold.
+      expect(lum(set.body, boostFor(set.body, g.headEnd, g.maxBoost)), 'neck').toBeGreaterThan(T + 0.1)
+      expect(lum(set.body, b.body), 'bright body').toBeGreaterThan(T + 0.03)
+      // The near-camera dimmed neck is below the threshold with room to spare.
+      expect(lum(set.body, boostFor(set.body, g.headEndNearLuminance, g.maxBoost)), 'neck near the camera').toBeLessThan(T - 0.1)
+      // Apple: dark at the bottom of its pulse, glowing only near the top.
+      expect(lum(set.apple, b.apple) * APPLE_EMISSIVE_PULSE_MIN, 'apple at the bottom of its pulse').toBeLessThan(T - 0.1)
+      expect(lum(set.apple, b.apple) * APPLE_EMISSIVE_PULSE_MAX, 'apple at the top of its pulse').toBeGreaterThan(T + 0.05)
+      expect(lum(set.apple, b.apple) * ((APPLE_EMISSIVE_PULSE_MIN + APPLE_EMISSIVE_PULSE_MAX) / 2), 'apple at mid-pulse').toBeLessThan(T)
+    })
   }
 })
 
 describe('glow ladder: brightness rises with danger', () => {
   for (const [id, set] of Object.entries(palettes.sets)) {
     test(`${id}: idle head < neck < danger in 2 steps < danger in 1 step, and the warning clearly outranks the neck; no target is cut by the multiplier cap`, () => {
-      const lum = (hex: string, target: number): number => luminance(hexToLinear(hex)) * boostFor(hex, target, glow.maxBoost)
-      const idle = lum(set.head, glow.headIdle)
-      const neck = lum(set.body, glow.headEnd)
-      const far = lum(set.dangerFar, glow.dangerFar)
-      const near = lum(set.dangerNear, glow.dangerNear)
+      const g = glowOf(id)
+      const lum = (hex: string, target: number): number => bloomLuminance(hexToLinear(hex)) * boostFor(hex, target, g.maxBoost)
+      const idle = lum(set.head, g.headIdle)
+      const neck = lum(set.body, g.headEnd)
+      const far = lum(set.dangerFar, g.dangerFar)
+      const near = lum(set.dangerNear, g.dangerNear)
       expect(idle).toBeLessThan(neck)
       expect(neck).toBeLessThan(far - 0.1)
       expect(far).toBeLessThan(near)
-      // the achieved luminance is the requested one (the cap did not bite)
-      expect(far).toBeCloseTo(glow.dangerFar, 3)
-      expect(neck).toBeCloseTo(glow.headEnd, 3)
+      // the achieved luminance is the requested one (the cap did not bite), for every role
+      expect(far).toBeCloseTo(g.dangerFar, 3)
+      expect(near).toBeCloseTo(g.dangerNear, 3)
+      expect(neck).toBeCloseTo(g.headEnd, 3)
+      expect(idle).toBeCloseTo(g.headIdle, 3)
+      expect(lum(set.apple, g.headGoal)).toBeCloseTo(g.headGoal, 3)
+      expect(lum(set.apple, g.apple)).toBeCloseTo(g.apple, 3)
+      expect(lum(set.body, g.body)).toBeCloseTo(g.body, 3)
+      expect(lum(set.edge, g.edge)).toBeCloseTo(g.edge, 3)
+      expect(lum(set.obstacle, g.obstacleLine)).toBeCloseTo(g.obstacleLine, 3)
     })
   }
+
+  test('the head is outside the fog: its glow targets are what the bloom pass sees', () => {
+    const view = new SnakeView(new Scene())
+    expect((view as unknown as { headMaterial: { fog: boolean } }).headMaterial.fog).toBe(false)
+    view.dispose()
+  })
+})
+
+describe('the goal head is a signal, not a lamp', () => {
+  // A head lit above the bloom threshold puts out light in proportion to the area it covers: config.headSignal.goalScale makes the goal head smaller
+  // (the luminance target cannot go lower, the flicker test above keeps it above the threshold).
+  function headScale(apple: { x: number; y: number; z: number }): number {
+    applyPaletteById(palettes, DEFAULT_PALETTE_ID)
+    const view = new SnakeView(new Scene())
+    const s = makeState({ snake: [v(10, 10, 10), v(9, 10, 10), v(8, 10, 10)], mode: 'free', apple })
+    view.ensureCapacity(s)
+    for (let i = 0; i < 40; i++) {
+      s.elapsedMs += 16
+      view.update(s, 30, 10, 10, 1)
+    }
+    const scale = (view as unknown as { headMesh: { scale: { x: number } } }).headMesh.scale.x
+    view.dispose()
+    return scale
+  }
+  test('goalScale is a real shrink, not a hidden head', () => {
+    expect(config.headSignal.goalScale).toBeGreaterThanOrEqual(0.5)
+    expect(config.headSignal.goalScale).toBeLessThan(1)
+  })
+  test('with the apple straight ahead the head is drawn at goalScale (within its breath); with the apple off the course it is full size', () => {
+    const goal = headScale(v(16, 10, 10))
+    const idle = headScale(v(16, 15, 10))
+    expect(goal).toBeCloseTo(config.headSignal.goalScale, 1)
+    expect(goal).toBeLessThan(idle * 0.9)
+    expect(idle).toBeGreaterThan(0.94)
+  })
+})
+
+describe('obstacles keep their quiet look (the designer: leave the obstacles as they were)', () => {
+  test('the outlines of Night Neon, Contrast and Synthwave stay under the bloom threshold: dim lines, no halo', () => {
+    for (const id of ['neon', 'contrast', 'synthwave']) {
+      const g = glowOf(id)
+      expect(bloomLuminance(hexToLinear(palettes.sets[id]!.obstacle)) * boostFor(palettes.sets[id]!.obstacle, g.obstacleLine, g.maxBoost), id).toBeLessThan(BLOOM_THRESHOLD - 0.02)
+    }
+  })
+  test('no set lights its obstacles up above the level they had before the Rec.709 fix (0.83): the faces do not glow either', () => {
+    for (const id of Object.keys(palettes.sets)) expect(glowOf(id).obstacleLine, id).toBeLessThanOrEqual(0.83)
+  })
 })
 
 describe('applyPaletteById', () => {
@@ -273,7 +388,7 @@ describe('measurement functions', () => {
 })
 
 describe('head end of the snake glows whatever the length and the stripe', () => {
-  const lumOf = (c: Color): number => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+  const lumOf = (c: Color): number => bloomLuminanceOf(c.r, c.g, c.b)
   function bodyColors(length: number, cam: number): Color[] {
     applyPaletteById(palettes, DEFAULT_PALETTE_ID)
     const snake = Array.from({ length }, (_, i) => v(10 - i, 10, 10))

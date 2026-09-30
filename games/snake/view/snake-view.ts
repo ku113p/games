@@ -47,6 +47,7 @@ import {
   HEAD_DANGER_COLOR_FAR,
   HEAD_DANGER_COLOR_NEAR,
 } from './palette'
+import { bloomLuminanceOf } from './palette-math'
 
 // Styling constants, not balance values.
 const SEGMENT_SCALE = 0.86
@@ -63,13 +64,18 @@ const HEAD_PULSE = 0.05
 const HEAD_PULSE_PERIOD_MS = 1600
 const DANGER_PERIOD_MS = 1100
 const DANGER_PULSE = 0.06
-const DANGER_BREATH = 0.08
+export const DANGER_BREATH = 0.08
 
-/** Head signal values (config.headSignal): danger horizon in steps and the color transition time. */
+/** Head signal values (config.headSignal): danger horizon in steps, the color transition time and the size of the head in the goal state. */
 export interface HeadSignalConfig {
   dangerHorizon: number
   riseMs: number
   fallMs: number
+  /**
+   * Size of the head (1 = unchanged) when the apple is on the course. A head lit above the bloom threshold puts out light in proportion to the area it covers,
+   * and in the chase view the head is close to the camera: at full size the goal head washed out half the frame. Lit but smaller, it reads as a signal, not as a lamp.
+   */
+  goalScale: number
 }
 // Fade of segments near the camera: distances in cells (not from followDistance,
 // the camera is up close: the neck at ~1.7 cells from the camera must stay visible, while anything
@@ -196,9 +202,9 @@ export class SnakeView {
     this.color.copy(SNAKE_BODY_COLOR)
     if (!headEnd) this.color.lerp(SNAKE_TAIL_COLOR, i / this.denom)
     if (headEnd) {
-      // Head end: the pure body hue (palette.test checks it against the head states; the tail ramp would collide with them for color-blind players), pinned to a luminance (same formula as boostFor in palette-math): the full glow (above the bloom threshold), lower when near the camera.
+      // Head end: the pure body hue (palette.test checks it against the head states; the tail ramp would collide with them for color-blind players), pinned to a luminance (bloomLuminanceOf, the same formula as boostFor in palette-math: the one the bloom pass uses): the full glow (above the bloom threshold), lower when near the camera.
       const target = MathUtils.lerp(SNAKE_HEAD_END_NEAR_LUMINANCE, SNAKE_HEAD_END_LUMINANCE, MathUtils.smoothstep(dist, SNAKE_HEAD_END_NEAR_FROM, SNAKE_HEAD_END_NEAR_TO))
-      const l = 0.299 * this.color.r + 0.587 * this.color.g + 0.114 * this.color.b
+      const l = bloomLuminanceOf(this.color.r, this.color.g, this.color.b)
       this.color.multiplyScalar(l > 1e-6 ? Math.min(SNAKE_HEAD_END_MAX_BOOST, target / l) : SNAKE_HEAD_END_MAX_BOOST)
     } else {
       if (i % 2 === 1) this.color.multiplyScalar(SNAKE_STRIPE_DIM)
@@ -217,6 +223,9 @@ export class SnakeView {
     const headGeometry = beamGeometry(cubeEdgeSegments(SEGMENT_SCALE / 2), SEGMENT_BEAM)
     this.headMaterial = new MeshBasicMaterial({
       color: SNAKE_HEAD_COLOR.clone().multiplyScalar(HEAD_IDLE_BOOST),
+      // Outside the fog, like the apple: the head is the signal, and its glow targets (config.palettes.glow) are the luminance the bloom pass sees.
+      // With fog (density 0.06, head ~4.7 cells from the chase camera) every head state lost about 8% and a goal head calibrated just above the threshold fell under it.
+      fog: false,
     })
     this.headMesh = new Mesh(headGeometry, this.headMaterial)
     this.headMesh.frustumCulled = false
@@ -306,7 +315,7 @@ export class SnakeView {
     const idleWave = calm ? 0 : Math.sin(((now % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2)
     const dangerWave = calm ? 0 : Math.sin(((now % DANGER_PERIOD_MS) / DANGER_PERIOD_MS) * Math.PI * 2)
     const pulse = MathUtils.lerp(HEAD_PULSE * idleWave, DANGER_PULSE * dangerWave, this.dangerAmount)
-    this.headMesh.scale.setScalar(1 + pulse)
+    this.headMesh.scale.setScalar((1 + pulse) * MathUtils.lerp(1, this.signalCfg.goalScale, this.goalAmount))
 
     const c = this.headColor.copy(SNAKE_HEAD_COLOR).multiplyScalar(HEAD_IDLE_BOOST)
     if (this.goalAmount > 0) {

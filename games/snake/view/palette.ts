@@ -5,7 +5,7 @@
 // and applyPalette() overwrites them in place at game start. This is the cold path: nothing is created or read from the config
 // per frame. Switching sets on the fly is not supported (materials copy the color at creation): only between games, before createView.
 //
-// GLOW BRIGHTNESS IS COMPUTED TOO. Bloom takes linear luminance 0.299R+0.587G+0.114B above BLOOM_THRESHOLD.
+// GLOW BRIGHTNESS IS COMPUTED TOO. Bloom takes linear Rec.709 luminance 0.2126R+0.7152G+0.0722B above BLOOM_THRESHOLD (bloomLuminance in palette-math: that is three's own formula, not the old Rec.601).
 // A set stores only the hue; the multiplier for each role = target luminance (config.palettes.glow) / hue luminance,
 // capped at maxBoost. So every set glows the same way, and "signals glow, quiet things don't" holds without hand-tuning a x3.0.
 // The styling constants below (alphas, thresholds) are not balance values; per AGENTS.md balance lives in config.json, and these do not.
@@ -13,13 +13,15 @@
 
 import { Color, FogExp2, UniformsLib, UniformsUtils, type IUniform } from 'three'
 import configJson from '../config.json'
-import { boostsFor, type GlowTargets, type PaletteSet } from './palette-math'
+import { boostsFor, glowFor, type GlowOverrides, type GlowTargets, type PaletteSet } from './palette-math'
 
-export type { GlowTargets, PaletteSet } from './palette-math'
+export type { GlowOverrides, GlowTargets, PaletteSet } from './palette-math'
 
 /** The config.palettes section. */
 export interface PalettesConfig {
   glow: GlowTargets
+  /** Per-set deviations from glow (see GlowOverrides). */
+  glowOverrides?: GlowOverrides
   sets: Readonly<Record<string, PaletteSet>>
 }
 
@@ -59,7 +61,7 @@ float fogVisibility(float viewDepth) {
 `
 
 // Arena cube edges: they glow but do not flood the frame (bloom threshold BLOOM_THRESHOLD, see the Bloom block below).
-// applyPalette computes the multiplier (2.2 in Night Neon: was 1.6, now 2.2; a brighter line gives a visible soft halo along the cube edges).
+// applyPalette computes the multiplier (2.1 in Night Neon: was 1.6, then 2.2; a brighter line gives a visible soft halo along the cube edges).
 export const CUBE_EDGE_COLOR = new Color()
 // Edge thickness in cells: size * k, clamped to [min, max].
 export const CUBE_EDGE_THICKNESS_PER_SIZE = 0.0025
@@ -81,13 +83,13 @@ export const SNAKE_HEAD_COLOR = new Color()
 // Even/odd segments differ slightly in brightness, so length and motion are visible.
 export const SNAKE_STRIPE_DIM = 0.72
 // Snake body brightness multiplier (snake view only; the minimap does not use it).
-// Neon pass: was 1.0 (the body did not glow at all), now 1.25. Bright segments glow,
+// Neon pass: was 1.0 (the body did not glow at all), now 1.06 (Night Neon; computed). Bright segments glow,
 // the dim stripes (SNAKE_STRIPE_DIM) stay below the threshold, so the striping does not vanish.
 export let SNAKE_BODY_GLOW_BOOST = 1.25
 // Head end of the snake: the first SNAKE_HEAD_END_SEGMENTS body segments (right behind the head) glow always: no stripe dimming, no body-to-tail ramp (the
 // pure body hue: a normalised cyan tail collides with the goal pink for deuteranopia), luminance pinned to SNAKE_HEAD_END_LUMINANCE (config.palettes.glow.headEnd,
 // above BLOOM_THRESHOLD). Without it a short snake glowed nowhere and a long one only on the even segments.
-export let SNAKE_HEAD_END_LUMINANCE = 0.8055
+export let SNAKE_HEAD_END_LUMINANCE = 0.9
 export let SNAKE_HEAD_END_SEGMENTS = 3
 export let SNAKE_HEAD_END_MAX_BOOST = 5
 // Close to the camera a head-end segment is huge on screen and its bloom would flood the frame ("far too fat"): the luminance falls to NEAR_LUMINANCE
@@ -98,12 +100,12 @@ export let SNAKE_HEAD_END_NEAR_TO = 3.5
 
 export const APPLE_COLOR = new Color()
 // Apple brightness multiplier (the minimap does not use it). Neon pass: was 1.0 (the linear luminance
-// of the red-pink is about 0.34, below the threshold, so the apple did not glow), now 2.5.
+// of the red-pink is about 0.25 on the bloom scale, below the threshold, so the apple did not glow), now 2.65 in Night Neon (computed).
 export let APPLE_GLOW_BOOST = 2.5
 export const APPLE_EMISSIVE_PULSE_MIN = 0.6
 export const APPLE_EMISSIVE_PULSE_MAX = 1.35
 
-// Obstacle outlines: purple neon. Neon pass: the multiplier was 1.0, now 3.2. The thin
+// Obstacle outlines: purple neon. Neon pass: the multiplier was 1.0, now computed (3.19 in Night Neon, the look it had before the Rec.709 fix). The thin
 // 1 px line became bright, but its halo is tiny: the faces themselves do not glow.
 // The faces take the same color, so OBSTACLE_FACE_BRIGHTNESS is divided by the multiplier:
 // face brightness stays as before (0.3 of the old color); only the line changes.
@@ -152,11 +154,11 @@ export const RAY_HIT_FILL_BRIGHTNESS = 0.5
 // light yellow (below the bloom threshold, no glow: the head is distinguishable but not at maximum brightness);
 // goal (apple straight ahead) is bright, like the head used to be, and glows (pink, the apple's color);
 // danger in 2 steps is orange; danger in 1 step is red. Danger overrides goal.
-// The multipliers are chosen with bloom in mind: it takes luminance 0.299R+0.587G+0.114B > BLOOM_THRESHOLD.
+// The multipliers are chosen with bloom in mind: it takes Rec.709 luminance 0.2126R+0.7152G+0.0722B > BLOOM_THRESHOLD.
 // Pure red/pink has low luminance, so they need a multiplier above 2 (otherwise no halo), while for orange
 // the multiplier also raises the green channel and shifts the hue toward yellow, so we take an orange with a low G.
-// Was: head 0xfff27a * 1.4 (luminance about 1.18, the brightest spot in the frame); now: * 0.7 (about 0.59, no halo).
-// applyPalette computes the HEAD_* multipliers and the danger colors. In Night Neon: idle x0.7, goal x3.0, danger-2 x2.0, danger-1 x3.6.
+// Was: head 0xfff27a * 1.4 (luminance about 1.18, the brightest spot in the frame); now: * 0.7 (about 0.60, no halo).
+// applyPalette computes the HEAD_* multipliers and the danger colors. In Night Neon: idle x0.70, goal x3.54, danger-2 x3.04, danger-1 x4.93.
 export let HEAD_IDLE_BOOST = 0.7
 export const HEAD_GOAL_COLOR = APPLE_COLOR
 export let HEAD_GOAL_BOOST = 3.0
@@ -261,7 +263,7 @@ export function applyPaletteById(given: PalettesConfig | undefined, id: string |
   const want = id !== undefined && palettes.sets[id] !== undefined ? id : DEFAULT_PALETTE_ID
   const set = palettes.sets[want]
   if (set === undefined) return DEFAULT_PALETTE_ID
-  applyPalette(set, palettes.glow)
+  applyPalette(set, glowFor(palettes.glow, palettes.glowOverrides, want))
   return want
 }
 
