@@ -185,8 +185,10 @@ export const OBSTACLE_GHOST_ALPHA = 0.08
 // do not glow. The white hint dots (0.9) are just above the threshold and give a tiny spark, which is fine.
 // (Was 0.8, now 0.75; the other comments in the view/ files refer to this value.)
 export const BLOOM_THRESHOLD = 0.75
-// Was 0.22, now 0.26: barely touched.
-export const BLOOM_STRENGTH = 0.26
+// Was 0.26, now 0.13: halved. The halo is multiplied for everything that crosses the threshold - the snake,
+// the obstacle outlines, the arena walls - so this is the only lever that dims the flood as a whole. Distance
+// cannot: pulling the camera back shrinks the head and leaves the rest of the frame glowing exactly as before.
+export const BLOOM_STRENGTH = 0.13
 // Was 0.2, now 0.45: the main lever, a wider and softer halo at the same strength.
 export const BLOOM_RADIUS = 0.45
 // Other levers (tried, not adopted): BLOOM_STRENGTH 0.35+ gives a milky haze around the head;
