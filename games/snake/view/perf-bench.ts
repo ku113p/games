@@ -43,14 +43,17 @@ export interface BenchStage {
   /** Bloom resolution relative to the buffer: 1 is full, 0.5 is half. */
   bloomScale: number
   megapixelCap: number
+  /** The stage is a quality level with MSAA only on capable GPUs: elsewhere it runs SMAA (see applyBenchStage). */
+  msaaGpuOnly?: boolean
 }
 
 /** Apply a stage to the perf settings as a whole (including the antialiasing method). Cold path; afterwards View.applyPerf. */
-export function applyBenchStage(stage: BenchStage): void {
-  perf.msaa = stage.msaa
+export function applyBenchStage(stage: BenchStage, msaaOk: boolean): void {
+  const swapToSmaa = stage.msaaGpuOnly === true && !msaaOk && stage.msaa > 0
+  perf.msaa = swapToSmaa ? 0 : stage.msaa
   perf.aaByte = stage.aaByte
   perf.aaDepthResolve = stage.aaDepthResolve
-  perf.smaa = stage.smaa
+  perf.smaa = swapToSmaa || stage.smaa
   perf.bloom = stage.bloom
   perf.bloomScale = stage.bloomScale
   perf.megapixelCap = stage.megapixelCap
@@ -59,7 +62,7 @@ export function applyBenchStage(stage: BenchStage): void {
 function aaName(level: QualityLevel): string {
   if (level.smaa) return 'SMAA'
   if (level.msaa === 0) return 'off'
-  return `MSAA${level.msaa}${level.aaByte ? ' 8bit' : ''}`
+  return `MSAA${level.msaa}${level.aaByte ? ' 8bit' : ''}${level.msaaGpuOnly ? ' on discrete GPUs, SMAA elsewhere' : ''}`
 }
 
 function levelStage(id: string, level: QualityLevel): BenchStage {
@@ -73,6 +76,7 @@ function levelStage(id: string, level: QualityLevel): BenchStage {
     bloom: level.bloom !== 'off',
     bloomScale: level.bloom === 'half' ? 0.5 : 1,
     megapixelCap: level.megapixelCap,
+    msaaGpuOnly: level.msaaGpuOnly ?? false,
   }
 }
 
@@ -96,6 +100,8 @@ export const BENCH_STAGES: readonly BenchStage[] = [
   stage('smaa', 'SMAA (post-process), full bloom', { smaa: true }),
   // Quality levels from the game menu (config.json: quality.levels) are what the player will actually pick.
   levelStage('q-high', configJson.quality.levels.high as QualityLevel),
+  // The same level with MSAA forced regardless of the GPU: the "before" number on integrated graphics.
+  levelStage('q-high-msaa', { ...(configJson.quality.levels.high as QualityLevel), msaaGpuOnly: false }),
   levelStage('q-medium', configJson.quality.levels.medium as QualityLevel),
   levelStage('q-low', configJson.quality.levels.low as QualityLevel),
 ]

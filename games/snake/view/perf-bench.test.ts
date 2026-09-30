@@ -95,9 +95,9 @@ describe('benchmark stages', () => {
 
   test('applyBenchStage sets all perf fields', () => {
     const saved = { ...perf }
-    applyBenchStage(BENCH_STAGES.find((s) => s.id === 'aa4-8bit-nodepth')!)
+    applyBenchStage(BENCH_STAGES.find((s) => s.id === 'aa4-8bit-nodepth')!, true)
     expect([perf.msaa, perf.aaByte, perf.aaDepthResolve, perf.smaa]).toEqual([4, true, false, false])
-    applyBenchStage(BENCH_STAGES.find((s) => s.id === 'smaa')!)
+    applyBenchStage(BENCH_STAGES.find((s) => s.id === 'smaa')!, true)
     expect([perf.msaa, perf.aaByte, perf.aaDepthResolve, perf.smaa]).toEqual([0, false, true, true])
     Object.assign(perf, saved)
   })

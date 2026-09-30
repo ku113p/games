@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import configJson from '../config.json'
-import { AA_PRESETS, applyQualityLevel, autoQuality, bufferMegapixels, classifyGpu, currentAa, currentAaPreset, isQualityId, perf, QUALITY_IDS, setAaPreset, type QualityConfig } from './perf-settings'
+import { AA_PRESETS, applyQualityLevel, autoQuality, bufferMegapixels, classifyGpu, msaaCapable, currentAa, currentAaPreset, isQualityId, perf, QUALITY_IDS, setAaPreset, type QualityConfig } from './perf-settings'
 
 const cfg = configJson.quality as QualityConfig
 
 describe('quality', () => {
   test('config.json has all levels, "high" = the earlier picture', () => {
     for (const id of QUALITY_IDS) expect(cfg.levels[id]).toBeDefined()
-    expect(cfg.levels.high).toEqual({ megapixelCap: 0, msaa: 4, bloom: 'full' })
+    expect(cfg.levels.high).toEqual({ megapixelCap: 0, msaa: 4, msaaGpuOnly: true, bloom: 'full' })
   })
 
   test('each next level is no more expensive than the previous one on all three values', () => {
@@ -26,11 +26,11 @@ describe('quality', () => {
 
   test('applyQualityLevel sets the bundle', () => {
     const saved = { ...perf }
-    applyQualityLevel(cfg.levels.medium)
+    applyQualityLevel(cfg.levels.medium, true)
     expect([perf.megapixelCap, perf.msaa, perf.smaa, perf.bloom, perf.bloomScale]).toEqual([0, 0, true, true, 1])
-    applyQualityLevel(cfg.levels.low)
+    applyQualityLevel(cfg.levels.low, true)
     expect([perf.msaa, perf.bloom, perf.bloomScale]).toEqual([0, false, 1])
-    applyQualityLevel(cfg.levels.high)
+    applyQualityLevel(cfg.levels.high, true)
     expect([perf.megapixelCap, perf.msaa, perf.aaByte, perf.aaDepthResolve, perf.smaa, perf.bloom, perf.bloomScale]).toEqual([0, 4, false, true, false, true, 1])
     Object.assign(perf, saved)
   })
@@ -84,6 +84,65 @@ describe('quality', () => {
     expect(c('Mali-G710')).toBe('strong')
     expect(c('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)')).toBe('software')
     expect(c('')).toBe('unknown')
+  })
+
+  test('"high" swaps MSAA for SMAA where MSAA is not known to be cheap, and only there', () => {
+    const saved = { ...perf }
+    applyQualityLevel(cfg.levels.high, false)
+    expect([perf.msaa, perf.smaa, perf.bloom, perf.megapixelCap]).toEqual([0, true, true, 0])
+    expect(currentAaPreset()?.id).toBe('smaa')
+    applyQualityLevel(cfg.levels.high, true)
+    expect([perf.msaa, perf.smaa]).toEqual([4, false])
+    applyQualityLevel(cfg.levels.medium, false) // levels without msaaGpuOnly are untouched
+    expect([perf.msaa, perf.smaa]).toEqual([0, true])
+    applyQualityLevel(cfg.levels.low, false)
+    expect([perf.msaa, perf.smaa]).toEqual([0, false])
+    Object.assign(perf, saved)
+  })
+
+  test('msaaCapable: table of renderer strings (SMAA when in doubt)', () => {
+    const table: [string, boolean, boolean][] = [
+      // [renderer, finePointer, expected MSAA]
+      ['ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)', true, true],
+      ['ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0)', true, true],
+      ['ANGLE (NVIDIA Corporation, NVIDIA Quadro P620/PCIe/SSE2, OpenGL 4.5)', true, true],
+      ['ANGLE (AMD, AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0)', true, true],
+      ['ANGLE (AMD, AMD Radeon Pro W6600 Direct3D11 vs_5_0 ps_5_0)', true, true],
+      // integrated Intel (designer's machine included)
+      ['ANGLE (Intel, Intel(R) Graphics (0x00007D67) Direct3D11 vs_5_0 ps_5_0, D3D11)', true, false],
+      ['ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)', true, false],
+      ['ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)', true, false],
+      ['ANGLE (Intel, Intel(R) Arc(TM) A370M Graphics Direct3D11 vs_5_0 ps_5_0)', true, false],
+      // integrated AMD
+      ['ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0)', true, false],
+      ['ANGLE (AMD, AMD Radeon(TM) 780M Graphics Direct3D11 vs_5_0 ps_5_0)', true, false],
+      ['ANGLE (AMD, AMD Radeon RX Vega 11 Graphics Direct3D11 vs_5_0 ps_5_0)', true, false],
+      // Apple silicon and mobile GPUs
+      ['ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)', true, false],
+      ['Apple GPU', false, false],
+      ['Adreno (TM) 730', false, false],
+      ['Mali-G710', false, false],
+      ['PowerVR Rogue GE8320', false, false],
+      ['Immortalis-G715', false, false],
+      ['Samsung Xclipse 920', false, false],
+      ['NVIDIA Tegra X1', false, false],
+      // a discrete-looking card on a touch-primary device is still SMAA
+      ['ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)', false, false],
+      // software, hidden and unrecognized strings
+      ['ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)', true, false],
+      ['llvmpipe (LLVM 15.0.7, 256 bits)', true, false],
+      ['', true, false],
+      ['Some Future GPU 9000', true, false],
+    ]
+    for (const [renderer, fine, expected] of table) expect([renderer, msaaCapable(renderer, fine, cfg)]).toEqual([renderer, expected])
+  })
+
+  test('mobile GPUs stay "strong" for the automatic level but never get MSAA (two separate signals)', () => {
+    for (const r of ['Adreno (TM) 730', 'Mali-G710', 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)']) {
+      expect(classifyGpu(r, cfg)).toBe('strong')
+      expect(msaaCapable(r, false, cfg)).toBe(false)
+      expect(msaaCapable(r, true, cfg)).toBe(false)
+    }
   })
 
   test('antialiasing methods: presets do not repeat, the first is the default', () => {

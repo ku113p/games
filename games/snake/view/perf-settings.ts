@@ -92,6 +92,8 @@ export interface QualityLevel {
   aaByte?: boolean
   aaDepthResolve?: boolean
   smaa?: boolean
+  /** MSAA only where it is cheap (discrete desktop GPU, see msaaCapable); everywhere else this level uses SMAA instead. */
+  msaaGpuOnly?: boolean
   bloom: 'full' | 'half' | 'off'
 }
 
@@ -102,6 +104,12 @@ export interface QualityConfig {
   autoWeakGpu: QualityId
   /** Regex (case-insensitive) over the GPU string: what counts as a strong GPU on which MSAA stays the default. */
   strongGpuPattern: string
+  /** Regex over the GPU string: cards where MSAA is cheap (discrete desktop). Independent of strongGpuPattern, which only drives the automatic level. */
+  msaaGpuPattern: string
+  /** Regex over the GPU string: integrated, mobile and software renderers. Wins over msaaGpuPattern. */
+  notMsaaGpuPattern: string
+  /** MSAA only with a mouse/touchpad as the primary pointer (a phone or tablet never gets MSAA). */
+  msaaNeedsFinePointer: boolean
   levels: Record<QualityId, QualityLevel>
 }
 
@@ -110,12 +118,13 @@ export function isQualityId(v: unknown): v is QualityId {
 }
 
 /** Sets perf from a quality level (cold path; applying it to the renderer is View.applyPerf). */
-export function applyQualityLevel(level: QualityLevel): void {
+export function applyQualityLevel(level: QualityLevel, msaaOk: boolean): void {
+  const swapToSmaa = level.msaaGpuOnly === true && !msaaOk && level.msaa > 0
   perf.megapixelCap = level.megapixelCap
-  perf.msaa = level.msaa
+  perf.msaa = swapToSmaa ? 0 : level.msaa
   perf.aaByte = level.aaByte ?? false
   perf.aaDepthResolve = level.aaDepthResolve ?? true
-  perf.smaa = level.smaa ?? false
+  perf.smaa = swapToSmaa || (level.smaa ?? false)
   perf.bloom = level.bloom !== 'off'
   perf.bloomScale = level.bloom === 'half' ? 0.5 : 1
 }
@@ -145,6 +154,19 @@ export function currentAaPreset(): AaPreset | null {
     if (p.smaa === perf.smaa && p.samples === (perf.smaa ? 0 : perf.msaa) && p.byteTarget === perf.aaByte && p.resolveDepth === perf.aaDepthResolve) return p
   }
   return null
+}
+
+/**
+ * Whether MSAA is cheap on this device: a separate decision from the GPU class of the automatic level (strongGpuPattern
+ * lists mobile GPUs as strong for that purpose, MSAA must never follow it). Pure function (tested).
+ * Conservative: true only for a recognized discrete desktop card with a fine pointer; an empty string, an integrated,
+ * mobile or software renderer, or a touch device gives false (SMAA: the worst case is a slightly softer picture, not an unplayable game).
+ */
+export function msaaCapable(renderer: string, finePointer: boolean, cfg: QualityConfig): boolean {
+  if (cfg.msaaNeedsFinePointer && !finePointer) return false
+  if (renderer === '') return false
+  if (new RegExp(cfg.notMsaaGpuPattern, 'i').test(renderer)) return false
+  return new RegExp(cfg.msaaGpuPattern, 'i').test(renderer)
 }
 
 /** GPU class for choosing the default level. */
@@ -218,3 +240,8 @@ export function autoQuality(megapixels: number, cfg: QualityConfig, gpu: GpuClas
 
 // Debug from the console (only with ?perf in the URL): window.__perf.msaa = 0 etc. before the panel's applyPerf; for screenshots of the levels.
 if (typeof location !== 'undefined' && /[?&]perf\b/.test(location.search)) (globalThis as Record<string, unknown>)['__perf'] = perf
+
+/** msaaCapable for the current device (cold path; reads the GPU string and the pointer type). */
+export function detectMsaaCapable(cfg: QualityConfig): boolean {
+  return msaaCapable(readGpuRendererString(), hasFinePointer(), cfg)
+}

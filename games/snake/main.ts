@@ -14,7 +14,7 @@ import { resetUserCamera, userCamera } from './view/camera-rig'
 import { createPerfPanel, type PerfPanel } from './view/perf-panel'
 import { BENCH_ARENA, BENCH_SEED, BenchRun, applyBenchStage, formatBenchLog, type StageResult } from './view/perf-bench'
 import { collectBenchEnv } from './view/perf-env'
-import { applyQualityLevel, autoQuality, bufferMegapixels, createPerfSnapshot, isQualityId, perf, type QualityConfig, type QualityId } from './view/perf-settings'
+import { applyQualityLevel, autoQuality, bufferMegapixels, detectMsaaCapable, createPerfSnapshot, isQualityId, perf, type QualityConfig, type QualityId } from './view/perf-settings'
 import { attachPad, type Pad } from './input/pad'
 import { attachStick, stickStep, type Stick } from './input/stick'
 import { attachBoostButton, type BoostButton } from './input/boost'
@@ -357,7 +357,8 @@ let qualityChosen = isQualityId(storedQuality)
 let quality: QualityId = isQualityId(storedQuality)
   ? storedQuality
   : autoQuality(bufferMegapixels(window.innerWidth, window.innerHeight, window.devicePixelRatio), qualityCfg)
-applyQualityLevel(qualityCfg.levels[quality])
+const msaaOk = detectMsaaCapable(qualityCfg)
+applyQualityLevel(qualityCfg.levels[quality], msaaOk)
 
 const qualityButtons = document.querySelectorAll<HTMLButtonElement>('button[data-quality]')
 
@@ -374,7 +375,7 @@ function setQuality(id: QualityId): void {
   quality = id
   qualityChosen = true
   storageSet(QUALITY_KEY, id)
-  applyQualityLevel(qualityCfg.levels[id])
+  applyQualityLevel(qualityCfg.levels[id], msaaOk)
   syncQualityButtons()
   applyPerfNow()
   perfPanel?.refresh()
@@ -1143,7 +1144,7 @@ function startBench(): void {
   const run = new BenchRun(
     {
       applyStage(stage) {
-        applyBenchStage(stage)
+        applyBenchStage(stage, msaaOk)
         applyPerfNow()
       },
       sample(out) {
