@@ -103,7 +103,8 @@ describe('palettes preserve the head signals (IDEAS §4)', () => {
 describe('glow: multipliers are computed from luminance', () => {
   test('Night Neon: the old hues give the old multipliers x0.7 / x3.0 / x2.0 / x3.6 / x2.5 / x1.25 / x2.2 / x3.2', () => {
     const old: PaletteSet = { ...palettes.sets['neon']!, head: '#fff27a', apple: '#ff2d78', dangerFar: '#ff7000', dangerNear: '#ff2010', body: '#3dffa6', edge: '#1fb6ff', obstacle: '#8f5cff' }
-    const b = boostsFor(old, glow)
+    // dangerFar is pinned to its old target (0.7882): the shipped one was raised so the warning outranks the neck, and this test is about the formula
+    const b = boostsFor(old, { ...glow, dangerFar: 0.7882 })
     expect(b.headIdle).toBeCloseTo(0.7, 2)
     expect(b.headGoal).toBeCloseTo(3.0, 2)
     expect(b.dangerFar).toBeCloseTo(2.0, 2)
@@ -131,6 +132,24 @@ describe('glow: multipliers are computed from luminance', () => {
       expect(lum(set.body, b.body) * SNAKE_STRIPE_DIM).toBeLessThan(BLOOM_THRESHOLD)
       // tail: even a bright one must not light up the dim stripe
       expect(lum(set.tail, b.body) * SNAKE_STRIPE_DIM).toBeLessThan(BLOOM_THRESHOLD)
+    })
+  }
+})
+
+describe('glow ladder: brightness rises with danger', () => {
+  for (const [id, set] of Object.entries(palettes.sets)) {
+    test(`${id}: idle head < neck < danger in 2 steps < danger in 1 step, and the warning clearly outranks the neck; no target is cut by the multiplier cap`, () => {
+      const lum = (hex: string, target: number): number => luminance(hexToLinear(hex)) * boostFor(hex, target, glow.maxBoost)
+      const idle = lum(set.head, glow.headIdle)
+      const neck = lum(set.body, glow.headEnd)
+      const far = lum(set.dangerFar, glow.dangerFar)
+      const near = lum(set.dangerNear, glow.dangerNear)
+      expect(idle).toBeLessThan(neck)
+      expect(neck).toBeLessThan(far - 0.1)
+      expect(far).toBeLessThan(near)
+      // the achieved luminance is the requested one (the cap did not bite)
+      expect(far).toBeCloseTo(glow.dangerFar, 3)
+      expect(neck).toBeCloseTo(glow.headEnd, 3)
     })
   }
 })
