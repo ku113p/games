@@ -218,12 +218,13 @@ export function attachInput(el: HTMLElement, scheme: InputScheme,
                             config: Config, h: InputHandlers): () => void  // returns detach
 ```
 
-- `'swipes'` (default): a swipe is a turn; a tap does nothing. A swipe is at least `config.input.swipeMinPx`.
-- `'taps'`: the canvas only tilts the camera. Turns come from the corner pad
+- `'swipes'`: a swipe is a turn; a tap does nothing. A swipe is at least `config.input.swipeMinPx`.
+- `'taps'` (default, `config.input.defaultScheme`, resolved by `input/scheme.ts`: a stored choice wins, an unknown value falls back to `'taps'`): the canvas only tilts the camera. Turns come from the corner pad
   (`input/pad.ts`, `attachPad(root, handlers)`, separate DOM buttons over the canvas): four arrow buttons.
 - Keyboard (PC, works in both schemes): arrows/WASD - turn,
   Shift/Space (hold) - boost, R - camera reset, Escape - pause.
 - Tap zones ≥ 44 px. No hover. Input must not break on an orientation change.
+- Debug only: `?camera=free` swaps the chase camera for a free one (`view/free-camera.ts`; keys I/K/J/L/U/O fly, F focus on the head, C reset, H hide the HUD; mouse drag orbits, wheel dollies). It is never created without the parameter and a player never meets it.
 
 ## config.json - all balance values
 
@@ -240,13 +241,13 @@ export function attachInput(el: HTMLElement, scheme: InputScheme,
               "zoomWheelPerPx": 0.0012, "zoomPinchGain": 1, "zoomFollowMs": 120,
               "plane": { "visibleCells": 20, "marginCells": 1, "fovDeg": 20, "raise": 0.1, "revealShare": 0.45 } },
   "hints": { "latticeAt": "corners", "latticeStep": 4, "compassHideDist": 1.5, "compassFullDist": 3 },
-  "headSignal": { "dangerHorizon": 2, "riseMs": 50, "fallMs": 400 },
+  "headSignal": { "dangerHorizon": 2, "riseMs": 50, "fallMs": 400, "goalScale": 0.88 },
   "demo": { "afterSteps": 5 },
   "plane": { "appleMaxSteps": 4 },
   "loop": { "maxFrameMs": 100 },
   "minimap": { "windowCells": 20, "levelWindowCells": 10 },
   "fog": { "density": 0.06, "defaultOn": true },
-  "input": { "swipeMinPx": 24, "tiltRadPerPx": 0.005, "twoFingerLockPx": 10,
+  "input": { "defaultScheme": "taps", "swipeMinPx": 24, "tiltRadPerPx": 0.005, "twoFingerLockPx": 10,
              "stick": { "sizeVmin": 24, "sizeMinPx": 88, "sizeMaxPx": 112, "deadZone": 0.2,
                         "curve": 1.5, "maxRadPerSec": 1.2, "tapMaxMs": 250 } }
 }
