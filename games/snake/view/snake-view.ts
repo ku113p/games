@@ -20,6 +20,7 @@ import {
   Color,
   Vector3,
   MathUtils,
+  FogExp2,
   type Scene,
 } from 'three'
 import type { GameState } from '../core/state'
@@ -83,6 +84,10 @@ export interface HeadSignalConfig {
 const FADE_NEAR_CELLS = 0.9
 const FADE_FAR_CELLS = 1.5
 const FADE_MIN_SCALE = 0.1
+// Neck size next to the chase camera (styling): fraction of full size inside NECK_SCALE_NEAR_CELLS, full size from NECK_SCALE_FAR_CELLS.
+const NECK_NEAR_SCALE = 0.65
+const NECK_SCALE_NEAR_CELLS = 4.5
+const NECK_SCALE_FAR_CELLS = 6
 
 export class SnakeView {
   private pool: InstancedPool
@@ -143,6 +148,9 @@ export class SnakeView {
   private camY = 0
   private camZ = 0
   private fadeAmount = 0
+  // Scene fog as of this frame: density squared and the fog colour's bloom luminance. Zero density (fog off, plane mode) means no compensation.
+  private fogK = 0
+  private fogLum = 0
 
   // Callback created once: no closures are created per frame.
   /** Collecting step positions: a segment can be interpolated only when its neighbor behind is known. */
@@ -194,6 +202,9 @@ export class SnakeView {
       const f = MathUtils.smoothstep(dist, FADE_NEAR_CELLS, FADE_FAR_CELLS)
       k = MathUtils.lerp(1, MathUtils.lerp(FADE_MIN_SCALE, 1, f), this.fadeAmount)
     }
+    // The neck next to the chase camera covers a big part of the screen, and a pixel above the bloom threshold blooms in full colour whatever its excess, so the halo grows with the
+    // area covered: the neck is drawn smaller there (beams and all) and eases back to full size farther away.
+    if (headEnd && this.fadeAmount > 0) k *= MathUtils.lerp(1, MathUtils.lerp(NECK_NEAR_SCALE, 1, MathUtils.smoothstep(dist, NECK_SCALE_NEAR_CELLS, NECK_SCALE_FAR_CELLS)), this.fadeAmount)
     this.gk[i] = k;
     // The body is instances 0..length-2 (the head is drawn separately).
     const idx = i - 1
@@ -204,8 +215,13 @@ export class SnakeView {
     if (headEnd) {
       // Head end: the pure body hue (palette.test checks it against the head states; the tail ramp would collide with them for color-blind players), pinned to a luminance (bloomLuminanceOf, the same formula as boostFor in palette-math: the one the bloom pass uses): the full glow (above the bloom threshold), lower when near the camera.
       const target = MathUtils.lerp(SNAKE_HEAD_END_NEAR_LUMINANCE, SNAKE_HEAD_END_LUMINANCE, MathUtils.smoothstep(dist, SNAKE_HEAD_END_NEAR_FROM, SNAKE_HEAD_END_NEAR_TO))
+      // Fog is mixed in after this colour (FogExp2: out = c * (1 - f) + fogColor * f, f = 1 - exp(-density^2 * depth^2)), so solve for the colour that lands on the target
+      // AFTER the fog: a target luminance that only held at the camera's nose would drop under the bloom threshold and flicker as the camera swings. Radial distance stands in
+      // for the view depth the shader uses (it is never smaller, so the neck errs slightly bright, never dim).
+      const f = 1 - Math.exp(-this.fogK * dist * dist)
+      const need = f < 0.9 ? Math.max(0, (target - f * this.fogLum) / (1 - f)) : target
       const l = bloomLuminanceOf(this.color.r, this.color.g, this.color.b)
-      this.color.multiplyScalar(l > 1e-6 ? Math.min(SNAKE_HEAD_END_MAX_BOOST, target / l) : SNAKE_HEAD_END_MAX_BOOST)
+      this.color.multiplyScalar(l > 1e-6 ? Math.min(SNAKE_HEAD_END_MAX_BOOST, need / l) : SNAKE_HEAD_END_MAX_BOOST)
     } else {
       if (i % 2 === 1) this.color.multiplyScalar(SNAKE_STRIPE_DIM)
       this.color.multiplyScalar(SNAKE_BODY_GLOW_BOOST)
@@ -260,6 +276,11 @@ export class SnakeView {
     this.camY = camY
     this.camZ = camZ
     this.fadeAmount = freeAmount
+    const fog = this.scene.fog
+    if (fog instanceof FogExp2) {
+      this.fogK = fog.density * fog.density
+      this.fogLum = bloomLuminanceOf(fog.color.r, fog.color.g, fog.color.b)
+    } else this.fogK = 0
     this.ensureBuffers(length)
     forEachSnakeSegment(s, this.collect)
     const glide = MathUtils.smoothstep(stepProgress(s), 0, SLIDE_FRACTION)

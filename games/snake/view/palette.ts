@@ -92,8 +92,9 @@ export let SNAKE_BODY_GLOW_BOOST = 1.25
 export let SNAKE_HEAD_END_LUMINANCE = 0.9
 export let SNAKE_HEAD_END_SEGMENTS = 3
 export let SNAKE_HEAD_END_MAX_BOOST = 5
-// Close to the camera a head-end segment is huge on screen and its bloom would flood the frame ("far too fat"): the luminance falls to NEAR_LUMINANCE
-// (below the threshold) inside NEAR_FROM cells and rises to the full glow at NEAR_TO cells and beyond.
+// Close to the camera a head-end segment is huge on screen and its bloom would fill the frame ("far too fat"): the luminance eases down to NEAR_LUMINANCE inside NEAR_FROM cells
+// and rises to the full glow at NEAR_TO cells and beyond. NEAR_LUMINANCE stays ABOVE the bloom threshold with a margin: the neck of the chase camera sits 1.6-3.6 cells from it,
+// so a floor below the threshold meant the neck never glowed in ordinary play and flickered on and off as the camera swung. The target is fog-compensated (snake-view).
 export let SNAKE_HEAD_END_NEAR_LUMINANCE = 0.6
 export let SNAKE_HEAD_END_NEAR_FROM = 1.5
 export let SNAKE_HEAD_END_NEAR_TO = 3.5
@@ -151,14 +152,14 @@ export const RAY_DANGER_COLOR = new Color()
 // and the color's linear luminance stays below BLOOM_THRESHOLD (currently about 0.16).
 export const RAY_HIT_FILL_BRIGHTNESS = 0.5
 // Head signals. Four states, read by COLOR (not by pulsing): idle is a calm muted
-// light yellow (below the bloom threshold, no glow: the head is distinguishable but not at maximum brightness);
-// goal (apple straight ahead) is bright, like the head used to be, and glows (pink, the apple's color);
+// light yellow that GLOWS (target 0.90, above the bloom threshold and above the body: a dark head in front of a glowing tail reads as a bug, designer's ruling);
+// goal (apple straight ahead) is brighter still and glows (pink, the apple's color); the ladder is calm < goal < danger in 2 steps < danger in 1 step;
 // danger in 2 steps is orange; danger in 1 step is red. Danger overrides goal.
 // The multipliers are chosen with bloom in mind: it takes Rec.709 luminance 0.2126R+0.7152G+0.0722B > BLOOM_THRESHOLD.
 // Pure red/pink has low luminance, so they need a multiplier above 2 (otherwise no halo), while for orange
 // the multiplier also raises the green channel and shifts the hue toward yellow, so we take an orange with a low G.
-// Was: head 0xfff27a * 1.4 (luminance about 1.18, the brightest spot in the frame); now: * 0.7 (about 0.60, no halo).
-// applyPalette computes the HEAD_* multipliers and the danger colors. In Night Neon: idle x0.70, goal x3.54, danger-2 x3.04, danger-1 x4.93.
+// History: head 0xfff27a * 1.4 (luminance about 1.18), then * 0.7 (0.60, no halo: nothing glowed in calm play), now targets from config.palettes.glow.
+// applyPalette computes the HEAD_* multipliers and the danger colors. The multipliers are computed from the glow targets (config.palettes.glow), not fixed numbers.
 export let HEAD_IDLE_BOOST = 0.7
 export const HEAD_GOAL_COLOR = APPLE_COLOR
 export let HEAD_GOAL_BOOST = 3.0

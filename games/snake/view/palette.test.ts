@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { ColorManagement, LinearSRGBColorSpace, Scene, Vector3 } from 'three'
+import { ColorManagement, FogExp2, LinearSRGBColorSpace, Matrix4, Scene, Vector3 } from 'three'
 import config from '../config.json'
 import {
   HEX_RE,
@@ -155,11 +155,13 @@ describe('glow: multipliers are computed from luminance', () => {
   })
 
   for (const [id, set] of Object.entries(palettes.sets)) {
-    test(`${id}: idle head is below the bloom threshold, danger in 2 steps and goal are above it, the bright body glows, the dim stripe does not`, () => {
+    test(`${id}: idle head glows (above the threshold and at least as bright as the body), so do goal and both dangers; the bright body glows, the dim stripe does not`, () => {
       const g = glowOf(id)
       const b = boostsFor(set, g)
       const lum = (hex: string, k: number): number => bloomLuminance(hexToLinear(hex)) * k
-      expect(lum(set.head, b.headIdle)).toBeLessThan(BLOOM_THRESHOLD)
+      // Designer's ruling: a dark head in front of a glowing tail reads as a bug. The calm head glows, and never less than the body.
+      expect(lum(set.head, b.headIdle)).toBeGreaterThan(BLOOM_THRESHOLD)
+      expect(lum(set.head, b.headIdle)).toBeGreaterThanOrEqual(lum(set.body, b.body))
       expect(lum(set.dangerFar, b.dangerFar)).toBeGreaterThan(BLOOM_THRESHOLD)
       expect(lum(set.dangerNear, b.dangerNear)).toBeGreaterThan(BLOOM_THRESHOLD)
       expect(lum(set.apple, b.headGoal)).toBeGreaterThan(BLOOM_THRESHOLD)
@@ -181,13 +183,14 @@ describe('glow: multipliers are computed from luminance', () => {
       expect(troughNear, 'danger in 1 step, trough of the breath').toBeGreaterThan(T + 0.1)
       // The goal head does not breathe in brightness (only in size), so its margin is the plain one.
       expect(lum(set.apple, b.headGoal), 'goal').toBeGreaterThan(T + 0.05)
-      // The idle head must stay dark: even at the top of a danger-sized breath.
-      expect(lum(set.head, b.headIdle) * (1 + DANGER_BREATH), 'idle at the top of a breath').toBeLessThan(T - 0.1)
+      // The calm head glows steadily (it breathes in size only, but a margin over the threshold keeps it lit even if that ever changes).
+      expect(lum(set.head, b.headIdle) * (1 - DANGER_BREATH), 'calm head at the bottom of a danger-sized breath').toBeGreaterThan(T + 0.05)
+      expect(lum(set.head, b.headIdle), 'calm head').toBeGreaterThan(lum(set.body, b.body))
       // Head end (neck) and the bright body segments: a steady value clear of the threshold.
-      expect(lum(set.body, boostFor(set.body, g.headEnd, g.maxBoost)), 'neck').toBeGreaterThan(T + 0.1)
+      expect(lum(set.body, boostFor(set.body, g.headEnd, g.maxBoost)), 'neck').toBeGreaterThan(T + 0.05)
       expect(lum(set.body, b.body), 'bright body').toBeGreaterThan(T + 0.03)
-      // The near-camera dimmed neck is below the threshold with room to spare.
-      expect(lum(set.body, boostFor(set.body, g.headEndNearLuminance, g.maxBoost)), 'neck near the camera').toBeLessThan(T - 0.1)
+      // The neck eased down next to the camera still glows: its floor sits above the threshold (a floor below it made the neck flicker on and off as the camera swung).
+      expect(lum(set.body, boostFor(set.body, g.headEndNearLuminance, g.maxBoost)), 'neck near the camera').toBeGreaterThan(T + 0.02)
       // Apple: dark at the bottom of its pulse, glowing only near the top.
       expect(lum(set.apple, b.apple) * APPLE_EMISSIVE_PULSE_MIN, 'apple at the bottom of its pulse').toBeLessThan(T - 0.1)
       expect(lum(set.apple, b.apple) * APPLE_EMISSIVE_PULSE_MAX, 'apple at the top of its pulse').toBeGreaterThan(T + 0.05)
@@ -198,16 +201,19 @@ describe('glow: multipliers are computed from luminance', () => {
 
 describe('glow ladder: brightness rises with danger', () => {
   for (const [id, set] of Object.entries(palettes.sets)) {
-    test(`${id}: idle head < neck < danger in 2 steps < danger in 1 step, and the warning clearly outranks the neck; no target is cut by the multiplier cap`, () => {
+    test(`${id}: body < neck <= calm head < goal < danger in 2 steps < danger in 1 step; no target is cut by the multiplier cap`, () => {
       const g = glowOf(id)
       const lum = (hex: string, target: number): number => bloomLuminance(hexToLinear(hex)) * boostFor(hex, target, g.maxBoost)
       const idle = lum(set.head, g.headIdle)
       const neck = lum(set.body, g.headEnd)
       const far = lum(set.dangerFar, g.dangerFar)
       const near = lum(set.dangerNear, g.dangerNear)
-      expect(idle).toBeLessThan(neck)
-      expect(neck).toBeLessThan(far - 0.1)
-      expect(far).toBeLessThan(near)
+      const goal = lum(set.apple, g.headGoal)
+      expect(lum(set.body, g.body)).toBeLessThan(neck)
+      expect(neck).toBeLessThanOrEqual(idle)
+      expect(idle).toBeLessThan(goal - 0.04)
+      expect(goal).toBeLessThan(far)
+      expect(far).toBeLessThan(near - 0.05)
       // the achieved luminance is the requested one (the cap did not bite), for every role
       expect(far).toBeCloseTo(g.dangerFar, 3)
       expect(near).toBeCloseTo(g.dangerNear, 3)
@@ -416,8 +422,59 @@ describe('head end of the snake glows whatever the length and the stripe', () =>
     const cols = bodyColors(16, 30)
     expect(lumOf(cols[4]!)).toBeLessThan(BLOOM_THRESHOLD) // segment 5 is odd
   })
-  test('close to the camera the head end does not glow (its bloom would flood the frame)', () => {
-    const cols = bodyColors(16, 1) // makeState is at the start of a step: segment 1 still sits on the cell of segment 2, 3 cells from the camera
-    expect(lumOf(cols[0]!)).toBeLessThan(BLOOM_THRESHOLD)
+  test('close to the camera the head end is eased down but still glows, and the ease is monotone (no cliff at the threshold)', () => {
+    const near = lumOf(bodyColors(16, 1)[0]!) // makeState is at the start of a step: segment 1 still sits on the cell of segment 2, 3 cells from the camera
+    expect(near).toBeGreaterThan(BLOOM_THRESHOLD + 0.02)
+    let prev = 0
+    for (const cam of [0, 1, 2, 3, 5, 8]) {
+      const l = lumOf(bodyColors(16, cam)[0]!)
+      expect(l, `camera ${cam} cells away`).toBeGreaterThan(BLOOM_THRESHOLD + 0.02)
+      expect(l).toBeGreaterThanOrEqual(prev - 1e-9)
+      prev = l
+    }
+  })
+  test('the neck is drawn smaller next to the chase camera (its halo grows with the area it covers) and at full size farther away', () => {
+    applyPaletteById(palettes, DEFAULT_PALETTE_ID)
+    const scaleAt = (cam: number): number => {
+      const view = new SnakeView(new Scene())
+      const st = makeState({ snake: Array.from({ length: 8 }, (_, i) => v(10 - i, 10, 10)), mode: 'free' })
+      view.ensureCapacity(st)
+      view.update(st, 10 + cam, 10, 10, 1)
+      const m = new Matrix4()
+      ;(view as unknown as { pool: { mesh: { getMatrixAt: (i: number, m: Matrix4) => void } } }).pool.mesh.getMatrixAt(0, m)
+      const k = new Vector3().setFromMatrixScale(m).x
+      view.dispose()
+      return k
+    }
+    expect(scaleAt(1)).toBeLessThan(0.8)
+    expect(scaleAt(30)).toBeCloseTo(1, 6)
+  })
+  test('the neck is fog-compensated: after the fog it stays above the bloom threshold at every camera distance, so it cannot flicker across it as the camera swings', () => {
+    applyPaletteById(palettes, DEFAULT_PALETTE_ID)
+    const fogColor = new Color(0x1e223a)
+    const fogLum = lumOf(fogColor)
+    const density = config.fog.density
+    for (const length of [4, 16]) for (const cam of [1, 2, 3, 4, 6, 9, 14]) {
+      const scene = new Scene()
+      scene.fog = new FogExp2(fogColor, density)
+      const view = new SnakeView(scene)
+      const st = makeState({ snake: Array.from({ length }, (_, i) => v(10 - i, 10, 10)), mode: 'free' })
+      view.ensureCapacity(st)
+      view.update(st, 10 + cam, 10, 10, 1)
+      const mesh = (view as unknown as { pool: { mesh: { getColorAt: (i: number, c: Color) => void; getMatrixAt: (i: number, m: Matrix4) => void } } }).pool.mesh
+      const c = new Color()
+      const m = new Matrix4()
+      const p = new Vector3()
+      for (let i = 1; i <= Math.min(glow.headEndSegments, length - 1); i++) {
+        mesh.getColorAt(i - 1, c)
+        mesh.getMatrixAt(i - 1, m)
+        p.setFromMatrixPosition(m)
+        const depth = Math.abs(p.x - (10 + cam)) // the camera looks along x here, so the view depth is the x distance
+        const f = 1 - Math.exp(-density * density * depth * depth)
+        const onScreen = lumOf(c) * (1 - f) + fogLum * f
+        expect(onScreen, `length ${length}, camera ${cam}, segment ${i}`).toBeGreaterThan(BLOOM_THRESHOLD + 0.02)
+      }
+      view.dispose()
+    }
   })
 })
