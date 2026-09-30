@@ -1,12 +1,15 @@
 // Obstacles - a neon OUTER shell: solid opaque faces + edges
-// on top (three meshes per cube: edges, faces, transparent faces of occluding cubes). A face is drawn only
+// (four meshes per chunk: opaque faces, opaque edges, and the transparent faces and edges of cubes that occlude the view).
+// DRAW ORDER RULE: everything solid writes depth, so a thing in front hides a thing behind it (view/obstacles-view.test.ts pins it).
+// Edges must NOT be transparent: transparent objects are drawn after every opaque one, and the lattice stars and near-cell arrows
+// (transparent, no depth writes) would then be painted over by far edges. A face is drawn only
 // if the neighbouring cell on its side is free; an edge only for a real bend
 // of the outline (see obstacle-shell.ts), so a merged group reads as a single
 // volume rather than a pile of wireframe boxes. The shell is computed once on
 // 'started' (cold path) and is not touched per frame.
 // Instancing: one instance per face (aCell + aFace) and per edge (aCenter + aAxis),
 // the geometry is shared by all (quad / segment), positions are built by the vertex shader.
-// The shell is cut into chunks of OBSTACLE_CHUNK_CELLS^3 cells (obstacle-chunks.ts): each has its own three meshes and bounding
+// The shell is cut into chunks of OBSTACLE_CHUNK_CELLS^3 cells (obstacle-chunks.ts): each has its own four meshes and bounding
 // sphere, so the stock frustum culling keeps the invisible part of the arena away from the GPU; the quad is indexed (4 vertices).
 // Distant ones dissolve in the scene's shared fog (palette.ts: createFog/fogUniforms) so that a dense forest
 // does not blur into mush: near ones read as danger, far ones as depth. There is no falloff curve of its own.
@@ -81,6 +84,7 @@ uniform vec3 uDepthAxis;
 uniform float uFree;
 uniform float uLayerReach;
 uniform float uEdgeGhostAlpha;
+uniform float uGhostPass;   // 0 - opaque pass (solid edges, write depth), 1 - transparent (edges of fading cubes)
 varying float vAlpha;
 uniform vec2 uRes;
 uniform float uMinPx;
@@ -105,6 +109,12 @@ void main() {
   float g = texelFetch(uGhostTex, ivec2(id - row * wtex, row), 0).r;
   float front = step(0.5, layerDist);
   g = max(g, front * (1.0 - uFree));
+  // Same split as for the faces: a solid cube's edges go in the opaque pass, a fading one's in the transparent pass.
+  if ((g > 0.001) != (uGhostPass > 0.5)) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vAlpha = 0.0;
+    return;
+  }
   vAlpha = mix(1.0, uEdgeGhostAlpha, g);
   vec3 dirv = aAxis < 0.5 ? vec3(1.0, 0.0, 0.0) : (aAxis < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
   // Ends sit at the true outline corners (uHalf), not at the cell boundary (0.5): otherwise each end sticks out past the footprint.
@@ -259,7 +269,7 @@ const GHOST_FADE_MS = 140 // time constant of the smooth transition
 const GHOST_TEX_W = 256
 // The shell is cut into chunks of this many cells: each chunk has its own meshes and bounding sphere, and stock frustum culling
 // keeps the GPU from processing what is definitely off screen. The picture does not change. A smaller chunk means
-// more precise culling but more draw calls (at 100^3 with 25 - up to 64 chunks of 3 meshes each).
+// more precise culling but more draw calls (at 100^3 with 25 - up to 64 chunks of 4 meshes each).
 // 0 - do not cut (one chunk for the whole arena, as it was: pixel-identical picture, but no culling). When split into chunks,
 // in ~0.3-0.6% of pixels (thin 1-2 px spots where edge ribbons overlap) which ribbon lies on top changes: before, it was
 // decided by the order in the shared buffer, now by the chunk order.
@@ -268,17 +278,23 @@ const OBSTACLE_CHUNK_CELLS = 25
 // renderOrder are sorted by three.js by distance to the camera, so the order of two chunks could flip as the camera moves.
 // That matters where fragments are equal in depth (seams of joining faces) or edge ribbons overlap: the winner is
 // decided by draw order, so a depth-sorted order would make the winning side switch as the camera moves.
-// Layers are the same as before: opaque faces < transparent faces < near-cells (2) < edges.
+// Order: opaque list (faces, then solid edges of the same chunk; depth decides who hides whom) always before the transparent list
+// (transparent faces < near-cells (2) < edges of fading cubes).
 const CHUNK_ORDER_STEP = 0.001
 const GHOST_ORDER = 1
 const EDGES_ORDER = 3
+// Solid edges sit in the opaque list right after the faces of their chunk (the depth test does the hiding, the order is only for ties).
+const EDGES_SOLID_OFFSET = CHUNK_ORDER_STEP / 2
 // Shared indexed quad (4 vertices, 2 triangles instead of 6 vertices): the vertex shader computes the unique vertices.
 const QUAD_INDEX = [0, 1, 2, 0, 2, 3]
 // true - always run the transparent pass over all faces (as it was); false - only when there is something to draw.
 const GHOST_PASS_ALWAYS = false
 
 interface ObstacleChunk {
+  /** Edges of solid cubes: opaque, write depth. */
   edges: Mesh
+  /** Edges of fading cubes: transparent, no depth writes. */
+  ghostEdges: Mesh
   opaque: Mesh
   ghost: Mesh
   geometries: BufferGeometry[]
@@ -290,6 +306,7 @@ export class ObstaclesView {
   private scene: Scene
   private readonly res = new Vector2(1, 1)
   private material: ShaderMaterial | null = null
+  private ghostEdgeMaterial: ShaderMaterial | null = null
   private faceMaterials: ShaderMaterial[] = []
   // Shell chunks: edge/opaque/transparent face meshes and the count of fading cells in each.
   private chunks: ObstacleChunk[] = []
@@ -408,7 +425,11 @@ export class ObstaclesView {
       uTexW: { value: GHOST_TEX_W },
       uEdgeGhostAlpha: { value: OBSTACLE_EDGE_GHOST_ALPHA },
     }
-    this.material = new ShaderMaterial({ uniforms: edgeUniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide, transparent: true, depthWrite: false })
+    // Solid edges are OPAQUE and write depth (like the faces): a nearer star, arrow or face then hides a farther edge by the depth test.
+    // As transparent edges (the old way) they were drawn after everything and, not knowing about the stars and arrow markers (which
+    // are transparent and write no depth), painted the far edges over them. Only the edges of fading cubes stay transparent.
+    this.material = new ShaderMaterial({ uniforms: { ...edgeUniforms, uGhostPass: { value: 0 } }, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide })
+    this.ghostEdgeMaterial = new ShaderMaterial({ uniforms: { ...edgeUniforms, uGhostPass: { value: 1 } }, vertexShader: VERT, fragmentShader: FRAG, fog: true, side: DoubleSide, transparent: true, depthWrite: false })
     // Frame buffer size (physical px) and pixelRatio - before drawing, without allocations.
     const minPx = edgeUniforms.uMinPx
     const beforeEdges = (renderer: { getDrawingBufferSize(t: Vector2): Vector2; getPixelRatio(): number }): void => {
@@ -479,12 +500,14 @@ export class ObstaclesView {
       edgeGeometry.setAttribute('aId', new InstancedBufferAttribute(edgeIds, 1))
       edgeGeometry.instanceCount = part.edgeCount
       edgeGeometry.boundingSphere = sphere
+      // Solid edges: in the opaque list (three draws it before every transparent object whatever the renderOrder), after this chunk's faces.
       const edges = new Mesh(edgeGeometry as BufferGeometry, this.material)
-      // After the transparent faces (edge alpha is computed independently) and after the near-cells layer (renderOrder 2): earlier the edge
-      // mesh was a single one, with a bounding sphere at the origin, and at equal depth it went after it by id. Chunks have
-      // real depth, and with equal renderOrder the hint layer landed sometimes before the edges, sometimes after; 3 preserves the old order.
-      edges.renderOrder = EDGES_ORDER + ci * CHUNK_ORDER_STEP
+      edges.renderOrder = ci * CHUNK_ORDER_STEP + EDGES_SOLID_OFFSET
       edges.onBeforeRender = beforeEdges
+      // Edges of fading cubes: transparent, after the transparent faces and the near-cells layer (renderOrder 2), same geometry.
+      const ghostEdges = new Mesh(edgeGeometry as BufferGeometry, this.ghostEdgeMaterial)
+      ghostEdges.renderOrder = EDGES_ORDER + ci * CHUNK_ORDER_STEP
+      ghostEdges.onBeforeRender = beforeEdges
       geoms.push(edgeGeometry as BufferGeometry)
 
       const fillGeometry = new InstancedBufferGeometry()
@@ -503,8 +526,8 @@ export class ObstaclesView {
       geoms.push(fillGeometry as BufferGeometry)
 
       // frustumCulled (true by default) + the sphere above: chunks outside the frame are not drawn.
-      this.scene.add(edges, opaque, ghost)
-      this.chunks.push({ edges, opaque, ghost, geometries: geoms, active: 0 })
+      this.scene.add(edges, ghostEdges, opaque, ghost)
+      this.chunks.push({ edges, ghostEdges, opaque, ghost, geometries: geoms, active: 0 })
     }
 
     if (gameMode(s) === 'plane') this.buildFlat(s, n, half, edgeUniforms, shared, beforeEdges)
@@ -546,13 +569,11 @@ export class ObstaclesView {
     tex.needsUpdate = true
     this.flatTex = tex
     const edgeMat = new ShaderMaterial({
-      uniforms: { ...edgeUniforms, uGhostTex: { value: tex } },
+      uniforms: { ...edgeUniforms, uGhostTex: { value: tex }, uGhostPass: { value: 0 } },
       vertexShader: VERT,
       fragmentShader: FRAG,
       fog: true,
       side: DoubleSide,
-      transparent: true,
-      depthWrite: false,
     })
     const faceMat = new ShaderMaterial({
       uniforms: { ...faceUniforms, uGhostTex: { value: tex }, uGhostPass: { value: 0 } },
@@ -578,7 +599,7 @@ export class ObstaclesView {
       edgeGeometry.instanceCount = part.edgeCount
       edgeGeometry.boundingSphere = sphere
       const edges = new Mesh(edgeGeometry as BufferGeometry, edgeMat)
-      edges.renderOrder = EDGES_ORDER
+      edges.renderOrder = EDGES_SOLID_OFFSET
       edges.onBeforeRender = beforeEdges
 
       const fillGeometry = new InstancedBufferGeometry()
@@ -703,6 +724,7 @@ export class ObstaclesView {
       c.edges.visible = !flat
       c.opaque.visible = !flat
       c.ghost.visible = !flat && (allGhost || c.active > 0)
+      c.ghostEdges.visible = c.ghost.visible
     }
   }
 
@@ -712,7 +734,7 @@ export class ObstaclesView {
 
   private disposeLines(): void {
     for (const c of this.chunks) {
-      this.scene.remove(c.edges, c.opaque, c.ghost)
+      this.scene.remove(c.edges, c.ghostEdges, c.opaque, c.ghost)
       for (const g of c.geometries) g.dispose()
     }
     this.chunks = []
@@ -727,6 +749,8 @@ export class ObstaclesView {
     this.chunkOfCell = new Int32Array(0)
     this.material?.dispose()
     this.material = null
+    this.ghostEdgeMaterial?.dispose()
+    this.ghostEdgeMaterial = null
     for (const m of this.faceMaterials) m.dispose()
     this.faceMaterials = []
     this.ghostTex?.dispose()
