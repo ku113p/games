@@ -23,6 +23,8 @@ import { viewMode } from './game-mode'
 import { BACKGROUND_COLOR, applyPaletteById, createFog, type PalettesConfig } from './palette'
 import { resolveCosmetics, type CosmeticsInput } from './cosmetics'
 import { CameraRig } from './camera-rig'
+import { createFreeCamera, type FreeCamera } from './free-camera'
+import { isFreeCameraRequested, type FreeCameraConfig } from './free-camera-math'
 import { PostFx } from './postprocessing'
 import { CubeFrame } from './cube-frame'
 import { SnakeView } from './snake-view'
@@ -109,6 +111,10 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
 
   const scene = new Scene()
   const cameraRig = new CameraRig(config)
+  // Debug free camera: only with ?camera=free. Otherwise null - one check per frame, no listeners, nothing else.
+  const freeCam: FreeCamera | null = isFreeCameraRequested(location.search)
+    ? createFreeCamera(canvas, (config.camera as unknown as { free: FreeCameraConfig }).free, cubeSize(s))
+    : null
   const cubeFrame = new CubeFrame(scene)
   const wallGrid = new WallGrid(scene)
   // The flat board exists only in a game that starts flat (the player's first game); the 3D game never builds it.
@@ -241,6 +247,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       // Panel is open: the composer draws several passes, and info is reset on every render() by default.
       if (perf.statsOn) renderer.info.reset()
       cameraRig.update(dtMs, state)
+      if (freeCam !== null) freeCam.apply(cameraRig.camera, state, dtMs)
       if (cameraRig.consumeGlitchRequest()) {
         fx.triggerGlitch()
       }
@@ -254,7 +261,7 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       const dir = snakeView.direction
       aheadRay.update(state, dir.x, dir.y, dir.z, obstaclesView.isSolid, cameraRig.freeAmount)
       // Fog appears together with volume (in plane mode the camera is far outside, where it is off); 0 means the toggle is off.
-      fog.density = fogOn && perf.fog ? config.fog.density * MathUtils.smoothstep(cameraRig.freeAmount, 0, 1) : 0
+      fog.density = fogOn && perf.fog && freeCam === null ? config.fog.density * MathUtils.smoothstep(cameraRig.freeAmount, 0, 1) : 0
       appleView.update(state)
       compass?.update(state, cameraRig.camera, dtMs, cameraRig.freeAmount)
       // Flat opening: only the head's layer is drawn (the camera clips the rest), the cube's walls stay hidden until the reveal starts.
@@ -263,12 +270,13 @@ export function createView(canvas: HTMLCanvasElement, config: Config, s: GameSta
       wallGrid.update(cam.x, cam.y, cam.z, cameraRig.freeAmount, flat)
       planeBoard?.update(cameraRig.reveal)
       fx.render(dtMs)
-      if (perf.miniMap) miniMap.render(renderer, state, cameraRig.freeAmount)
+      if (perf.miniMap && (freeCam === null || !freeCam.hudHidden)) miniMap.render(renderer, state, cameraRig.freeAmount)
     },
 
     dispose(): void {
       if (disposed) return
       disposed = true
+      freeCam?.dispose()
       fx.detach()
       cubeFrame.dispose()
       wallGrid.dispose()

@@ -114,6 +114,20 @@
     "zoomWheelPerPx": 0.0012,
     "zoomPinchGain": 1,
     "zoomFollowMs": 120,
+    "free": {
+      "flySpeed": 12,
+      "orbitRadPerPx": 0.006,
+      "wheelStep": 0.12,
+      "minDistance": 1.5,
+      "maxDistance": 200,
+      "pitchLimitDeg": 88,
+      "startDistanceFactor": 1.6,
+      "startYawDeg": 35,
+      "startPitchDeg": 28,
+      "fovDeg": 50,
+      "near": 0.1,
+      "farFactor": 8
+    },
     "plane": {
       "visibleCells": 20,
       "marginCells": 1,
