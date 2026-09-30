@@ -8,6 +8,9 @@
     <style>
       :root {
         color-scheme: dark;
+        /* Extra room at the bottom while the page is fullscreen (the browser toast "To exit full screen..." sits there).
+           Set from screens/fullscreen.ts (value: config.json layout.fullscreenBottomReservePx); 0px outside fullscreen. */
+        --fs-reserve: 0px;
         --bg: #05060a;
         --fg: #d9fbff;
         --neon: #39ffe0;
@@ -66,7 +69,7 @@
         justify-content: flex-end;
         gap: 16px;
         padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-          max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+          calc(max(24px, env(safe-area-inset-bottom)) + var(--fs-reserve)) max(16px, env(safe-area-inset-left));
         text-align: center;
         background: radial-gradient(ellipse at 50% 30%, rgba(57, 255, 224, 0.08), transparent 60%), var(--bg);
       }
@@ -220,7 +223,7 @@
       #pad {
         --btn: clamp(48px, 15vmin, 72px);
         position: absolute;
-        bottom: max(12px, env(safe-area-inset-bottom));
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve));
         right: max(12px, env(safe-area-inset-right));
         display: flex;
         flex-direction: row;
@@ -294,7 +297,7 @@
       #boost {
         --boost: clamp(64px, 20vmin, 96px);
         position: absolute;
-        bottom: max(12px, env(safe-area-inset-bottom));
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve));
         left: max(12px, env(safe-area-inset-left));
         width: var(--boost);
         height: var(--boost);
@@ -367,7 +370,7 @@
         display: none; /* the stick is for touch devices only (see @media below); on PC the camera is turned with the mouse, reset is the R key */
         position: absolute;
         z-index: 4;
-        bottom: calc(max(12px, env(safe-area-inset-bottom)) + max(0px, (var(--row) - var(--stick)) / 2));
+        bottom: calc(calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve)) + max(0px, (var(--row) - var(--stick)) / 2));
         left: max(12px, env(safe-area-inset-left));
         width: var(--stick);
         height: var(--stick);
@@ -470,7 +473,7 @@
         --size: 48px;
         position: absolute;
         z-index: 5;
-        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--boost) + 10px);
+        bottom: calc(calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve)) + var(--boost) + 10px);
         left: calc(max(12px, env(safe-area-inset-left)) + (var(--boost) - var(--size)) / 2);
         width: var(--size);
         height: var(--size);
@@ -496,7 +499,7 @@
       /* Scheme "Taps": reset above the pad, pad height = 3 buttons + 2 gaps. */
       #cam-reset.above-pad {
         --btn: clamp(48px, 15vmin, 72px);
-        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--btn) * 3 + 8px + 10px);
+        bottom: calc(calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve)) + var(--btn) * 3 + 8px + 10px);
         left: calc(max(12px, env(safe-area-inset-left)) + (var(--btn) - var(--size)) / 2);
       }
       #cam-reset.above-pad.right {
@@ -1053,7 +1056,7 @@
         --btn: clamp(48px, 15vmin, 72px);
         --edge-l: max(12px, env(safe-area-inset-left));
         --edge-r: max(12px, env(safe-area-inset-right));
-        --edge-b: max(12px, env(safe-area-inset-bottom));
+        --edge-b: calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve));
         --stick-w: clamp(88px, 24vmin, 112px);
         position: absolute;
         display: flex;

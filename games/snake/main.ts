@@ -50,6 +50,7 @@ import { createWallet, grandfatherArena, hasAffordableNew, isShopUnlocked } from
 import { createShopView } from './screens/shop-view'
 import { createControlsView, detectInputKinds } from './screens/controls-view'
 import { createBoostHint } from './screens/boost-hint'
+import { attachFullscreenReserve } from './screens/fullscreen'
 import { boostKeyLabels } from './input/controls-doc'
 import musicUrl from './assets/music/cyber-runner.mp3'
 import configJson from './config.json'
@@ -58,6 +59,8 @@ import { analyticsEnabled, createTracker } from './analytics/events'
 import { loadCounter, sendEvent } from './analytics/goatcounter'
 
 const config = configJson as Config
+// Fullscreen: lift everything docked to the bottom above the browser's "exit full screen" toast (screens/fullscreen.ts).
+attachFullscreenReserve(configJson.layout)
 
 const HIGH_SCORE_KEY = 'snake:highScore' // the old single high score: read only to migrate it into the leaderboard
 const LEADERBOARD_KEY = 'snake:leaderboard'

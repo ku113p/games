@@ -190,6 +190,9 @@
     "showAfterMs": 600,
     "visibleMs": 4000
   },
+  "layout": {
+    "fullscreenBottomReservePx": 80
+  },
   "input": {
     "defaultScheme": "taps",
     "swipeMinPx": 24,
