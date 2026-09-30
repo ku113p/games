@@ -55,9 +55,9 @@ export class TailGuides {
 
   /**
    * Frame. gx/gy/gz are segment positions (0 is the head) after step smoothing, gk their scale (fade near the camera),
-   * bodyColor/tailColor are the palette, glow is the body brightness multiplier (SNAKE_BODY_GLOW_BOOST).
+   * cr/cg/cb are the segments' own colours as the snake view set them (glow already solved), so a link is as bright as the cubes it joins.
    */
-  update(length: number, gx: Float32Array, gy: Float32Array, gz: Float32Array, gk: Float32Array, bodyColor: Color, tailColor: Color, glow: number, denom: number): void {
+  update(length: number, gx: Float32Array, gy: Float32Array, gz: Float32Array, gk: Float32Array, cr: Float32Array, cg: Float32Array, cb: Float32Array): void {
     const n = Math.max(0, length - 1)
     this.links.setCount(n)
     const arrowsFrom = Math.max(0, n - TAIL_ARROWS)
@@ -73,7 +73,7 @@ export class TailGuides {
       this.dir.set(ax - bx, ay - by, az - bz)
       const len = this.dir.length()
       const k = Math.min(gk[i]!, gk[i + 1]!)
-      this.color.copy(bodyColor).lerp(tailColor, (i + 1) / denom).multiplyScalar(glow).lerp(this.white, LINK_WHITE)
+      this.color.setRGB(cr[i + 1]!, cg[i + 1]!, cb[i + 1]!).lerp(this.white, LINK_WHITE)
       if (len < EPS) {
         // Degenerate case (segments coincide): the link has zero length, hide it.
         this.m.makeScale(0, 0, 0)

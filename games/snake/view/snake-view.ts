@@ -4,8 +4,9 @@
 // allocations: Matrix4/Color/Vector3/callback are created once, pool growth is
 // only in handle().
 //
-// Readability: the body goes bright green -> bright cyan (the tail does not darken), odd
-// segments are slightly dimmer. In free mode, segments near the camera shrink
+// Readability: the body goes bright green -> bright cyan and glows along its whole length: every segment is pinned to a luminance above the bloom threshold
+// (config.palettes.glow.body down to .bodyTail), no stripes, no fade to darkness. The body is one size (config.snakeView.bodyScale of the head), whatever the index
+// or the distance. In free mode, segments near the camera shrink
 // (fade) so they do not block the view; the camera sets the effect weight (freeAmount).
 //
 // The snake is drawn cell by cell from the core, step by step. Smoothing is minimal:
@@ -34,8 +35,8 @@ import {
   SNAKE_BODY_COLOR,
   SNAKE_TAIL_COLOR,
   SNAKE_HEAD_COLOR,
-  SNAKE_STRIPE_DIM,
-  SNAKE_BODY_GLOW_BOOST,
+  SNAKE_BODY_LUMINANCE,
+  SNAKE_TAIL_LUMINANCE,
   SNAKE_HEAD_END_LUMINANCE,
   SNAKE_HEAD_END_SEGMENTS,
   SNAKE_HEAD_END_MAX_BOOST,
@@ -61,10 +62,10 @@ const SEGMENT_BEAM = 0.1
 // Soft head "breathing" (size and brightness), only if there is no prefers-reduced-motion.
 // Safety: one breath = one sine cycle, the fastest one is the danger breath, 1000/DANGER_PERIOD_MS = 1000/1100 ≈ 0.9 Hz (idle: 1000/1600 ≈ 0.6 Hz), both < 3 flashes/s,
 // no jumps: only a smooth low-amplitude sine. The danger color changes by smooth transition, not by blinking.
-const HEAD_PULSE = 0.05
+export const HEAD_PULSE = 0.05
 const HEAD_PULSE_PERIOD_MS = 1600
 const DANGER_PERIOD_MS = 1100
-const DANGER_PULSE = 0.06
+export const DANGER_PULSE = 0.06
 export const DANGER_BREATH = 0.08
 
 /** Head signal values (config.headSignal): danger horizon in steps, the color transition time and the size of the head in the goal state. */
@@ -84,10 +85,22 @@ export interface HeadSignalConfig {
 const FADE_NEAR_CELLS = 0.9
 const FADE_FAR_CELLS = 1.5
 const FADE_MIN_SCALE = 0.1
-// Neck size next to the chase camera (styling): fraction of full size inside NECK_SCALE_NEAR_CELLS, full size from NECK_SCALE_FAR_CELLS.
-const NECK_NEAR_SCALE = 0.65
-const NECK_SCALE_NEAR_CELLS = 4.5
-const NECK_SCALE_FAR_CELLS = 6
+/**
+ * Size of every body segment (neck, body, tail) as a fraction of the head, a normal cube. One number for the whole body: no dependence on the segment index or on the camera
+ * distance (the near-camera fade above is separate and hits every segment alike). Config: snakeView.bodyScale.
+ */
+export function bodyScaleOf(cfg: { bodyScale: number } = configJson.snakeView): number {
+  return cfg.bodyScale
+}
+const BODY_SCALE = bodyScaleOf()
+
+/**
+ * Drawn size of the head (the body's size is bodyScaleOf() of a normal cube): the breathing pulse times the goal shrink. The two stack (the goal shrink is fully on while the pulse
+ * is at its trough), so the smallest the head is ever drawn is headScaleOf(-max(HEAD_PULSE, DANGER_PULSE), 1, goalScale); palette.test pins it strictly above the body with a margin.
+ */
+export function headScaleOf(pulse: number, goalAmount: number, goalScale: number): number {
+  return (1 + pulse) * MathUtils.lerp(1, goalScale, goalAmount)
+}
 
 export class SnakeView {
   private pool: InstancedPool
@@ -102,6 +115,10 @@ export class SnakeView {
   private gy = new Float32Array(0)
   private gz = new Float32Array(0)
   private gk = new Float32Array(0)
+  // Colour of each segment as set this frame (linear, after the glow solve): the tail guides colour their links from it.
+  private cr = new Float32Array(0)
+  private cg = new Float32Array(0)
+  private cb = new Float32Array(0)
   private readonly guides: TailGuides | null
 
   private headMesh: Mesh
@@ -170,6 +187,9 @@ export class SnakeView {
     this.gy = new Float32Array(cap)
     this.gz = new Float32Array(cap)
     this.gk = new Float32Array(cap)
+    this.cr = new Float32Array(cap)
+    this.cg = new Float32Array(cap)
+    this.cb = new Float32Array(cap)
   }
 
   private place(i: number, length: number, glide: number): void {
@@ -189,43 +209,40 @@ export class SnakeView {
       this.headZ = z
       return
     }
-    let k = 1
+    let k = BODY_SCALE
     const headEnd = i <= SNAKE_HEAD_END_SEGMENTS
-    let dist = Infinity
-    if (this.fadeAmount > 0 || headEnd) {
-      const dx = x - this.camX
-      const dy = y - this.camY
-      const dz = z - this.camZ
-      dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-    }
+    const dx = x - this.camX
+    const dy = y - this.camY
+    const dz = z - this.camZ
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
     if (this.fadeAmount > 0) {
       const f = MathUtils.smoothstep(dist, FADE_NEAR_CELLS, FADE_FAR_CELLS)
-      k = MathUtils.lerp(1, MathUtils.lerp(FADE_MIN_SCALE, 1, f), this.fadeAmount)
+      k *= MathUtils.lerp(1, MathUtils.lerp(FADE_MIN_SCALE, 1, f), this.fadeAmount)
     }
-    // The neck next to the chase camera covers a big part of the screen, and a pixel above the bloom threshold blooms in full colour whatever its excess, so the halo grows with the
-    // area covered: the neck is drawn smaller there (beams and all) and eases back to full size farther away.
-    if (headEnd && this.fadeAmount > 0) k *= MathUtils.lerp(1, MathUtils.lerp(NECK_NEAR_SCALE, 1, MathUtils.smoothstep(dist, NECK_SCALE_NEAR_CELLS, NECK_SCALE_FAR_CELLS)), this.fadeAmount)
-    this.gk[i] = k;
+    this.gk[i] = k
     // The body is instances 0..length-2 (the head is drawn separately).
     const idx = i - 1
     this.matrix.makeScale(k, k, k).setPosition(x, y, z)
     this.pool.mesh.setMatrixAt(idx, this.matrix)
     this.color.copy(SNAKE_BODY_COLOR)
-    if (!headEnd) this.color.lerp(SNAKE_TAIL_COLOR, i / this.denom)
-    if (headEnd) {
-      // Head end: the pure body hue (palette.test checks it against the head states; the tail ramp would collide with them for color-blind players), pinned to a luminance (bloomLuminanceOf, the same formula as boostFor in palette-math: the one the bloom pass uses): the full glow (above the bloom threshold), lower when near the camera.
-      const target = MathUtils.lerp(SNAKE_HEAD_END_NEAR_LUMINANCE, SNAKE_HEAD_END_LUMINANCE, MathUtils.smoothstep(dist, SNAKE_HEAD_END_NEAR_FROM, SNAKE_HEAD_END_NEAR_TO))
-      // Fog is mixed in after this colour (FogExp2: out = c * (1 - f) + fogColor * f, f = 1 - exp(-density^2 * depth^2)), so solve for the colour that lands on the target
-      // AFTER the fog: a target luminance that only held at the camera's nose would drop under the bloom threshold and flicker as the camera swings. Radial distance stands in
-      // for the view depth the shader uses (it is never smaller, so the neck errs slightly bright, never dim).
-      const f = 1 - Math.exp(-this.fogK * dist * dist)
-      const need = f < 0.9 ? Math.max(0, (target - f * this.fogLum) / (1 - f)) : target
-      const l = bloomLuminanceOf(this.color.r, this.color.g, this.color.b)
-      this.color.multiplyScalar(l > 1e-6 ? Math.min(SNAKE_HEAD_END_MAX_BOOST, need / l) : SNAKE_HEAD_END_MAX_BOOST)
-    } else {
-      if (i % 2 === 1) this.color.multiplyScalar(SNAKE_STRIPE_DIM)
-      this.color.multiplyScalar(SNAKE_BODY_GLOW_BOOST)
-    }
+    const t = i / this.denom
+    if (!headEnd) this.color.lerp(SNAKE_TAIL_COLOR, t)
+    // Every segment is pinned to a luminance (bloomLuminanceOf, the same formula as boostFor in palette-math: the one the bloom pass uses) above the bloom threshold.
+    // Head end: the pure body hue (palette.test checks it against the head states), the full neck glow, eased lower next to the camera. The rest of the body: a gentle ramp
+    // from SNAKE_BODY_LUMINANCE to SNAKE_TAIL_LUMINANCE, whose darkest point (the last segment) still clears the threshold.
+    const target = headEnd
+      ? MathUtils.lerp(SNAKE_HEAD_END_NEAR_LUMINANCE, SNAKE_HEAD_END_LUMINANCE, MathUtils.smoothstep(dist, SNAKE_HEAD_END_NEAR_FROM, SNAKE_HEAD_END_NEAR_TO))
+      : MathUtils.lerp(SNAKE_BODY_LUMINANCE, SNAKE_TAIL_LUMINANCE, t)
+    // Fog is mixed in after this colour (FogExp2: out = c * (1 - f) + fogColor * f, f = 1 - exp(-density^2 * depth^2)), so solve for the colour that lands on the target
+    // AFTER the fog: a target that only held at the camera's nose would drop under the bloom threshold down the body and the tail would go dark. Radial distance stands in
+    // for the view depth the shader uses (it is never smaller, so this errs slightly bright, never dim). The boost cap (glow.maxBoost) is the only limit.
+    const f = 1 - Math.exp(-this.fogK * dist * dist)
+    const need = Math.max(0, (target - f * this.fogLum) / Math.max(1 - f, 0.02))
+    const l = bloomLuminanceOf(this.color.r, this.color.g, this.color.b)
+    this.color.multiplyScalar(l > 1e-6 ? Math.min(SNAKE_HEAD_END_MAX_BOOST, need / l) : SNAKE_HEAD_END_MAX_BOOST)
+    this.cr[i] = this.color.r
+    this.cg[i] = this.color.g
+    this.cb[i] = this.color.b
     this.pool.mesh.setColorAt(idx, this.color)
   }
 
@@ -286,7 +303,7 @@ export class SnakeView {
     const glide = MathUtils.smoothstep(stepProgress(s), 0, SLIDE_FRACTION)
     for (let i = 0; i < length; i++) this.place(i, length, glide)
     this.pool.markDirty()
-    this.guides?.update(length, this.gx, this.gy, this.gz, this.gk, SNAKE_BODY_COLOR, SNAKE_TAIL_COLOR, SNAKE_BODY_GLOW_BOOST, this.denom)
+    this.guides?.update(length, this.gx, this.gy, this.gz, this.gk, this.cr, this.cg, this.cb)
 
     // The head heading comes from the core and changes instantly on input, without smoothing: the snake is step-based.
     const dir = intendedHeading(s)
@@ -336,7 +353,7 @@ export class SnakeView {
     const idleWave = calm ? 0 : Math.sin(((now % HEAD_PULSE_PERIOD_MS) / HEAD_PULSE_PERIOD_MS) * Math.PI * 2)
     const dangerWave = calm ? 0 : Math.sin(((now % DANGER_PERIOD_MS) / DANGER_PERIOD_MS) * Math.PI * 2)
     const pulse = MathUtils.lerp(HEAD_PULSE * idleWave, DANGER_PULSE * dangerWave, this.dangerAmount)
-    this.headMesh.scale.setScalar((1 + pulse) * MathUtils.lerp(1, this.signalCfg.goalScale, this.goalAmount))
+    this.headMesh.scale.setScalar(headScaleOf(pulse, this.goalAmount, this.signalCfg.goalScale))
 
     const c = this.headColor.copy(SNAKE_HEAD_COLOR).multiplyScalar(HEAD_IDLE_BOOST)
     if (this.goalAmount > 0) {

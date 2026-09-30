@@ -28,6 +28,7 @@ import {
   type PadSide,
 } from './input/gestures'
 import { attachInput, type InputHandlers, type InputScheme } from './input/index'
+import { resolveScheme } from './input/scheme'
 import { createAudio, type SoundConfig } from './view/audio'
 import { createDrum, renderBoard, renderTopLine } from './view/leaderboard-view'
 import { mountLangSwitch } from './view/lang-switch'
@@ -388,7 +389,7 @@ syncQualityButtons()
 
 // The scheme lives on the settings screen, not in plain view: the choice is remembered between launches.
 const storedScheme = storageGet(SCHEME_KEY)
-let selectedScheme: InputScheme = storedScheme === 'taps' || storedScheme === 'swipes' ? storedScheme : 'swipes'
+let selectedScheme: InputScheme = resolveScheme(storedScheme, configJson.input.defaultScheme)
 
 function markSelected(container: HTMLElement, datasetKey: 'scheme' | 'side', value: string): void {
   const buttons = container.querySelectorAll<HTMLButtonElement>('button')
@@ -664,7 +665,7 @@ function isPaused(): boolean {
 }
 
 // Parameters of the last game - "Again" restarts with them.
-let lastScheme: InputScheme = 'swipes'
+let lastScheme: InputScheme = selectedScheme
 
 // While paused nothing draws (step() returns before render), so the canvas holds only what was last drawn into it. Anything that
 // touches the drawing buffer wipes that: a resize (which clears it), a lost and restored WebGL context, a compositor that drops

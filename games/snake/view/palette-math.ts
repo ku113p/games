@@ -40,11 +40,13 @@ export interface GlowTargets {
   dangerFar: number
   dangerNear: number
   apple: number
-  /** Bright body segment (the dim stripes are x stripeDim). */
+  /** Body segment next to the neck: the body glows along its whole length, from this down to bodyTail. */
   body: number
+  /** The last segment of the snake: the darkest point of the body ramp. Must stay above the bloom threshold with a margin (the tail never goes dark). */
+  bodyTail: number
   edge: number
   obstacleLine: number
-  /** Target luminance of the first headEndSegments body segments (the head end of the snake): they glow whatever the stripe or the body-to-tail ramp says. */
+  /** Target luminance of the first headEndSegments body segments (the head end of the snake): pure body hue, no ramp. */
   headEnd: number
   /** How many body segments right behind the head (snake indices 1..N) get the headEnd glow. The head itself is not counted: its glow is the goal/danger signal. */
   headEndSegments: number
@@ -263,7 +265,7 @@ export function checkPalette(set: PaletteSet, g: GlowTargets): PaletteCheck[] {
   const b = boostsFor(set, g)
   const st = headStates(set, b)
   const body = displayedLinear(set.body, b.body)
-  const tail = displayedLinear(set.tail, b.body)
+  const tail = displayedLinear(set.tail, boostFor(set.tail, g.bodyTail, g.maxBoost))
   const obs = displayedLinear(set.obstacle, b.obstacleLine)
   const edge = displayedLinear(set.edge, b.edge)
   const bg = hexToLinear(set.background)

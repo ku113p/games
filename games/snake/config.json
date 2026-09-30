@@ -146,7 +146,10 @@
     "dangerHorizon": 2,
     "riseMs": 50,
     "fallMs": 400,
-    "goalScale": 0.75
+    "goalScale": 0.88
+  },
+  "snakeView": {
+    "bodyScale": 0.75
   },
   "demo": {
     "afterSteps": 5
@@ -188,6 +191,7 @@
     "visibleMs": 4000
   },
   "input": {
+    "defaultScheme": "taps",
     "swipeMinPx": 24,
     "tiltRadPerPx": 0.005,
     "twoFingerLockPx": 10,
@@ -285,14 +289,14 @@
     }
   },
   "palettes": {
-    "glow": { "headIdle": 0.9, "headGoal": 0.98, "dangerFar": 1.02, "dangerNear": 1.10, "apple": 0.65, "body": 0.8, "edge": 0.86, "obstacleLine": 0.82, "headEnd": 0.81, "headEndSegments": 3, "headEndNearLuminance": 0.78, "headEndNearFromCells": 1.5, "headEndNearToCells": 3.5, "maxBoost": 6 },
-    "glowOverrides": { "neon": { "obstacleLine": 0.66 }, "contrast": { "headGoal": 0.98, "obstacleLine": 0.72 }, "synthwave": { "obstacleLine": 0.72 } },
+    "glow": { "headIdle": 0.94, "headGoal": 1.02, "dangerFar": 1.08, "dangerNear": 1.16, "apple": 0.65, "body": 0.84, "bodyTail": 0.8, "edge": 0.86, "obstacleLine": 0.82, "headEnd": 0.88, "headEndSegments": 3, "headEndNearLuminance": 0.78, "headEndNearFromCells": 1.5, "headEndNearToCells": 3.5, "maxBoost": 6 },
+    "glowOverrides": { "neon": { "obstacleLine": 0.66 }, "contrast": { "obstacleLine": 0.72 }, "synthwave": { "obstacleLine": 0.72 } },
     "sets": {
       "neon": { "background": "#02030a", "fog": "#1e223a", "body": "#3dffa6", "tail": "#18c4ff", "head": "#fff27a", "apple": "#f01050", "dangerFar": "#fd7500", "dangerNear": "#ff2010", "rayDanger": "#ff5a30", "obstacle": "#8f5cff", "edge": "#1fb6ff", "grid": "#2a8cff", "mark": "#d9b84a", "wall": "#6fe3ff" },
-      "contrast": { "background": "#03060c", "fog": "#1c2236", "body": "#56b4e9", "tail": "#3d8bff", "head": "#fff08a", "apple": "#f0e442", "dangerFar": "#e84400", "dangerNear": "#ff1e97", "rayDanger": "#f26a1c", "obstacle": "#7a6cff", "edge": "#2f8cff", "grid": "#2a70d0", "mark": "#d9b84a", "wall": "#8fd0ff" },
-      "synthwave": { "background": "#0a0418", "fog": "#261846", "body": "#ff4fd8", "tail": "#8b5cff", "head": "#ffe680", "apple": "#2ee9ff", "dangerFar": "#ffb020", "dangerNear": "#ff2a2a", "rayDanger": "#ff6a22", "obstacle": "#4d6bff", "edge": "#ff3df2", "grid": "#8a4dff", "mark": "#ffd9a8", "wall": "#ff9ff0" },
-      "ice": { "background": "#030812", "fog": "#1a2a44", "body": "#7df9ff", "tail": "#3d7bff", "head": "#ffe680", "apple": "#ff58d8", "dangerFar": "#ffb000", "dangerNear": "#ff2233", "rayDanger": "#ff6a1a", "obstacle": "#86a7e4", "edge": "#5ecbff", "grid": "#3d9bff", "mark": "#d9c9a0", "wall": "#b0f0ff" },
-      "terminal": { "background": "#030a05", "fog": "#143024", "body": "#2effa0", "tail": "#00b98a", "head": "#ebe5fe", "apple": "#e936ff", "dangerFar": "#ffb000", "dangerNear": "#ff2a1a", "rayDanger": "#ff6a1a", "obstacle": "#8092f0", "edge": "#1fbf8a", "grid": "#17936b", "mark": "#d6d6a0", "wall": "#8ffcc8" }
+      "contrast": { "background": "#03060c", "fog": "#1c2236", "body": "#56b4e9", "tail": "#3d8bff", "head": "#fff090", "apple": "#f0e442", "dangerFar": "#e84400", "dangerNear": "#ff1e97", "rayDanger": "#f26a1c", "obstacle": "#7a6cff", "edge": "#2f8cff", "grid": "#2a70d0", "mark": "#d9b84a", "wall": "#8fd0ff" },
+      "synthwave": { "background": "#0a0418", "fog": "#261846", "body": "#ff4fd8", "tail": "#8b44ff", "head": "#ffe680", "apple": "#2ee9ff", "dangerFar": "#ffb020", "dangerNear": "#ff2a2a", "rayDanger": "#ff6a22", "obstacle": "#4d6bff", "edge": "#ff3df2", "grid": "#8a4dff", "mark": "#ffd9a8", "wall": "#ff9ff0" },
+      "ice": { "background": "#030812", "fog": "#1a2a44", "body": "#7df9ff", "tail": "#3d7bff", "head": "#ffe680", "apple": "#ff28d8", "dangerFar": "#ffb000", "dangerNear": "#ff2233", "rayDanger": "#ff6a1a", "obstacle": "#86a7e4", "edge": "#5ecbff", "grid": "#3d9bff", "mark": "#d9c9a0", "wall": "#b0f0ff" },
+      "terminal": { "background": "#030a05", "fog": "#143024", "body": "#2effa0", "tail": "#00bf84", "head": "#ebe5fe", "apple": "#e936ff", "dangerFar": "#ffb000", "dangerNear": "#ff2a1a", "rayDanger": "#ff6a1a", "obstacle": "#8092f0", "edge": "#1fbf8a", "grid": "#17936b", "mark": "#d6d6a0", "wall": "#8ffcc8" }
     }
   }
 }

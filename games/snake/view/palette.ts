@@ -80,13 +80,11 @@ export const MARK_SQUARE_ALPHA = 0.2
 export const SNAKE_BODY_COLOR = new Color()
 export const SNAKE_TAIL_COLOR = new Color()
 export const SNAKE_HEAD_COLOR = new Color()
-// Even/odd segments differ slightly in brightness, so length and motion are visible.
-export const SNAKE_STRIPE_DIM = 0.72
-// Snake body brightness multiplier (snake view only; the minimap does not use it).
-// Neon pass: was 1.0 (the body did not glow at all), now 1.06 (Night Neon; computed). Bright segments glow,
-// the dim stripes (SNAKE_STRIPE_DIM) stay below the threshold, so the striping does not vanish.
-export let SNAKE_BODY_GLOW_BOOST = 1.25
-// Head end of the snake: the first SNAKE_HEAD_END_SEGMENTS body segments (right behind the head) glow always: no stripe dimming, no body-to-tail ramp (the
+// The body glows along its whole length: no stripes, no fade to darkness. Each segment is pinned to a luminance (config.palettes.glow): body at the neck end of the ramp,
+// bodyTail at the last segment, both above BLOOM_THRESHOLD with a margin (snake-view solves the multiplier per segment, fog included).
+export let SNAKE_BODY_LUMINANCE = 0.84
+export let SNAKE_TAIL_LUMINANCE = 0.8
+// Head end of the snake: the first SNAKE_HEAD_END_SEGMENTS body segments (right behind the head): no body-to-tail ramp (the
 // pure body hue: a normalised cyan tail collides with the goal pink for deuteranopia), luminance pinned to SNAKE_HEAD_END_LUMINANCE (config.palettes.glow.headEnd,
 // above BLOOM_THRESHOLD). Without it a short snake glowed nowhere and a long one only on the even segments.
 export let SNAKE_HEAD_END_LUMINANCE = 0.9
@@ -233,7 +231,8 @@ export function applyPalette(set: PaletteSet, glow: GlowTargets): void {
   SNAKE_BODY_COLOR.set(set.body)
   SNAKE_TAIL_COLOR.set(set.tail)
   SNAKE_HEAD_COLOR.set(set.head)
-  SNAKE_BODY_GLOW_BOOST = b.body
+  SNAKE_BODY_LUMINANCE = glow.body
+  SNAKE_TAIL_LUMINANCE = glow.bodyTail
   SNAKE_HEAD_END_LUMINANCE = glow.headEnd
   SNAKE_HEAD_END_SEGMENTS = glow.headEndSegments
   SNAKE_HEAD_END_MAX_BOOST = glow.maxBoost
