@@ -103,9 +103,9 @@
   },
   "camera": {
     "glitchMs": 180,
-    "followDistance": 4,
-    "followHeight": 2.4,
-    "lateralOffset": 0.7,
+    "followDistance": 6,
+    "followHeight": 3.6,
+    "lateralOffset": 1.05,
     "lookAheadDistance": 10,
     "lookDownOffset": 1.5,
     "modeSwitchMs": 1400,
