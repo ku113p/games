@@ -11,8 +11,10 @@ import type { TextKey } from '../i18n/dictionaries'
 import { controlLines, keyListPlacement, type ControlId, type InputKinds } from './controls-layout'
 
 export interface ControlsViewDeps {
-  /** The scheme the player has selected in settings. The screen opens on it. */
+  /** The scheme the player has selected (the same one as in Settings and pause). */
   readonly scheme: () => InputScheme
+  /** A tab press: makes that scheme the player's own (persisted, used by the next game and by a running one). */
+  readonly setScheme: (scheme: InputScheme) => void
   readonly padSide: () => PadSide
   readonly kinds: () => InputKinds
 }
@@ -20,7 +22,7 @@ export interface ControlsViewDeps {
 export interface ControlsView {
   /** Redraw (language change, a tab press). */
   render(): void
-  /** On opening: back to the player's own scheme, scroll to the top. */
+  /** On opening: scroll to the top. */
   reset(): void
 }
 
@@ -161,8 +163,6 @@ function drawDiagram(scheme: InputScheme, side: PadSide, num: Num): SVGSVGElemen
 // --- the screen --------------------------------------------------------------------------------------------------
 
 export function createControlsView(body: HTMLElement, deps: ControlsViewDeps): ControlsView {
-  let shown: InputScheme = deps.scheme()
-
   function keyList(): HTMLElement {
     const box = el('section', 'ctl-keys')
     box.append(el('h3', undefined, t('controls.keys.title')))
@@ -186,7 +186,7 @@ export function createControlsView(body: HTMLElement, deps: ControlsViewDeps): C
 
   function render(): void {
     const kinds = deps.kinds()
-    const mine = deps.scheme()
+    const shown = deps.scheme()
     const lines = controlLines(shown, kinds)
     const num: Num = (id) => {
       const i = lines.indexOf(id)
@@ -195,7 +195,7 @@ export function createControlsView(body: HTMLElement, deps: ControlsViewDeps): C
 
     const tabs = el('div', 'options ctl-tabs')
     tabs.setAttribute('role', 'radiogroup')
-    tabs.setAttribute('aria-label', t('aria.controlsScheme'))
+    tabs.setAttribute('aria-label', t('aria.scheme'))
     for (const scheme of ['swipes', 'taps'] as const) {
       const btn = el('button', scheme === shown ? 'selected' : '', t(scheme === 'swipes' ? 'scheme.swipes' : 'scheme.taps'))
       btn.type = 'button'
@@ -215,7 +215,6 @@ export function createControlsView(body: HTMLElement, deps: ControlsViewDeps): C
     main.append(legend)
 
     const parts: Node[] = [tabs]
-    if (shown !== mine) parts.push(el('p', 'ctl-other', t('controls.other')))
     parts.push(main)
     if (kinds.touch) parts.push(el('p', 'ctl-note', t('controls.note.fingers')))
     const placement = keyListPlacement(kinds)
@@ -230,15 +229,13 @@ export function createControlsView(body: HTMLElement, deps: ControlsViewDeps): C
     const btn = target.closest<HTMLElement>('button[data-ctl-scheme]')
     if (btn === null) return
     const next = btn.dataset['ctlScheme']
-    if (next !== 'swipes' && next !== 'taps' || next === shown) return
-    shown = next
-    render()
+    if (next !== 'swipes' && next !== 'taps') return
+    deps.setScheme(next)
   })
 
   return {
     render,
     reset() {
-      shown = deps.scheme()
       render()
       body.scrollTop = 0
     },

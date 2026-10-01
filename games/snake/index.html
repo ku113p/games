@@ -983,16 +983,11 @@
         padding-top: 2px;
         overflow-wrap: anywhere;
       }
-      .ctl-note,
-      .ctl-other {
+      .ctl-note {
         margin: 0;
         font-size: 13px;
         line-height: 1.35;
         opacity: 0.75;
-      }
-      .ctl-other {
-        color: var(--accent);
-        opacity: 1;
       }
       .d-frame { fill: none; stroke: rgba(57, 255, 224, 0.35); stroke-width: 1.5; }
       .d-ctl { fill: rgba(57, 255, 224, 0.06); stroke: rgba(57, 255, 224, 0.75); stroke-width: 1.5; }
@@ -1623,6 +1618,13 @@
         </div>
         <div class="options" role="group" data-i18n-aria="aria.view">
           <button type="button" data-fog aria-pressed="true"></button>
+        </div>
+        <div class="field">
+          <span data-i18n="menu.scheme"></span>
+          <div id="pause-scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
+            <button type="button" data-scheme="swipes" data-i18n="scheme.swipes"></button>
+            <button type="button" data-scheme="taps" data-i18n="scheme.taps"></button>
+          </div>
         </div>
         <div class="field">
           <span data-i18n="menu.quality"></span>

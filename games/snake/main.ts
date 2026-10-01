@@ -122,6 +122,7 @@ const stickKnobEl = required<HTMLElement>('stick-knob')
 const pauseToMenuBtn = required<HTMLButtonElement>('pause-to-menu')
 const padSideOptions = required<HTMLElement>('pad-side-options')
 const schemeOptions = required<HTMLElement>('scheme-options')
+const pauseSchemeOptions = required<HTMLElement>('pause-scheme-options')
 const legalWarningScreen = required<HTMLElement>('legal-warning')
 const legalWarningOkBtn = required<HTMLButtonElement>('legal-warning-ok')
 const legalTermsScreen = required<HTMLElement>('legal-terms')
@@ -403,15 +404,26 @@ function markSelected(container: HTMLElement, datasetKey: 'scheme' | 'side', val
   }
 }
 
-schemeOptions.addEventListener('click', (e) => {
+/** The one place the control scheme is changed (Settings, Controls screen, pause): persists, re-marks every selector, swaps a live game's input. */
+function applyScheme(next: InputScheme): void {
+  if (next === selectedScheme) return
+  selectedScheme = next
+  storageSet(SCHEME_KEY, next)
+  markSelected(schemeOptions, 'scheme', next)
+  markSelected(pauseSchemeOptions, 'scheme', next)
+  controlsView.render()
+  if (session !== null) swapSessionScheme(session, next)
+}
+
+function onSchemeClick(e: Event): void {
   const target = e.target
   if (!(target instanceof HTMLButtonElement)) return
   const raw = target.dataset['scheme']
   if (raw !== 'swipes' && raw !== 'taps') return
-  selectedScheme = raw
-  storageSet(SCHEME_KEY, raw)
-  markSelected(schemeOptions, 'scheme', raw)
-})
+  applyScheme(raw)
+}
+schemeOptions.addEventListener('click', onSchemeClick)
+pauseSchemeOptions.addEventListener('click', onSchemeClick)
 
 // Pad side (for left-handed players): remembered between launches, applied at game start.
 let padSide: PadSide = parsePadSide(storageGet(PAD_SIDE_KEY))
@@ -425,6 +437,7 @@ padSideOptions.addEventListener('click', (e) => {
 })
 
 markSelected(schemeOptions, 'scheme', selectedScheme)
+markSelected(pauseSchemeOptions, 'scheme', selectedScheme)
 markSelected(padSideOptions, 'side', padSide)
 
 // Language switcher (two letters) - on the main screen and on both legal ones: see view/lang-switch.ts.
@@ -603,6 +616,7 @@ function renderScreens(s: ScreenState): void {
 // The controls screen: the diagram follows the selected scheme and pad side; key names come from the input layer.
 const controlsView = createControlsView(controlsBodyEl, {
   scheme: () => selectedScheme,
+  setScheme: applyScheme,
   padSide: () => padSide,
   kinds: detectInputKinds,
 })
@@ -638,6 +652,10 @@ interface Session {
   state: GameState
   view: View
   detachInput: () => void
+  /** Detaches only what depends on the scheme (canvas swipes/keys and the pad); the boost button and the stick are scheme-independent. */
+  detachSchemeInput: () => void
+  /** Input handlers, kept so the scheme can be swapped in a running game. */
+  handlers: InputHandlers
   /** Pad of the 'taps' scheme; null in 'swipes'. */
   pad: Pad | null
   /** Boost button (both schemes). */
@@ -911,6 +929,40 @@ function showPad(scheme: InputScheme): void {
   padEl.classList.remove('hidden')
 }
 
+const NO_HANDLERS: InputHandlers = {
+  onTurn: () => {},
+  onBoost: () => {},
+  onPause: () => {},
+  onCameraTiltBy: () => {},
+  onCameraZoomBy: () => {},
+  onCameraReset: () => {},
+}
+
+/** Attaches the scheme-dependent input: canvas swipes/keyboard always, the pad only in 'taps'. Cold path (game start, scheme swap). */
+function attachSchemeInput(s: Session, scheme: InputScheme): void {
+  const detachCanvasInput = attachInput(canvas, scheme, config, s.handlers)
+  if (scheme === 'taps') {
+    const pad = attachPad(padEl, s.handlers)
+    s.pad = pad
+    s.detachSchemeInput = () => {
+      pad.detach()
+      detachCanvasInput()
+      s.pad = null
+    }
+  } else {
+    s.pad = null
+    s.detachSchemeInput = detachCanvasInput
+  }
+}
+
+/** Swaps the scheme of the running game: input handlers and the on-screen pad. The game state is untouched. */
+function swapSessionScheme(s: Session, scheme: InputScheme): void {
+  s.detachSchemeInput()
+  attachSchemeInput(s, scheme)
+  showPad(scheme)
+  lastScheme = scheme
+}
+
 function startSession(size: number, scheme: InputScheme, forBench = false): void {
   endSession()
   if (!forBench) lastScheme = scheme
@@ -968,6 +1020,8 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
     detachInput: () => {
       /* overridden below - attachInput needs an already assembled `s` for closures */
     },
+    detachSchemeInput: () => {},
+    handlers: NO_HANDLERS,
     pad: null,
     boostBtn,
     stick,
@@ -1006,22 +1060,12 @@ function startSession(size: number, scheme: InputScheme, forBench = false): void
     onCameraReset: resetCamera,
   }
 
-  const detachCanvasInput = attachInput(canvas, scheme, config, handlers)
-  if (scheme === 'taps') {
-    const pad = attachPad(padEl, handlers)
-    s.pad = pad
-    s.detachInput = () => {
-      pad.detach()
-      detachCanvasInput()
-      boostBtn.detach()
-      stick.detach()
-    }
-  } else {
-    s.detachInput = () => {
-      detachCanvasInput()
-      boostBtn.detach()
-      stick.detach()
-    }
+  s.handlers = handlers
+  attachSchemeInput(s, scheme)
+  s.detachInput = () => {
+    s.detachSchemeInput()
+    boostBtn.detach()
+    stick.detach()
   }
   session = s
 

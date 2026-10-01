@@ -16,7 +16,7 @@ Death: **your own body**, **a cube wall**, **an obstacle**. Moving into a cell t
 
 ## Controls
 
-Four turns: left, right, up, down. There is no third axis in the controls: classic snake has none, and the flat opening is selling exactly that illusion; in the 3D game the four turns already cover every direction. The scheme is chosen in settings and remembered.
+Four turns: left, right, up, down. There is no third axis in the controls: classic snake has none, and the flat opening is selling exactly that illusion; in the 3D game the four turns already cover every direction. The scheme is chosen in three interchangeable places - settings, the controls screen, pause - and remembered; all three always show the same choice.
 
 | Scheme | Turns |
 | --- | --- |
@@ -39,7 +39,8 @@ until reset. Reset - the crosshair button (above the boost in "Swipes", above th
 the camera stick (it sets the turn speed). Tilt and zoom do not carry over into the next game.
 
 **Pause.** The "❚❚" button in the top right corner, Escape, minimizing the tab. When the tab is minimized the game pauses instead of living through
-the missed time. On pause boost is off, you can change sound, fog and quality, continue or leave to the menu.
+the missed time. On pause boost is off, you can change sound, fog, the control scheme and quality, continue or leave to the menu.
+A scheme changed here takes hold at once: on resume the pad and the gestures are already the new ones, and the snake, the score and the clock carry on untouched.
 Leaving to the menu in the middle of a game counts what was earned: the score goes to the leaderboard and the coins go to the wallet.
 
 **PC:** arrows/WASD - turn, Shift/Space - boost, R - camera reset,
@@ -64,7 +65,7 @@ Now a small prompt appears in **every game until the player has boosted once**, 
 
 **Controls screen.** A "Controls" button on the menu (under Play, in the lower half) opens a screen that explains the controls with a drawing first and words second:
 a diagram of the screen with the pad, boost, stick, camera reset and pause drawn where the game puts them (mirrored for the left-hand pad), numbered, with a one-line legend beside it.
-- **Both schemes.** It opens on the scheme the player has selected; two tabs (Swipes / Taps) let them look at the other one, and a line says so when they do ("Not your current scheme").
+- **Both schemes.** It opens on the scheme the player has selected; the two tabs (Swipes / Taps) are the choice itself - pressing one switches the player to that scheme, so the diagram always shows what they really play with.
 - **Read from the code.** The lines, the key names, the pad buttons are taken from `input/` (`controls-doc.ts` reads `keyboard.ts` and `gestures.ts`; tests fail if a key is rebound and the screen is not); only the wording is in the dictionaries.
 - **Device.** The stick and the two-finger gesture appear only on a touch device; the keyboard and mouse list only where there is a mouse or trackpad (first on a desktop, after the diagram on a touch laptop).
 - It is a base screen like Records and Shop: reachable from the menu only, Back/Escape return to the menu, never over a game, pause or the legal screens.

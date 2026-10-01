@@ -221,6 +221,8 @@ export function attachInput(el: HTMLElement, scheme: InputScheme,
 - `'swipes'`: a swipe is a turn; a tap does nothing. A swipe is at least `config.input.swipeMinPx`.
 - `'taps'` (default, `config.input.defaultScheme`, resolved by `input/scheme.ts`: a stored choice wins, an unknown value falls back to `'taps'`): the canvas only tilts the camera. Turns come from the corner pad
   (`input/pad.ts`, `attachPad(root, handlers)`, separate DOM buttons over the canvas): four arrow buttons.
+- The scheme of a running game is swapped by detaching the scheme-dependent input (the canvas listeners, and the pad in `'taps'`) and attaching it again for the new scheme.
+  The boost button and the camera stick belong to both schemes and are left alone; the game state is not touched.
 - Keyboard (PC, works in both schemes): arrows/WASD - turn,
   Shift/Space (hold) - boost, R - camera reset, Escape - pause.
 - Tap zones ≥ 44 px. No hover. Input must not break on an orientation change.
