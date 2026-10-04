@@ -84,7 +84,7 @@ export interface TerminalDef {
   kind: 'terminal'
   id: string
   at: Cell
-  /** Ids of what it controls: red walls open for good; lasers, drones and wardens are paused for terminal.pauseSec. */
+  /** Ids of what it controls: red walls open for good; lasers, drones, wardens and cameras (video or sound) are paused for terminal.pauseSec. */
   targets: readonly string[]
   /** 0..1, passed to the hacking mini-game. */
   difficulty: number
@@ -168,6 +168,8 @@ export interface WardenDef {
   route?: readonly WardenStop[]
   /** The facing at its post (no route). Default: south. */
   post?: Side
+  /** A heavy warden: more hit points, slower, a frontal shield against rifle bolts. */
+  heavy?: boolean
 }
 
 export type EntityDef =

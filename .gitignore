@@ -43,3 +43,6 @@ pid
 # work-kit: machine-local settings, not part of the game
 .work-kit/
 .shots/
+
+# Downloaded Kenney CC0 packs - the source for tools/sfx/library.ts, re-download per CREDITS.md
+uninvited/tools/sfx/kenney/

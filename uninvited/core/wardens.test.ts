@@ -122,7 +122,7 @@ describe('wardens notice, check and give up', () => {
     expect(f.s.alarm.stage).toBe(0)
   })
 
-  test('seeing you standing in its cone: suspicious, then alert - it calls the alarm and comes to strike', () => {
+  test('seeing you standing in its cone: suspicious, then alert - it calls the alarm, shoots from range and strikes up close', () => {
     const f = setup(HALL, [{ kind: 'warden', id: 'w', at: [6, 1], post: 's' }])
     placePlayer(f, 6, 4)
     const w = f.s.wardens[0]
@@ -132,6 +132,13 @@ describe('wardens notice, check and give up', () => {
     expect(seen).toContain('wardenAlerted')
     expect(f.s.alarm.stage).toBeGreaterThanOrEqual(1)
     expect(securityStatus(f.s)).toBe('detected')
+    // from range it shoots (holds its distance); close up (about 3 m) it switches to melee
+    const shots = run(f, 4)
+    expect(shots).toContain('wardenAiming')
+    expect(shots).toContain('wardenFired')
+    expect(shots).not.toContain('wardenStrike')
+    f.s.player.invuln = 0
+    placePlayer(f, 6, 2)
     const fight = run(f, 6)
     expect(fight).toContain('wardenStrike')
     expect(fight).toContain('wardenStruck')

@@ -10,6 +10,8 @@ import { flyable, navDistance } from './nav'
 import { openWall } from './terminals'
 import { startInvestigating } from './drones'
 import { pickGate, spawnDrone } from './gates'
+import { findPath } from './walk'
+import { liveWaveWardens, spawnWaveWarden } from './wardens'
 import { liveWorms, spawnWavePacks, wormsHunting, wormsOnAlarm, wormsOnAlarmLowered } from './worms'
 
 export function raiseAlarm(s: GameState, sim: Sim, reason: AlarmReason, x: number, y: number, z: number): void {
@@ -118,7 +120,7 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
   if (a.stage < 3) return
   // stage 3: waves
   if (a.waveActive) {
-    if (liveWaveDrones(s) + liveWorms(s, 'wave') > 0) return
+    if (liveWaveDrones(s) + liveWorms(s, 'wave') + liveWaveWardens(s) > 0) return
     a.waveActive = false
     a.wavesCleared++
     emit(sim, { type: 'waveCleared', wave: a.wave })
@@ -126,27 +128,78 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
     a.waveTimer = cfg.waveGapSec
     return
   }
+  // the firewall is down: the lockdown is over, no more waves (the way to the file is open)
+  if (a.firewallDown) return
   a.waveTimer -= dt
   if (a.waveTimer > 0) return
-  const size = cfg.waveSizes[Math.min(a.wave, cfg.waveSizes.length - 1)] ?? 1
-  const room = Math.max(0, cfg.maxWaveDrones - liveWaveDrones(s))
-  const n = Math.min(size, room)
+  const wave = cfg.waves[Math.min(a.wave, cfg.waves.length - 1)]
+  if (!wave) return
   const p = s.player.pos
   let spawned = 0
   droneGates.length = 0
-  for (let k = 0; k < n; k++) {
+  for (let k = 0; k < wave.drones; k++) {
     const d = spawnSearcher(s, sim, 'wave', p.x, p.z, k)
     if (d < 0) continue
     spawned++
     droneGates.push(s.drones[d]?.gate ?? -1)
   }
   // the worm packs come from other sides than the drones (DESIGN 9: pressure from several sides)
-  const packs = cfg.wavePacks.length > 0 ? cfg.wavePacks[Math.min(a.wave, cfg.wavePacks.length - 1)] ?? [] : []
-  const worms = spawnWavePacks(s, sim, packs, droneGates)
+  const worms = spawnWavePacks(s, sim, wave.packs, droneGates)
+  // wardens (and heavy ones) walk out of gates on yet other sides
+  let wardens = 0
+  for (let k = 0; k < wave.wardens + wave.heavy; k++) {
+    const g = pickWardenGate(s, sim, wardenGates)
+    if (g < 0) break
+    if (spawnWaveWarden(s, sim, g, k >= wave.wardens) < 0) break
+    wardenGates.push(g)
+    wardens++
+  }
+  wardenGates.length = 0
   a.wave++
-  a.waveActive = spawned + worms > 0
+  a.segmentFight = true
+  a.waveActive = spawned + worms + wardens > 0
   if (!a.waveActive) a.waveTimer = cfg.waveGapSec
-  emit(sim, { type: 'waveStarted', wave: a.wave, count: spawned, worms })
+  emit(sim, { type: 'waveStarted', wave: a.wave, count: spawned, worms, wardens })
+}
+
+const wardenGates: number[] = []
+const pathScratch = new Float32Array(256)
+
+/**
+ * A gate a wave warden walks out of: not next to the player, with a walk to the player, preferring gates on other
+ * sides than the ones already used this wave. -1 when none. Not a hot path.
+ */
+function pickWardenGate(s: GameState, sim: Sim, used: readonly number[]): number {
+  const p = s.player.pos
+  const minD = sim.cfg.alarm.minSpawnDist
+  const cost: number[] = []
+  for (let i = 0; i < sim.gates.length; i++) {
+    const g = sim.gates[i]
+    const d = g ? Math.sqrt(dist2(g.out.x, g.out.z, p.x, p.z)) : -1
+    if (!g || d < minD) {
+      cost.push(Infinity)
+      continue
+    }
+    let c = d + (used.includes(i) ? 40 : 0)
+    const bearing = Math.atan2(g.out.x - p.x, g.out.z - p.z)
+    for (const u of used) {
+      const ug = sim.gates[u]
+      if (ug && Math.abs(Math.atan2(Math.sin(Math.atan2(ug.out.x - p.x, ug.out.z - p.z) - bearing), Math.cos(Math.atan2(ug.out.x - p.x, ug.out.z - p.z) - bearing))) < 1.2) {
+        c += 10
+        break
+      }
+    }
+    cost.push(c)
+  }
+  for (let tries = 0; tries < sim.gates.length; tries++) {
+    let best = -1
+    for (let i = 0; i < cost.length; i++) if ((cost[i] as number) < (best < 0 ? Infinity : (cost[best] as number))) best = i
+    if (best < 0) return -1
+    const g = sim.gates[best]
+    if (g && findPath(sim.walk, g.out.x, g.out.z, p.x, p.z, pathScratch) > 0) return best
+    cost[best] = Infinity
+  }
+  return -1
 }
 
 export function dropFirewall(s: GameState, sim: Sim): void {

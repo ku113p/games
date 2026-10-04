@@ -40,14 +40,14 @@ Budget: $3.71 of $10 spent (PLAN 5), **the key expires 2026-10-11**, so every tr
 Credit Lyria (Google, via OpenRouter) in `CREDITS.md` under a new Music section the day the first track lands.
 
 **SFX - no generator on OpenRouter**, so sound effects come from two places:
-1. **Our synthesizer** `tools/sfx/` (130 files, deterministic, rebuilt with `bun tools/sfx/build.ts <word>`). The designer's verdict after playing: **only part of the library is good**. The **hack sounds are fine** (`hack_select/correct/wrong/success/fail/start/tick_loop`); **the footsteps are bad**.
-2. **CC0 libraries** for whatever the synth does badly, physical sounds first: [Kenney Impact Sounds](https://kenney.nl/assets/impact-sounds) (footsteps on concrete/tile, impacts), [Kenney Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds) (lasers, force fields, engines), [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds), [Kenney Digital Audio](https://kenney.nl/assets/digital-audio); [Freesound](https://freesound.org/) filtered to CC0 only. CC0 needs no attribution, but the jam does: list every file's pack in `CREDITS.md`.
+1. **Our synthesizer** `tools/sfx/` (130 files, deterministic, rebuilt with `bun tools/sfx/build.ts <word>`). The designer's verdict after playing: **only part of the library is good**. The **hack sounds are fine** (`hack_select/correct/wrong/success/fail/start/tick_loop`, kept); **the footsteps were bad - replaced 2026-10-04** (see 2 below).
+2. **CC0 libraries** - **in use since 2026-10-04**: footsteps (`footstep_walk/sprint/sneak`, `land`, `warden_step`), `worm_skitter_loop`, sword, rifle, bullet impact, player hit/hurt, drone hit/kill/shot, worm hit/death, shield, `artifact_pickup`, `ammo_drop`, `gate_open`, `alarm_1/2` are layered from the four Kenney packs by `tools/sfx/library.ts` (`bun tools/sfx/library.ts [word]`; sources in `tools/sfx/kenney/`, gitignored). The designer re-listens to the board (old vs new) and marks what is still weak. **Status 2026-10-04 (audit):** `bun tools/sfx/audit.ts` measures every file (attack time, crest factor, tail decay, spectral-centroid movement, sustained low hum, duration per category) and prints a table with flags; run it after every sound change. The first run flagged 52 files; `sword_swing`, `player_hit`, `drone_kill`, `ammo_drop`, `artifact_pickup` and 20 more library sounds were rebuilt (synth transient + body + exponentially decaying tail layers in `library.ts`, fades now land on the real end of a source). Left flagged, all synthesized and not yet touched: `glitch_v1/v3`, `motion_sensor_trip`, `tablet_swipe`, `voice_may_v2/v5` (abrupt endings). The designer still has to listen: old / previous / new for the four disputed sounds are on the chooser page. For whatever the synth does badly, physical sounds first: [Kenney Impact Sounds](https://kenney.nl/assets/impact-sounds) (footsteps on concrete/tile, impacts), [Kenney Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds) (lasers, force fields, engines), [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds), [Kenney Digital Audio](https://kenney.nl/assets/digital-audio); [Freesound](https://freesound.org/) filtered to CC0 only. CC0 needs no attribution, but the jam does: list every file's pack in `CREDITS.md`.
 
 **How to replace a sound:**
-- Triage on the sound board (`python3 -m http.server -d audio/sfx 8000`): the designer marks each group keep / fix / replace. Known so far - keep: hack_*; replace: footstep_run, footstep_sneak; unrated: the rest. Rate first what plays most often: footsteps, sword swing/hit, rifle shot, land, jump, dash, bullet impact, player hit.
+- Triage on the sound board (`python3 -m http.server -d audio/sfx 8000`): the designer marks each group keep / fix / replace. Known so far - keep: hack_*; replaced with Kenney layers: footsteps and the combat/enemy set above; unrated: the rest. Rate first what plays most often: footsteps, sword swing/hit, rifle shot, land, jump, dash, bullet impact, player hit.
 - Footsteps: take 4-5 Kenney concrete/tile steps per group, high-pass them (~150 Hz), add a very quiet synth tick on top so they still sound like the network, loudness-match the set.
 - Convert to the pipeline format: mono, 44.1 kHz, MP3 `libmp3lame -q:a 4`, silence trimmed, the same name pattern (`footstep_run_v1.mp3`) so `view/audio.ts` needs no change.
-- `tools/sfx/build.ts` writes `audio/sfx/<name>.mp3` and the README. Remove a sound's recipe from `tools/sfx/sounds.ts` before you put a library file under its name, or the next rebuild overwrites it. Then fix the README text and the `CREDITS.md` line that say "no samples, sound libraries".
+- `tools/sfx/build.ts` writes `audio/sfx/<name>.mp3` and the README. A library-based sound is listed in `tools/sfx/library-manifest.json` (written by `library.ts`); `sounds.ts` filters those names out and `build.ts` keeps and lists the files, so a rebuild cannot overwrite them. Add a recipe to `library.ts` to replace another sound the same way. The README and the `CREDITS.md` Kenney rows are updated.
 
 ## Music plan
 
@@ -99,7 +99,7 @@ Judged from code and lists, not by ear.
 2. No music at all. **In progress:** the player is built and wired with stingers and ducking; only 16 s placeholder loops exist. The Lyria tracks are open.
 3. No direction - everything mono, one hum loop for all drones. **Done** (StereoPanner, 3 nearest loop voices).
 4. Suspicion and alarm are one-off sounds. **Done** (continuous tone, spotted / all-clear stings in `view/cues.ts`).
-5. Footstep loudness does not match noise. **Done** (loudness = noise radius). The footstep **sound itself is bad** (designer) - **open**: replace from Kenney.
+5. Footstep loudness does not match noise. **Done** (loudness = noise radius). The footstep **sound itself was bad** (designer) - **replaced** with Kenney-layered sets (walk / sprint / sneak / land, warden steps), to be re-listened.
 6. Weak HP feedback, no wave warning. **Done** (heartbeat, muffle, music duck, wave riser and cleared sting).
 7. Predictable variant order (one global counter). **Done** (random, no repeat).
 8. Hack and the world: no ducking, no hack music, room ambience and `jack_out` not wired. Ducking **done**; hack music **open**; room ambience, `door_knock`, `jack_out` **open** until the room scene is in the game.
@@ -111,13 +111,13 @@ Judged from code and lists, not by ear.
 2. Music: generate with Lyria 3 and drop into `audio/music/` (the player exists). **M** - by 10-10, before the key expires.
 3. Direction and threat readability. **M - done.**
 4. Suspicion, alarm and HP cues. **S-M - done.**
-5. Room, hack and endings: wire `rain_window_loop`, `room_hum_loop`, `office_ambience_loop`, `door_knock`, `jack_out`; a hack track; quiet ending stings. **S-M - open**, plus the new item: **replace the footsteps and the other sounds the designer rejects (S-M)**.
+5. Room, hack and endings: wire `rain_window_loop`, `room_hum_loop`, `office_ambience_loop`, `door_knock`, `jack_out`; a hack track; quiet ending stings. **S-M - open**, plus the new item: the footsteps and the combat/enemy sounds were **replaced 2026-10-04** (Kenney layers); the designer re-listens and rejects what is still weak (S).
 
 ## Release checklist
 
 - [ ] Every music file from the plan is in `audio/music/` (at least `net_calm/tension/combat`, `hack`, `room`, `office`, stingers) and `music-files.ts` is regenerated.
 - [ ] All music shares 120 BPM and D minor; calm -> tension -> combat -> calm crossfades heard in play with no beat jump.
-- [ ] Footsteps replaced; the designer re-listened to the board and nothing is still marked "replace".
+- [ ] Footsteps replaced (done, Kenney layers); the designer re-listened to the board and nothing is still marked "replace".
 - [ ] A full 15-enemy wave played by ear: no clipping, hits and windups readable.
 - [ ] Hacking: world ducked, hack music plays, success / fail / timeout each sound different.
 - [ ] Room and office: rain, hum, office ambience, knock, `jack_in` / `jack_out` all play.
@@ -133,7 +133,7 @@ Judged from code and lists, not by ear.
 - Do not generate music in different tempos or keys "to fix later" - the crossfades will not fit.
 - Do not layer separately generated takes as if they were stems.
 - Do not tune single sounds by ear in code instead of buses, limits and `config.json`.
-- Do not drop a library file over a synthesized name without removing its recipe - the next `tools/sfx/build.ts` run overwrites it.
+- Do not drop a library file over a synthesized name by hand - `tools/sfx/build.ts` overwrites it. Add it to `tools/sfx/library.ts` instead (the manifest protects it).
 - Do not spend days on new synth recipes for physical sounds (steps, impacts) - take CC0 ones.
 - Do not use non-CC0 or unclear-license packs, and do not ship any asset that is not in `CREDITS.md`.
 - No Halloween clichés, no triumphant ending music.

@@ -24,7 +24,7 @@ import type { HackSession } from './hack/index'
 import type { DroneDef, LevelDef, SoundCameraDef, TerminalDef, VideoCameraDef } from './level'
 import type { MoveResult, World } from './ports'
 import { createRng, type Rng } from './random'
-import { createNav, type Nav } from './rules/nav'
+import { createNav, tallCells, type Nav } from './rules/nav'
 import { createWalkNav, type WalkNav } from './rules/walk'
 import { buildWardenRoutes, createWardens, type WalkPath, type WardenRoute } from './rules/wardens'
 
@@ -69,8 +69,18 @@ export interface PlayerState {
   switchCooldown: number
   charges: number
   slashTime: number
+  /** How long the current swing plays, s (the finisher is longer). */
+  slashLen: number
   shootTime: number
   hitTime: number
+  /** An attack pressed while it was not allowed yet: fires as soon as it is, while this is > 0 (s). */
+  attackBuffer: number
+  /** Where the buffered attack aims. */
+  bufYaw: number
+  bufPitch: number
+  /** The sword combo: the step of the last swing (0, 1, 2 = finisher) and the time since it started, s. */
+  combo: number
+  comboTime: number
   runNoise: number
   /** Downward speed while airborne (for landing). */
   fallSpeed: number
@@ -124,6 +134,9 @@ export interface DroneState {
   gateIn: boolean
   /** > 0 while locking on before a shot (the telegraph), s left. */
   aim: number
+  /** Holds a ranged attack token (from the start of the aim until tokenHold ran out after the shot). */
+  token: boolean
+  tokenHold: number
 }
 
 export type WormRole = 'wave' | 'searcher'
@@ -161,6 +174,13 @@ export interface WormState {
   think: number
   /** Its own speed factor (packs do not move in lockstep). */
   pace: number
+  /** Holds a bite token (from the grant until its bite is over); without one it waits on the ring around the player. */
+  token: boolean
+  /** Seconds since it got the token without starting its bite; the ring place is re-picked every regroupSec. */
+  tokenWait: number
+  /** Where on the ring it waits: 1 or -1 (which way it circles), and the seconds until it re-picks. */
+  ringDir: number
+  regroup: number
 }
 
 /** patrol: its round (or its post); suspicious: stopped, turning to a cue; investigate: walking over to check it;
@@ -211,10 +231,25 @@ export interface WardenState {
   fireCooldown: number
   /** > 0 while flinching from a hit. */
   hitTime: number
+  /** Knockback velocity, m/s (fades out). */
+  pushX: number
+  pushZ: number
   /** Seconds until the walk is planned again. */
   repath: number
   /** Taken over (May's "take over a sentry", DESIGN 10): it sees and fights nothing while true. */
   controlled: boolean
+  /** A heavy warden: more hit points, slower, a shield in front that stops rifle bolts. */
+  heavy: boolean
+  /** Came with an alarm wave through a spawn gate (a slot of the pool): it always knows where you are. */
+  wave: boolean
+  /** Waiting behind its opening gate, s (a wave warden is not alive until it comes out). */
+  spawnTime: number
+  gate: number
+  /** The attack token it holds: 0 none, 1 melee, 2 ranged (kept `tokenHold` s after a shot). */
+  token: number
+  tokenHold: number
+  /** Where it waits while it has no token: 1 or -1 (which way it circles). */
+  ringDir: number
 }
 
 export interface VideoCameraState {
@@ -258,8 +293,8 @@ export interface SensorState {
 
 /** A network-vision link: terminal `terminal` controls this wall / laser / drone (DESIGN 8). */
 export interface ScanLink {
-  kind: 'wall' | 'laser' | 'drone' | 'warden'
-  /** Index of the wall, laser, drone or warden. */
+  kind: 'wall' | 'laser' | 'drone' | 'warden' | 'camera'
+  /** Index of the wall, laser, drone, warden or camera (video cameras first, then sound cameras). */
   index: number
   terminal: number
   /** The terminal console. */
@@ -330,9 +365,21 @@ export interface Gate {
 
 export interface BoltState {
   active: boolean
+  /** Hit points it takes off the player. */
+  damage: number
   pos: Vec3
   vel: Vec3
   life: number
+}
+
+/** A signal shard: dropped by a killed enemy, taken by walking close; it heals (and fades away after a while). */
+export interface ShardState {
+  active: boolean
+  pos: Vec3
+  /** Seconds left. */
+  life: number
+  /** A big one (a sword finisher that cut down several). */
+  big: boolean
 }
 
 export interface AlarmState {
@@ -347,6 +394,8 @@ export interface AlarmState {
   waveTimer: number
   wavesCleared: number
   firewallDown: boolean
+  /** An alarm-3 wave fight started since the last checkpoint: that checkpoint (and no other) counts red. */
+  segmentFight: boolean
 }
 
 export interface ScanState {
@@ -362,7 +411,7 @@ export interface ScanState {
 
 export interface RunState {
   checkpointsPassed: number
-  /** The ending counter (DESIGN 4): checkpoints passed with the alarm at stage 3. */
+  /** The ending counter (DESIGN 4): red checkpoints (an alarm-3 wave fight happened since the previous checkpoint). */
   alarmCheckpoints: number
   calmCheckpoints: number
   kills: number
@@ -401,6 +450,7 @@ export interface GameState {
   /** Patrol waypoints per drone slot (empty for searchers and waves). */
   routes: Vec3[][]
   bolts: BoltState[]
+  shards: ShardState[]
   alarm: AlarmState
   scan: ScanState
   run: RunState
@@ -415,6 +465,9 @@ export interface TerminalLinks {
   lasers: number[]
   drones: number[]
   wardens: number[]
+  /** Video and sound cameras (indices into their own lists). */
+  cameras: number[]
+  soundCameras: number[]
   difficulty: number
 }
 
@@ -518,8 +571,14 @@ function createPlayer(cfg: GameConfig, at: Vec3, facing: number): PlayerState {
     switchCooldown: 0,
     charges: cfg.combat.rifle.charges,
     slashTime: 0,
+    slashLen: cfg.combat.sword.animSec,
     shootTime: 0,
     hitTime: 0,
+    attackBuffer: 0,
+    bufYaw: 0,
+    bufPitch: 0,
+    combo: 0,
+    comboTime: 99,
     runNoise: 0,
     fallSpeed: 0,
     jumping: false,
@@ -555,6 +614,8 @@ export function emptyDrone(): DroneState {
     gateTime: 0,
     gateIn: false,
     aim: 0,
+    token: false,
+    tokenHold: 0,
   }
 }
 
@@ -578,6 +639,10 @@ export function emptyWorm(): WormState {
     direct: false,
     think: 0,
     pace: 1,
+    token: false,
+    tokenWait: 0,
+    ringDir: 1,
+    regroup: 0,
   }
 }
 
@@ -598,29 +663,37 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
   }
   const droneIds = new Map(droneDefs.map((d, i) => [d.id, i]))
   const wardenIds = new Map(level.entities.flatMap((e) => (e.kind === 'warden' ? [e.id] : [])).map((id, i) => [id, i]))
+  const cameraIds = new Map(level.entities.flatMap((e) => (e.kind === 'videoCamera' ? [e.id] : [])).map((id, i) => [id, i]))
+  const soundIds = new Map(level.entities.flatMap((e) => (e.kind === 'soundCamera' ? [e.id] : [])).map((id, i) => [id, i]))
   const terminalLinks = level.entities
     .filter((e): e is TerminalDef => e.kind === 'terminal')
     .map((t) => {
-      const links: TerminalLinks = { walls: [], lasers: [], drones: [], wardens: [], difficulty: t.difficulty }
+      const links: TerminalLinks = { walls: [], lasers: [], drones: [], wardens: [], cameras: [], soundCameras: [], difficulty: t.difficulty }
       for (const id of t.targets) {
         const w = wallIds.get(id)
         const l = laserIds.get(id)
         const d = droneIds.get(id)
         const wd = wardenIds.get(id)
+        const cam = cameraIds.get(id)
+        const mic = soundIds.get(id)
         if (w !== undefined) links.walls.push(w)
         else if (l !== undefined) links.lasers.push(l)
         else if (d !== undefined) links.drones.push(d)
         else if (wd !== undefined) links.wardens.push(wd)
+        else if (cam !== undefined) links.cameras.push(cam)
+        else if (mic !== undefined) links.soundCameras.push(mic)
         else throw new Error(`terminal ${t.id}: unknown target "${id}"`)
       }
       return links
     })
   const noises: Noise[] = []
   for (let i = 0; i < 16; i++) noises.push({ x: 0, y: 0, z: 0, radius: 0 })
-  const nav = createNav(grid)
+  const nav = createNav(grid, false, undefined, Infinity, tallCells(grid, cfg.drone.overMax))
   const crawl = createNav(grid, true, nav, cfg.worm.climb)
   const walk = createWalkNav(grid, cfg.warden.radius, nav.wallOpen)
   const wardenRoutes = buildWardenRoutes(level, grid, walk)
+  // the pool of wave wardens: posts nobody walks to (they come out of a gate and fight)
+  for (let i = 0; i < cfg.alarm.waveWardenSlots; i++) wardenRoutes.push({ stops: [{ x: 0, y: 0, z: 0, waitSec: Infinity, look: NaN }], post: true, line: [] })
   return {
     cfg,
     level,
@@ -678,13 +751,15 @@ function buildGate(g: Grid, cfg: GameConfig, at: readonly [number, number], wall
   const behind = g.kind[cellIndex(g, at[0] + sx, at[1] + sz)]
   if (behind !== CellKind.Wall) throw new Error(`spawn gate at [${at[0]}, ${at[1]}]: there is no slab on its '${wall}' side`)
   const slabTop = g.top[cellIndex(g, at[0] + sx, at[1] + sz)] as number
-  if (hover + 0.9 > slabTop) throw new Error(`spawn gate at [${at[0]}, ${at[1]}]: the slab on its '${wall}' side is too low for a gate`)
+  if (floor + 1.4 + 0.9 > slabTop) throw new Error(`spawn gate at [${at[0]}, ${at[1]}]: the slab on its '${wall}' side is too low for a gate`)
   const mx = cx + (sx * g.cell) / 2
   const mz = cz + (sz * g.cell) / 2
+  // a drone comes out low under a low slab and climbs to its hover height in the corridor
+  const gh = Math.min(hover, slabTop - 0.9)
   return {
-    mouth: vec(mx, hover, mz),
-    deep: vec(mx + sx * d.gateDepth, hover, mz + sz * d.gateDepth),
-    out: vec(mx - sx * d.gateOut, hover, mz - sz * d.gateOut),
+    mouth: vec(mx, gh, mz),
+    deep: vec(mx + sx * d.gateDepth, gh, mz + sz * d.gateDepth),
+    out: vec(mx - sx * d.gateOut, gh, mz - sz * d.gateOut),
     nx: -sx,
     ny: 0,
     nz: -sz,
@@ -699,7 +774,16 @@ function barrierMid(b: BarrierShape, y: number): Vec3 {
 }
 
 /** Terminal -> device links for network vision. Cold path. */
-function buildLinks(sim: Sim, terminals: TerminalState[], lasers: LaserState[], walls: RedWallState[], drones: DroneState[], wardens: WardenState[]): ScanLink[] {
+function buildLinks(
+  sim: Sim,
+  terminals: TerminalState[],
+  lasers: LaserState[],
+  walls: RedWallState[],
+  drones: DroneState[],
+  wardens: WardenState[],
+  cameras: VideoCameraState[],
+  soundCameras: SoundCameraState[],
+): ScanLink[] {
   const out: ScanLink[] = []
   sim.terminalLinks.forEach((l, t) => {
     const term = terminals[t]
@@ -720,6 +804,14 @@ function buildLinks(sim: Sim, terminals: TerminalState[], lasers: LaserState[], 
     for (const k of l.wardens) {
       const w = wardens[k]
       if (w) out.push({ kind: 'warden', index: k, terminal: t, from: from(), to: vec(w.pos.x, w.pos.y + sim.cfg.warden.eyeHeight, w.pos.z) })
+    }
+    for (const k of l.cameras) {
+      const c = cameras[k]
+      if (c) out.push({ kind: 'camera', index: k, terminal: t, from: from(), to: vec(c.pos.x, c.pos.y, c.pos.z) })
+    }
+    for (const k of l.soundCameras) {
+      const c = soundCameras[k]
+      if (c) out.push({ kind: 'camera', index: cameras.length + k, terminal: t, from: from(), to: vec(c.pos.x, c.pos.y, c.pos.z) })
     }
   })
   return out
@@ -809,7 +901,9 @@ export function createState(sim: Sim, seed: number): GameState {
     })
   const checkpoints = g.checkpoints.map((i): CheckpointState => ({ pos: cellPos(g, colOf(g, i), rowOf(g, i)), passed: false, underAlarm: false }))
   const bolts: BoltState[] = []
-  for (let i = 0; i < 48; i++) bolts.push({ active: false, pos: vec(), vel: vec(), life: 0 })
+  const shards: ShardState[] = []
+  for (let i = 0; i < cfg.shards.max; i++) shards.push({ active: false, pos: vec(), life: 0, big: false })
+  for (let i = 0; i < 48; i++) bolts.push({ active: false, damage: 0, pos: vec(), vel: vec(), life: 0 })
 
   return {
     levelId: level.id,
@@ -828,10 +922,11 @@ export function createState(sim: Sim, seed: number): GameState {
     terminals,
     checkpoints,
     gates: sim.gates.map((): GateState => ({ open: 0, busy: 0 })),
-    links: buildLinks(sim, terminals, lasers, walls, drones, wardens),
+    links: buildLinks(sim, terminals, lasers, walls, drones, wardens, cameras, soundCameras),
     routes: drones.map((_, i) => (sim.patrols[i] ?? []).map((w) => vec(w.x, w.y + cfg.drone.hover, w.z))),
     bolts,
-    alarm: { stage: 0, cooldown: 0, decay: 0, center: vec(), wave: 0, waveActive: false, waveTimer: 0, wavesCleared: 0, firewallDown: false },
+    shards,
+    alarm: { stage: 0, cooldown: 0, decay: 0, center: vec(), wave: 0, waveActive: false, waveTimer: 0, wavesCleared: 0, firewallDown: false, segmentFight: false },
     scan: { active: false, held: 0, heat: 0, cooldown: 0, warned: false, needRelease: false },
     run: { checkpointsPassed: 0, alarmCheckpoints: 0, calmCheckpoints: 0, kills: 0, devicesBroken: 0, alarmsRaised: 0, deaths: 0, timeSec: 0 },
     hack: null,

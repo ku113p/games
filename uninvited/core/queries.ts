@@ -3,7 +3,7 @@
 import type { WormState } from './state'
 import type { WardenState } from './state'
 import { wardenLook } from './rules/wardens'
-import type { BoltState, CheckpointState, DroneState, Gate, GameState, GateState, LaserState, ScanLink, Vec3, RedWallState, SensorState, Sim, SoundCameraState, TerminalState, VideoCameraState } from './state'
+import type { BoltState, ShardState, CheckpointState, DroneState, Gate, GameState, GateState, LaserState, ScanLink, Vec3, RedWallState, SensorState, Sim, SoundCameraState, TerminalState, VideoCameraState } from './state'
 import type { HackSession } from './hack/index'
 import { heroColor, isSadEnding, type Rgb } from './rules/progress'
 import { nearestInteractable, type Interactable } from './rules/terminals'
@@ -21,10 +21,11 @@ export type HeroAnim = 'idle' | 'walk' | 'run' | 'crouch' | 'jump' | 'dash' | 's
 export function heroAnim(s: GameState, sim: Sim): HeroAnim {
   const p = s.player
   if (s.phase === 'dead') return 'death'
-  if (p.hitTime > 0) return 'hit'
+  // an attack or a dash shows through a flinch (the player acts at once; the hurt has its own flash and shake)
   if (p.slashTime > 0) return 'slash'
   if (p.shootTime > 0) return 'shoot'
   if (p.dashTime > 0) return 'dash'
+  if (p.hitTime > 0) return 'hit'
   if (s.hack !== null) return p.crouched ? 'hackCrouched' : 'hack'
   if (!p.grounded) return 'jump'
   if (p.crouched) return 'crouch'
@@ -37,11 +38,16 @@ export function heroAnim(s: GameState, sim: Sim): HeroAnim {
 export function heroActionProgress(s: GameState, sim: Sim): number {
   const p = s.player
   const c = sim.cfg
-  if (p.hitTime > 0) return 1 - p.hitTime / c.player.hitAnimSec
-  if (p.slashTime > 0) return 1 - p.slashTime / c.combat.sword.animSec
+  if (p.slashTime > 0) return 1 - p.slashTime / p.slashLen
   if (p.shootTime > 0) return 1 - p.shootTime / c.combat.rifle.animSec
   if (p.dashTime > 0) return 1 - p.dashTime / c.player.dashSec
+  if (p.hitTime > 0) return 1 - p.hitTime / c.player.hitAnimSec
   return 0
+}
+
+/** The sword combo step of the current swing: 0, 1, or 2 for the wide finisher. */
+export function swordCombo(s: GameState): number {
+  return s.player.combo
 }
 
 export function playerPos(s: GameState): Readonly<{ x: number; y: number; z: number }> {
@@ -400,6 +406,10 @@ export function checkpoints(s: GameState): readonly Readonly<CheckpointState>[] 
   return s.checkpoints
 }
 
+export function shards(s: GameState): readonly Readonly<ShardState>[] {
+  return s.shards
+}
+
 export function bolts(s: GameState): readonly Readonly<BoltState>[] {
   return s.bolts
 }
@@ -412,7 +422,7 @@ export function artifactTaken(s: GameState): boolean {
   return s.artifactTaken
 }
 
-/** The ending counter (DESIGN 4): checkpoints passed with the alarm at stage 3. */
+/** The ending counter (DESIGN 4): red checkpoints (a wave fight happened in their segment). */
 export function endingCounter(s: GameState): number {
   return s.run.alarmCheckpoints
 }
@@ -487,4 +497,10 @@ export function worms(s: GameState): readonly Readonly<WormState>[] {
 /** 0..1 how far worm i is into rearing up for a bite (the telegraph); 0 when it is not. */
 export function wormWindup(s: GameState, sim: Sim, i: number): number {
   return wormWindupProgress(s, sim, i)
+}
+
+/** Seconds until the next wave spawns (alarm 3, no wave running), or -1 when none is coming (the audio riser starts ahead of it). */
+export function waveCountdown(s: GameState): number {
+  const a = s.alarm
+  return s.phase === 'playing' && a.stage >= 3 && !a.waveActive ? Math.max(0, a.waveTimer) : -1
 }

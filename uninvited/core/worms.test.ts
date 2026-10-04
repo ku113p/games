@@ -179,8 +179,7 @@ describe('worms', () => {
 
   test('alarm 3 waves mix drones and worm packs from different gates; a wave is cleared only when the worms are dead too', () => {
     const cfg = testConfig()
-    cfg.alarm.waveSizes = [1]
-    cfg.alarm.wavePacks = [[3, 3]]
+    cfg.alarm.waves = [{ packs: [3, 3], drones: 1, wardens: 0, heavy: 0 }]
     cfg.alarm.minSpawnDist = 2
     cfg.alarm.searchers = [0, 0, 0, 0] // only the wave's own drone
     const f = setup(PLAN, GATES, cfg)

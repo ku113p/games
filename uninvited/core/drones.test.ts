@@ -76,6 +76,32 @@ describe('patrol drones', () => {
     expect(d?.target.x).toBeCloseTo(21)
   })
 
+  test('a drone flies over a low hex module and around a tall one', () => {
+    const route: EntityDef = { kind: 'drone', id: 'd', patrol: [[2, 3], [11, 3]] }
+    const low = setup(HALL, [route, { kind: 'hex', at: [6, 3], radius: 0.8, height: 1.4 }])
+    placePlayer(low, 2, 5)
+    low.s.player.pos.z = 11
+    let top = 0
+    run(low, 6, 1 / 60, () => {
+      const d = low.s.drones[0]
+      if (d && Math.abs(d.pos.x - 13) < 0.5) top = Math.max(top, d.pos.y)
+    })
+    expect(top).toBeGreaterThan(2.1) // 1.4 + the clearance, over the module
+    const tall = setup(HALL, [route, { kind: 'hex', at: [6, 3], radius: 0.8, height: 5 }])
+    placePlayer(tall, 2, 5)
+    tall.s.player.pos.z = 11
+    const d = tall.s.drones[0]
+    let inside = 0
+    let passed = false
+    run(tall, 14, 1 / 60, () => {
+      if (!d) return
+      if (Math.abs(d.pos.x - 13) < 0.8 && Math.abs(d.pos.z - 7) < 0.7) inside++
+      if (d.pos.x > 16) passed = true
+    })
+    expect(inside).toBe(0)
+    expect(passed).toBe(true)
+  })
+
   test('the flow field leads around walls', () => {
     const plan = [
       '#######', //

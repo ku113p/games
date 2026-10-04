@@ -3,19 +3,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "play": "bun tools/serve.ts 3330 index.html",
+    "play": "bun scripts/music-manifest.ts && bun tools/serve.ts 3330 index.html",
     "dev": "bun --port 3331 index.html",
     "test": "bun test core scripts",
     "lint:layers": "bun scripts/check-layers.ts",
     "typecheck": "bunx tsc --noEmit -p .",
-    "check": "bun run typecheck && bun run lint:layers && bun run test",
-    "build": "bun build index.html --outdir dist/uninvited --minify",
+    "check": "bun run music:manifest && bun run typecheck && bun run lint:layers && bun run test",
+    "build": "bun scripts/music-manifest.ts && bun build index.html --outdir dist/uninvited --minify",
     "spike": "bun --port 3320 spike/index.html",
     "spike:build": "bun build spike/index.html --outdir dist/spike --minify",
     "test:room": "bun tools/serve.ts 3325 tests/room-fp/index.html",
     "test:engine-room": "bun tools/serve.ts 3323 tests/engine-room/index.html",
     "test:hack": "bun tools/serve.ts 3327 tests/hack/index.html",
-    "bot": "bun tools/slice-bot.ts"
+    "bot": "bun tools/slice-bot.ts",
+    "music:manifest": "bun scripts/music-manifest.ts",
+    "music:placeholders": "bun tools/music/build.ts && bun scripts/music-manifest.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",

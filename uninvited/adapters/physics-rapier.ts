@@ -6,6 +6,7 @@
 import RAPIER from '@dimforge/rapier3d-compat'
 import { CellKind, RampAxis, type Grid } from '../core/grid'
 import type { MoveResult, World } from '../core/ports'
+import { barrierExtent } from '../core/barrier'
 import { barrierShape } from '../core/state'
 
 export interface CharacterShape {
@@ -133,11 +134,12 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
   // ceilings only under the roofs: the rest is open sky
   for (const roof of g.roofs) cuboid(roof.minX, roof.y, roof.minZ, roof.maxX, roof.y + 1, roof.maxZ)
 
-  // red walls: thin slabs across the corridor
+  // red walls: a thin plane across the corridor, run on through the blocks that continue its line (no way round along a
+  // parapet) and tall enough that no jump from anything beside it gets over (core/barrier.ts)
   const blockers: RAPIER.Collider[] = g.wallGroups.map((cells) => {
-    const b = barrierShape(g, cells)
+    const b = barrierExtent(g, barrierShape(g, cells), cells)
     const t = shape.redWallThickness / 2
-    return b.alongX ? cuboid(b.coord - t, b.floor - 1, b.min, b.coord + t, top, b.max) : cuboid(b.min, b.floor - 1, b.coord - t, b.max, top, b.coord + t)
+    return b.alongX ? cuboid(b.coord - t, b.bottom, b.min, b.coord + t, b.top, b.max) : cuboid(b.min, b.bottom, b.coord - t, b.max, b.top, b.coord + t)
   })
 
   // the player

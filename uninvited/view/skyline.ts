@@ -1,7 +1,7 @@
 // What lies beyond the platforms (DESIGN 6, NF6): the deep dark sky with faint distant lights, rivers of flowing data
 // light far below in the void (under the level's void cells along their channels, and between the far districts),
-// the far districts themselves - monolithic blocks outlined by thin light lines, ledges and light bridges at several
-// heights - and the landmark: the glowing core tower with its beam, visible from anywhere. All of it lives in its own
+// the far city - solid towers with setbacks and spires, sparse lit windows, sky bridges between them, ledges and light
+// bridges at several heights - and the landmark: the glowing core tower with its beam, visible from anywhere. All of it lives in its own
 // long haze (the scene fog is for the near city), stays out of the floor mirror, and costs a handful of draw calls:
 // the districts and the tower are one instanced mesh. Cold path except update() (moves the sky with the camera).
 import {
@@ -174,11 +174,13 @@ const FAR_FRAG = /* glsl */ `
 uniform vec3 uBody;
 uniform vec3 uLine;
 uniform vec3 uHaze;
+uniform vec3 uWarm;
 uniform float uHazeDensity;
 uniform float uLineKeep;
 uniform float uMinLine;
 uniform float uMistLow;
 uniform float uMistHeight;
+uniform vec3 uWin;
 varying vec3 vLocal;
 varying vec3 vSize;
 varying vec3 vN;
@@ -194,40 +196,53 @@ void main() {
   vec3 n = normalize(vN);
   vec3 half_ = vSize * vec3(0.5, 1.0, 0.5);
   float line = 0.0;
+  vec3 win = vec3(0.0);
   float w = uMinLine * (1.0 + vGlow);
+  bool lit = vGlow > 0.25;
   if (n.y > 0.5) {
-    vec2 e = half_.xz - abs(vLocal.xz);
-    vec2 px = fwidth(vLocal.xz);
-    line = max(lineAt(e.x, px.x, w), lineAt(e.y, px.y, w));
+    if (lit) {
+      vec2 e = half_.xz - abs(vLocal.xz);
+      vec2 px = fwidth(vLocal.xz);
+      line = max(lineAt(e.x, px.x, w), lineAt(e.y, px.y, w));
+    }
   } else if (n.y > -0.5) {
     float u = abs(n.x) > 0.5 ? vLocal.z : vLocal.x;
     float hu = abs(n.x) > 0.5 ? half_.z : half_.x;
     float y = vLocal.y;
     vec2 px = vec2(fwidth(u), fwidth(y)) + 1e-4;
-    line = lineAt(vSize.y - y, px.y, w);
-    // some corners carry a vertical line all the way down, the landmark's every corner and a few more inside
-    float corner = step(0.72, hash12(vec2(vSeed, sign(u) + n.x * 3.0 + n.z * 5.0)));
-    line = max(line, lineAt(hu - abs(u), px.x, w) * max(corner, step(0.5, vGlow)));
-    // the landmark: two more lines up every face and a glowing core slot down its middle
-    if (vGlow > 0.5) {
-      line = max(line, lineAt(abs(abs(u) - hu * 0.55), px.x, w) * 0.7);
-      line = max(line, lineAt(abs(u), px.x, hu * 0.08) * 1.6);
-    }
-    // tier bands
-    float bands = floor(hash12(vec2(vSeed, 9.1)) * 5.0);
-    if (bands > 2.5 && vGlow < 0.5) {
-      float step_ = vSize.y / bands;
-      float k = abs(fract(y / step_) - 0.5) * step_;
-      line = max(line, lineAt(step_ * 0.5 - k, px.y, w) * 0.6);
+    if (lit) {
+      line = lineAt(vSize.y - y, px.y, w);
+      float corner = step(0.72, hash12(vec2(vSeed, sign(u) + n.x * 3.0 + n.z * 5.0)));
+      line = max(line, lineAt(hu - abs(u), px.x, w) * max(corner, step(0.5, vGlow)));
+      if (vGlow > 0.5) {
+        line = max(line, lineAt(abs(abs(u) - hu * 0.55), px.x, w) * 0.7);
+        line = max(line, lineAt(abs(u), px.x, hu * 0.08) * 1.6);
+      }
+    } else {
+      // a solid tower: sparse lit strips (windows) in a grid, a few warm, a lit roof edge on some
+      vec2 cell = vec2(u / 2.6, y / 3.2);
+      vec2 id = floor(cell) + vec2(vSeed * 7.0 + (abs(n.x) > 0.5 ? 31.0 : 0.0), vSeed * 3.0);
+      vec2 f = fract(cell);
+      float h = hash12(id);
+      float on = step(1.0 - uWin.x, h) * step(3.0, y);
+      float sx = smoothstep(0.12, 0.2, f.x) * (1.0 - smoothstep(0.8, 0.88, f.x));
+      float sy = 1.0 - smoothstep(0.05, 0.12, abs(f.y - 0.5));
+      float aa = clamp(1.0 - max(fwidth(cell.x), fwidth(cell.y)) * 1.4, 0.0, 1.0);
+      float k = on * sx * sy * aa + uWin.x * 0.2 * (1.0 - aa) * step(3.0, y);
+      vec3 wc = mix(uLine, uWarm, step(0.9, hash12(id + 5.0)));
+      win = wc * k * uWin.y;
+      float roof = step(0.6, hash12(vec2(vSeed, 2.2)));
+      line = lineAt(vSize.y - y, px.y, w * 0.6) * roof * 0.7;
     }
   }
-  // dark bodies, lit a little from the sky at the top
-  vec3 body = uBody * (0.6 + 0.6 * smoothstep(0.0, vSize.y, vLocal.y)) * (n.y > 0.5 ? 1.3 : 1.0);
+  // dark matte bodies, a little lighter on the faces toward the level and at the top
+  float face = n.y > 0.5 ? 1.35 : (abs(n.x) > 0.5 ? 0.8 : 1.05);
+  vec3 body = uBody * face * (0.55 + 0.7 * smoothstep(0.0, vSize.y, vLocal.y));
   float dist = length(vWorld - cameraPosition);
   // the long haze, thicker low down: the districts rise out of a mist over the rivers
   float haze = 1.0 - exp(-dist * uHazeDensity);
   haze = max(haze, (1.0 - smoothstep(uMistLow, uMistLow + uMistHeight, vWorld.y)) * smoothstep(40.0, 160.0, dist) * 0.85);
-  vec3 lineC = uLine * (1.0 + vGlow) * line;
+  vec3 lineC = uLine * (1.0 + vGlow) * line + win;
   vec3 c = mix(body, uHaze, haze) + lineC * (1.0 - haze * uLineKeep);
   gl_FragColor = vec4(c, 1.0);
 }`
@@ -359,6 +374,7 @@ export function buildSkyline(g: Grid, marks: readonly Landmark[]): Skyline {
   // light bridges at several heights, and the landmark tower in its own plaza
   type Box = { x: number; y: number; z: number; w: number; h: number; d: number; glow: number }
   const boxes: Box[] = []
+  const towers = new Map<string, { x: number; z: number; w: number; d: number; h: number }>()
   const margin = S.clearance
   const nearPlan = (x: number, z: number, pad: number): boolean => x > -pad && z > -pad && x < planW + pad && z < planD + pad
   const riverRow = (k: number): boolean => ((k % 4) + 4) % 4 === 0 && hash(Math.floor(k / 4), 1.7) <= 0.65
@@ -397,10 +413,44 @@ export function buildSkyline(g: Grid, marks: readonly Landmark[]): Skyline {
       const tall = S.heightMin + hash(c + 9, r + 2) ** 2 * (S.heightVar + d * S.heightGrow)
       const h = riverY - base + tall
       boxes.push({ x, y: base, z, w: fw, h, d: fd, glow: 0 })
+      towers.set(`${c},${r}`, { x, z, w: fw, d: fd, h })
+      // setbacks, and now and then a spire: the tower steps in as it rises
+      if (h > 22 && hash(c + 17, r + 3) < S.setbackShare) {
+        let ty = base + h
+        let tw = fw
+        let td = fd
+        const steps = 1 + Math.floor(hash(c + 4, r + 19) * 3)
+        for (let k = 0; k < steps; k++) {
+          tw *= 0.66
+          td *= 0.66
+          const th = h * (0.12 + 0.2 * hash(c + k, r + 23))
+          boxes.push({ x: x + (hash(c, r + k) - 0.5) * fw * 0.15, y: ty, z: z + (hash(c + k, r) - 0.5) * fd * 0.15, w: tw, h: th, d: td, glow: 0 })
+          ty += th
+        }
+        if (hash(c + 29, r + 5) < 0.6) boxes.push({ x, y: ty, z, w: 0.7, h: 8 + hash(c, r + 31) * 26, d: 0.7, glow: 0.55 })
+      }
       // a ledge: a thin wide platform part way up
       if (hash(c + 2, r + 7) < S.ledgeShare) {
         const ly = base + h * (0.4 + 0.4 * hash(r, c + 1))
         boxes.push({ x: x + (hash(c, r + 11) - 0.5) * 4, y: ly, z: z + (hash(c + 13, r) - 0.5) * 4, w: fw + 3 + hash(c, r + 4) * 5, h: 1.1, d: fd + 3 + hash(c + 4, r) * 5, glow: 0.3 })
+      }
+    }
+  }
+  // sky bridges between neighbouring towers
+  for (const [key, a] of towers) {
+    const [c, r] = key.split(',').map(Number) as [number, number]
+    for (const [dc, dr] of [[1, 0], [0, 1]] as const) {
+      const bt = towers.get(`${c + dc},${r + dr}`)
+      if (!bt || hash(c * 3.1 + dc, r * 1.7 + dr) > S.skyBridgeShare) continue
+      const y = base + Math.min(a.h, bt.h) * (0.35 + 0.45 * hash(r + 2, c + 6))
+      if (dc === 1) {
+        const x0 = a.x + a.w / 2
+        const x1 = bt.x - bt.w / 2
+        if (x1 > x0) boxes.push({ x: (x0 + x1) / 2 + 0.01, y, z: (a.z + bt.z) / 2, w: x1 - x0 + 1, h: 1.6, d: 2.4, glow: 0.4 })
+      } else {
+        const z0 = a.z + a.d / 2
+        const z1 = bt.z - bt.d / 2
+        if (z1 > z0) boxes.push({ x: (a.x + bt.x) / 2, y, z: (z0 + z1) / 2 + 0.01, w: 2.4, h: 1.6, d: z1 - z0 + 1, glow: 0.4 })
       }
     }
   }
@@ -426,6 +476,8 @@ export function buildSkyline(g: Grid, marks: readonly Landmark[]): Skyline {
     uniforms: {
       uBody: { value: hdr(S.body) },
       uLine: { value: palette.seam.clone().multiplyScalar(S.lineIntensity) },
+      uWarm: { value: hdr(S.warm) },
+      uWin: { value: new Vector3(S.winShare, S.winGlow, 0) },
       uHaze: { value: haze },
       uHazeDensity: { value: S.hazeDensity },
       uLineKeep: { value: S.lineKeep },

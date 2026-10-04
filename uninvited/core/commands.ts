@@ -1,11 +1,12 @@
 // Player actions and the clock: the only way the state changes (rule 1). Every command returns the events it caused
 // (the Sim's reused buffer; main.ts clears it once per frame with beginFrame).
 import type { GameEvent } from './events'
-import { attack as attackRule, switchMode as switchModeRule, updateBolts } from './rules/combat'
+import { attack as attackRule, fireBuffered, switchMode as switchModeRule, updateBolts } from './rules/combat'
 import { updateAlarm } from './rules/alarm'
 import { updateCameras, updateHearing, updateLasers, updateSensors } from './rules/devices'
 import { updateDrones } from './rules/drones'
 import { updateFall } from './rules/fall'
+import { updateShards } from './rules/shards'
 import { updateWorms } from './rules/worms'
 import { updateWardens } from './rules/wardens'
 import { updateGates } from './rules/gates'
@@ -35,6 +36,7 @@ export function tick(s: GameState, sim: Sim, dt: number, intent: Intent): readon
   s.run.timeSec += step
   updateHack(s, sim, step)
   updatePlayer(s, sim, step, intent)
+  fireBuffered(s, sim, step)
   updateFall(s, sim, step)
   updateScan(s, sim, step, intent.scan)
   updateCameras(s, sim, step)
@@ -46,6 +48,7 @@ export function tick(s: GameState, sim: Sim, dt: number, intent: Intent): readon
   updateWardens(s, sim, step)
   updateWorms(s, sim, step)
   updateBolts(s, sim, step)
+  updateShards(s, sim, step)
   updateAlarm(s, sim, step)
   updateCheckpoints(s, sim)
   sim.noiseCount = 0
@@ -64,7 +67,7 @@ export function dash(s: GameState, sim: Sim, dirX: number, dirZ: number): readon
   const l = Math.sqrt(dirX * dirX + dirZ * dirZ)
   p.dashX = l > 1e-6 ? dirX / l : Math.sin(p.facing)
   p.dashZ = l > 1e-6 ? dirZ / l : Math.cos(p.facing)
-  p.dashBuffer = sim.cfg.player.jumpBufferSec
+  p.dashBuffer = sim.cfg.player.inputBufferSec
   return sim.events
 }
 
@@ -109,8 +112,8 @@ export function toggleCrouch(s: GameState, sim: Sim): readonly GameEvent[] {
 }
 
 /** LMB: one swing or shot when the weapon is ready; call it every frame while the button is held. */
-export function attack(s: GameState, sim: Sim, aimYaw: number, aimPitch: number): readonly GameEvent[] {
-  attackRule(s, sim, aimYaw, aimPitch)
+export function attack(s: GameState, sim: Sim, aimYaw: number, aimPitch: number, press = true): readonly GameEvent[] {
+  attackRule(s, sim, aimYaw, aimPitch, press)
   return sim.events
 }
 

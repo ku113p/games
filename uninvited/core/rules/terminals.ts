@@ -134,6 +134,19 @@ export function unlockTerminal(s: GameState, sim: Sim, terminal: number): void {
     w.sees = false
     emit(sim, { type: 'devicePaused', target: 'warden', index: k, sec })
   }
+  for (const k of links.cameras) {
+    const c = s.cameras[k]
+    if (!c || !c.alive) continue
+    c.pausedTime = sec
+    c.sees = false
+    emit(sim, { type: 'devicePaused', target: 'camera', index: k, sec })
+  }
+  for (const k of links.soundCameras) {
+    const c = s.soundCameras[k]
+    if (!c || !c.alive) continue
+    c.pausedTime = sec
+    emit(sim, { type: 'devicePaused', target: 'camera', index: s.cameras.length + k, sec })
+  }
   if (links.walls.length > 0) t.done = true
   else t.cooldown = sec
 }

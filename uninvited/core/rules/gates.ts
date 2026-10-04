@@ -108,6 +108,8 @@ export function spawnDrone(s: GameState, sim: Sim, role: Exclude<DroneRole, 'pat
     d.lostTimer = 0
     d.pausedTime = 0
     d.aim = 0
+    d.token = false
+    d.tokenHold = 0
     d.gate = gateIndex
     d.gateIn = false
     d.gateTime = 0

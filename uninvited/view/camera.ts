@@ -12,6 +12,7 @@ import cfgAll from '../config.json'
 
 const C = cfgAll.view.camera
 const AIM = C.aim
+const J = cfgAll.view.juice
 const WALK = cfgAll.player.walkSpeed
 const RUN = cfgAll.player.runSpeed
 
@@ -21,12 +22,18 @@ export type RayFn = (ox: number, oy: number, oz: number, dx: number, dy: number,
 export interface CameraRig {
   yaw: number
   pitch: number
+  /** The player's mouse sensitivity multiplier (settings, 0.3-2.0). */
+  sensitivity: number
+  /** Mouse up looks down (settings). */
+  invertY: boolean
   /** Mouse movement in pixels. */
   look(dx: number, dy: number): void
   /** Places the camera; shake is an offset in metres. `aiming` eases the aim framing in or out. */
   update(dt: number, px: number, py: number, pz: number, crouched: boolean, fovWanted: number, shakeX: number, shakeY: number, aiming?: boolean): void
   /** 0..1 how far into the aim framing (eased). */
   readonly aim: number
+  /** A hit or a shot: the camera jumps back by `push` m and tips up by `pitch` rad, then settles (view.juice.kickRate). */
+  kick(pitch: number, push: number): void
   /** Where the crosshair points: written into out (a world point up to aimRange away). */
   aimPoint(out: Vector3): void
   snap(): void
@@ -55,6 +62,11 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
   let aimK = 0
   /** The boom length the last frame wanted (to tell a collision pull-in from an aim zoom). */
   let lastWant = C.distance
+  /** The kick: pitch (rad) and push (m), both eased back to 0. */
+  let kickPitch = 0
+  let kickPush = 0
+  let userSens = 1
+  let invertY = false
 
   /** How far the boom can reach from the pivot along `back` before the swept sphere touches something. */
   function sweep(max: number): number {
@@ -90,10 +102,22 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
     get aim() {
       return aimK
     },
+    get sensitivity() {
+      return userSens
+    },
+    set sensitivity(v: number) {
+      userSens = v
+    },
+    get invertY() {
+      return invertY
+    },
+    set invertY(v: boolean) {
+      invertY = v
+    },
     look(dx: number, dy: number): void {
-      const sens = C.sensitivity * (1 + (AIM.sensitivity - 1) * aimK)
+      const sens = C.sensitivity * userSens * (1 + (AIM.sensitivity - 1) * aimK)
       yaw -= dx * sens
-      pitch = Math.min(C.maxPitch, Math.max(C.minPitch, pitch + dy * sens))
+      pitch = Math.min(C.maxPitch, Math.max(C.minPitch, pitch + dy * sens * (invertY ? -1 : 1)))
     },
     update(dt, px, py, pz, crouched, fovWanted, shakeX, shakeY, aiming = false): void {
       const snapping = snapNext
@@ -134,6 +158,9 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
       pivot.set(head.x + side.x * shoulder, head.y, head.z + side.z * shoulder)
 
       // the boom: behind (opposite the look) and up by the pitch, swept against the level
+      const kr = Math.exp(-dt * J.kickRate)
+      kickPitch *= kr
+      kickPush *= kr
       const cp = Math.cos(pitch)
       back.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp)
       up.crossVectors(back, side).normalize()
@@ -150,12 +177,12 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
       // the stride bob while sprinting
       const bobY = Math.abs(Math.sin(bobPhase)) * C.bobHeight * sprint * 2 - C.bobHeight * sprint
       const bobS = Math.sin(bobPhase) * C.bobSide * sprint
-      want.copy(pivot).addScaledVector(back, dist)
+      want.copy(pivot).addScaledVector(back, dist + kickPush)
       const ox = side.x * bobS + shakeX
       const oy = bobY + shakeY
       const oz = side.z * bobS
       camera.position.set(want.x + ox, want.y + oy, want.z + oz)
-      look.set(pivot.x - back.x * 6 + ox, pivot.y - back.y * 6 + oy, pivot.z - back.z * 6 + oz)
+      look.set(pivot.x - back.x * 6 + ox, pivot.y - back.y * 6 + oy + kickPitch * 6, pivot.z - back.z * 6 + oz)
       camera.lookAt(look)
       const fov = fovWanted + C.sprintFov * sprint + (AIM.fov - fovWanted) * aimK
       if (Math.abs(camera.fov - fov) > 0.05) {
@@ -163,8 +190,14 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
         camera.updateProjectionMatrix()
       }
     },
+    kick(pitchKick: number, push: number): void {
+      kickPitch = Math.max(kickPitch, pitchKick)
+      kickPush = Math.max(kickPush, push)
+    },
     aimPoint(out: Vector3): void {
-      camera.getWorldDirection(look)
+      // along the look of this frame (the mouse was applied before the camera moves), from where the camera stands
+      const cp = Math.cos(pitch)
+      look.set(Math.sin(yaw) * cp, -Math.sin(pitch), Math.cos(yaw) * cp)
       const d = ray(camera.position.x, camera.position.y, camera.position.z, look.x, look.y, look.z, C.aimRange)
       out.copy(camera.position).addScaledVector(look, d)
     },

@@ -46,6 +46,20 @@ describe('hack terminals', () => {
     expect(interactPrompt(f.s, f.sim)).toBe('none')
   })
 
+  test('a terminal can pause video and sound cameras', () => {
+    const f = setup(PLAN, [
+      { kind: 'videoCamera', id: 'cam', at: [3, 1], wall: 'n', sweep: [-30, 30] },
+      { kind: 'soundCamera', id: 'mic', at: [6, 1], wall: 'n' },
+      { kind: 'terminal', id: 't', at: [1, 1], targets: ['cam', 'mic'], difficulty: 0 },
+    ])
+    placePlayer(f, 1, 1)
+    interact(f.s, f.sim)
+    solve(f)
+    expect(f.s.cameras[0]?.pausedTime).toBe(f.sim.cfg.terminal.pauseSec)
+    expect(f.s.soundCameras[0]?.pausedTime).toBe(f.sim.cfg.terminal.pauseSec)
+    expect(f.s.links.map((l) => l.kind)).toEqual(['camera', 'camera'])
+  })
+
   test('far from a terminal E does nothing', () => {
     const f = setup(PLAN, ENTITIES)
     placePlayer(f, 7, 3)

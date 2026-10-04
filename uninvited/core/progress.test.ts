@@ -29,16 +29,56 @@ describe('checkpoints and the ending counter', () => {
     expect(f.s.lastCheckpoint).toBe(0)
   })
 
-  test('a checkpoint passed under alarm 3 adds one to the ending counter', () => {
-    const f = setup(PLAN, ENTITIES)
+  function raiseToThree(f: ReturnType<typeof setup>): void {
     for (let i = 0; i < 3; i++) {
       f.s.alarm.cooldown = 0
       raiseAlarm(f.s, f.sim, 'camera', 0, 0, 0)
     }
+  }
+
+  test('alarm 3 alone does not make a checkpoint red: an alarm-3 wave fight must have happened in its segment', () => {
+    const f = setup(PLAN, ENTITIES)
+    raiseToThree(f)
+    expect(f.s.alarm.stage).toBe(3)
+    placePlayer(f, 6, 1)
+    run(f, 0.1) // the first wave is still 5 s away
+    expect(endingCounter(f.s)).toBe(0)
+    expect(f.s.checkpoints[0]?.underAlarm).toBe(false)
+  })
+
+  test('a checkpoint passed after a wave fight is red - at most one red per segment, the next segment starts clean', () => {
+    const f = setup(PLAN, ENTITIES)
+    raiseToThree(f)
+    f.s.alarm.waveTimer = 0
+    run(f, 0.2) // the wave starts: the fight is on
+    expect(f.s.alarm.segmentFight).toBe(true)
     placePlayer(f, 6, 1)
     run(f, 0.1)
     expect(endingCounter(f.s)).toBe(1)
     expect(f.s.checkpoints[0]?.underAlarm).toBe(true)
+    expect(f.s.alarm.segmentFight).toBe(false)
+  })
+
+  test('after the firewall drops no more waves come: later checkpoints stay calm although the alarm stays at 3', () => {
+    const f = setup(PLAN, ENTITIES)
+    raiseToThree(f)
+    f.s.alarm.firewallDown = true
+    f.s.alarm.waveTimer = 0
+    run(f, 1)
+    expect(f.s.alarm.waveActive).toBe(false)
+    expect(f.s.alarm.wave).toBe(0)
+    placePlayer(f, 6, 1)
+    run(f, 0.1)
+    expect(endingCounter(f.s)).toBe(0)
+    expect(f.s.run.calmCheckpoints).toBe(1)
+  })
+
+  test('every checkpoint heals fully', () => {
+    const f = setup(PLAN, ENTITIES)
+    f.s.player.hp = 10
+    placePlayer(f, 6, 1)
+    run(f, 0.1)
+    expect(f.s.player.hp).toBe(f.sim.cfg.player.maxHp)
   })
 
   test('the sad ending comes at 4 alarm checkpoints of 9', () => {

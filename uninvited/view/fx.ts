@@ -1,4 +1,4 @@
-// Juice that lives in the scene: sparks, rifle tracers, drone bolts, the sword's slash arc, noise rings on the floor.
+// Juice that lives in the scene: sparks, rifle tracers, drone bolts, the sword trail, flashes, noise rings on the floor.
 // Every pool is allocated up front; spawning and updating never allocate.
 import {
   AdditiveBlending,
@@ -22,12 +22,16 @@ import { bolts } from '../core/queries'
 import { palette } from './look'
 
 const F = cfgAll.view.fx
+const J = cfgAll.view.juice
 
 export interface Fx {
   root: Group
   sparks(x: number, y: number, z: number, count: number, speed: number, color: Color, up?: number): void
   tracer(ax: number, ay: number, az: number, bx: number, by: number, bz: number): void
-  slash(x: number, y: number, z: number, yaw: number): void
+  /** One sample of the sword trail: the blade's hilt and tip this frame. `start` begins a new stroke (no ribbon back to the last sample). */
+  trail(hx: number, hy: number, hz: number, tx: number, ty: number, tz: number, start: boolean, color: Color): void
+  /** A bright flash that swells and fades: muzzle flashes, kill bursts. */
+  flash(x: number, y: number, z: number, color: Color, size: number, sec: number): void
   noiseRing(x: number, y: number, z: number, radius: number): void
   update(dt: number, s: GameState): void
 }
@@ -74,18 +78,34 @@ export function createFx(): Fx {
   const boltMat = new MeshBasicMaterial({ color: palette.security.clone().multiplyScalar(1.4), toneMapped: false })
   const boltMeshes: Mesh[] = []
 
-  // ---- slash arcs: a half ring of light in front of the hero
-  const slashGeo = new RingGeometry(1.2, 2.5, 32, 1, -Math.PI / 2, Math.PI)
-  slashGeo.rotateX(-Math.PI / 2)
-  const slashes: { mesh: Mesh; mat: MeshBasicMaterial; t: number }[] = []
-  for (let i = 0; i < 3; i++) {
-    const mat = new MeshBasicMaterial({ color: palette.heroWhite.clone(), toneMapped: false, transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide })
-    const mesh = new Mesh(slashGeo, mat)
+  // ---- the sword trail: a ribbon between the hilt's and the tip's path, newest sample first, fading with age
+  const K = F.trailPoints
+  const tPos = new Float32Array(K * 6)
+  const tCol = new Float32Array(K * 6)
+  const tIdx = new Uint16Array((K - 1) * 6)
+  const tAge = new Float32Array(K).fill(1e9)
+  const tCut = new Uint8Array(K).fill(1)
+  const tTint = new Float32Array(K * 3)
+  const trailGeo = new BufferGeometry()
+  trailGeo.setAttribute('position', new BufferAttribute(tPos, 3))
+  trailGeo.setAttribute('color', new BufferAttribute(tCol, 3))
+  trailGeo.setIndex(new BufferAttribute(tIdx, 1))
+  const trailMesh = new Mesh(trailGeo, new MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }))
+  trailMesh.frustumCulled = false
+  trailMesh.visible = false
+  root.add(trailMesh)
+
+  // ---- flashes: additive spheres that swell and fade
+  const flashGeo = new SphereGeometry(1, 10, 8)
+  const flashes: { mesh: Mesh; mat: MeshBasicMaterial; t: number; sec: number; size: number }[] = []
+  for (let i = 0; i < F.flashes; i++) {
+    const mat = new MeshBasicMaterial({ color: new Color(1, 1, 1), toneMapped: false, transparent: true, blending: AdditiveBlending, depthWrite: false })
+    const mesh = new Mesh(flashGeo, mat)
     mesh.visible = false
     root.add(mesh)
-    slashes.push({ mesh, mat, t: 0 })
+    flashes.push({ mesh, mat, t: 0, sec: 1, size: 1 })
   }
-  let nextSlash = 0
+  let nextFlash = 0
 
   // ---- noise rings: show how far a sound carries (teaches the stealth)
   const ringGeo = new RingGeometry(0.94, 1, 64)
@@ -133,17 +153,38 @@ export function createFx(): Fx {
       if (len < 1e-3) return
       t.mesh.position.copy(tmpA)
       t.mesh.quaternion.setFromUnitVectors(UP, tmpB.divideScalar(len))
-      t.mesh.scale.set(1, len, 1)
+      t.mesh.scale.set(J.tracerWidth / 0.025, len, J.tracerWidth / 0.025)
+      t.mat.color.copy(palette.heroWhite).multiplyScalar(J.tracerGlow / 2.4)
       t.mesh.visible = true
       t.t = F.tracerSec
     },
-    slash(x, y, z, yaw): void {
-      const s = slashes[nextSlash] as { mesh: Mesh; mat: MeshBasicMaterial; t: number }
-      nextSlash = (nextSlash + 1) % slashes.length
-      s.mesh.position.set(x, y, z)
-      s.mesh.rotation.set(0, yaw, 0.12)
-      s.mesh.visible = true
-      s.t = F.slashSec
+    trail(hx, hy, hz, tx, ty, tz, start, color): void {
+      // shift everything one sample older, then write the new one at the front
+      tAge.copyWithin(1, 0, K - 1)
+      tCut.copyWithin(1, 0, K - 1)
+      tTint.copyWithin(3, 0, (K - 1) * 3)
+      tPos.copyWithin(6, 0, (K - 1) * 6)
+      tAge[0] = 0
+      tCut[0] = start ? 1 : 0
+      tTint[0] = color.r
+      tTint[1] = color.g
+      tTint[2] = color.b
+      tPos[0] = hx
+      tPos[1] = hy
+      tPos[2] = hz
+      tPos[3] = tx
+      tPos[4] = ty
+      tPos[5] = tz
+    },
+    flash(x, y, z, color, size, sec): void {
+      const f = flashes[nextFlash] as { mesh: Mesh; mat: MeshBasicMaterial; t: number; sec: number; size: number }
+      nextFlash = (nextFlash + 1) % flashes.length
+      f.mesh.position.set(x, y, z)
+      f.mat.color.copy(color)
+      f.t = sec
+      f.sec = sec
+      f.size = size
+      f.mesh.visible = true
     },
     noiseRing(x, y, z, radius): void {
       const r = rings[nextRing] as { mesh: Mesh; mat: MeshBasicMaterial; t: number; r: number }
@@ -183,13 +224,46 @@ export function createFx(): Fx {
         t.mat.opacity = Math.max(0, t.t / F.tracerSec)
         if (t.t <= 0) t.mesh.visible = false
       }
-      for (const sl of slashes) {
-        if (sl.t <= 0) continue
-        sl.t -= dt
-        const k = Math.max(0, sl.t / F.slashSec)
-        sl.mat.opacity = k
-        sl.mesh.scale.setScalar(0.85 + (1 - k) * 0.3)
-        if (sl.t <= 0) sl.mesh.visible = false
+      for (const f of flashes) {
+        if (f.t <= 0) continue
+        f.t -= dt
+        const k = Math.max(0, f.t / f.sec) // 1 -> 0
+        f.mesh.scale.setScalar(f.size * (0.35 + 0.65 * (1 - k * k)))
+        f.mat.opacity = 0.7 * k * k
+        if (f.t <= 0) f.mesh.visible = false
+      }
+      // the trail: each sample's ribbon fades with its age
+      let quads = 0
+      for (let i = 0; i < K; i++) tAge[i] = (tAge[i] as number) + dt
+      for (let i = 0; i < K; i++) {
+        const a = tAge[i] as number
+        const k = Math.max(0, 1 - a / J.trailSec)
+        const o = i * 6
+        const g = J.trailGlow * k * k
+        tCol[o] = (tTint[i * 3] as number) * g * 0.25 // the hilt side stays dim
+        tCol[o + 1] = (tTint[i * 3 + 1] as number) * g * 0.25
+        tCol[o + 2] = (tTint[i * 3 + 2] as number) * g * 0.25
+        tCol[o + 3] = (tTint[i * 3] as number) * g
+        tCol[o + 4] = (tTint[i * 3 + 1] as number) * g
+        tCol[o + 5] = (tTint[i * 3 + 2] as number) * g
+      }
+      for (let i = 0; i < K - 1; i++) {
+        if (tCut[i] === 1 || (tAge[i + 1] as number) >= J.trailSec || (tAge[i] as number) >= J.trailSec) continue
+        const o = quads * 6
+        tIdx[o] = i * 2
+        tIdx[o + 1] = i * 2 + 1
+        tIdx[o + 2] = (i + 1) * 2
+        tIdx[o + 3] = i * 2 + 1
+        tIdx[o + 4] = (i + 1) * 2 + 1
+        tIdx[o + 5] = (i + 1) * 2
+        quads++
+      }
+      trailGeo.setDrawRange(0, quads * 6)
+      trailMesh.visible = quads > 0
+      if (quads > 0) {
+        ;(trailGeo.getAttribute('position') as BufferAttribute).needsUpdate = true
+        ;(trailGeo.getAttribute('color') as BufferAttribute).needsUpdate = true
+        ;(trailGeo.index as BufferAttribute).needsUpdate = true
       }
       for (const r of rings) {
         if (r.t <= 0) continue

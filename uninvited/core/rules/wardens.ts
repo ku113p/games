@@ -11,6 +11,8 @@ import { nextFloat } from '../random'
 import type { GameState, Sim, Vec3, WardenState } from '../state'
 import { angleDiff, clamp, DEG, dist2, emit, turnTowards } from '../util'
 import { raiseAlarm } from './alarm'
+import { openGate } from './gates'
+import { meleeFree, rangedFree } from './tokens'
 import { hurtPlayer } from './combat'
 import { seeFactor } from './detection'
 import { findPath, walkable, type WalkNav } from './walk'
@@ -98,7 +100,7 @@ export function buildWardenRoutes(level: LevelDef, g: Grid, walk: WalkNav): Ward
 export function createWardens(sim: Sim): WardenState[] {
   const g = sim.grid
   const defs = sim.level.entities.filter((e): e is WardenDef => e.kind === 'warden')
-  return defs.map((d, i): WardenState => {
+  const own = defs.map((d, i): WardenState => {
     const route = sim.wardenRoutes[i] as WardenRoute
     const x = cellCenterX(g, d.at[0])
     const z = cellCenterZ(g, d.at[1])
@@ -112,7 +114,8 @@ export function createWardens(sim: Sim): WardenState[] {
     return {
       id: d.id,
       alive: true,
-      hp: sim.cfg.warden.hp,
+      hp: d.heavy ? sim.cfg.warden.heavy.hp : sim.cfg.warden.hp,
+      heavy: d.heavy ?? false,
       pos: { x, y: cellFloor(g, cellIndex(g, d.at[0], d.at[1])), z },
       yaw,
       head: 0,
@@ -136,10 +139,129 @@ export function createWardens(sim: Sim): WardenState[] {
       aim: 0,
       fireCooldown: 0,
       hitTime: 0,
+      pushX: 0,
+      pushZ: 0,
       repath: 0,
       controlled: false,
+      wave: false,
+      spawnTime: 0,
+      gate: -1,
+      token: 0,
+      tokenHold: 0,
+      ringDir: 1,
     }
   })
+  for (let k = 0; k < sim.cfg.alarm.waveWardenSlots; k++) own.push(waveSlot(sim, defs.length + k))
+  return own
+}
+
+/** A wave warden's slot before it comes out: dead and far below the level (nothing sees or draws it). */
+function waveSlot(sim: Sim, i: number): WardenState {
+  return {
+    id: `wave${i}`,
+    alive: false,
+    hp: sim.cfg.warden.hp,
+    heavy: false,
+    pos: { x: 0, y: -1000, z: 0 },
+    yaw: 0,
+    head: 0,
+    headWant: 0,
+    speed: 0,
+    mode: 'alert',
+    act: 'walk',
+    actTime: 0,
+    actLen: 0,
+    glance: 0,
+    stop: 0,
+    goal: { x: 0, y: 0, z: 0 },
+    lastKnown: { x: 0, y: 0, z: 0 },
+    suspicion: 0,
+    sees: false,
+    lostTimer: 0,
+    wait: 0,
+    pausedTime: 0,
+    strike: 0,
+    recover: 0,
+    aim: 0,
+    fireCooldown: 0,
+    hitTime: 0,
+    pushX: 0,
+    pushZ: 0,
+    repath: 0,
+    controlled: false,
+    wave: true,
+    spawnTime: 0,
+    gate: -1,
+    token: 0,
+    tokenHold: 0,
+    ringDir: 1,
+  }
+}
+
+/**
+ * Sends a wave warden (a heavy one when `heavy`) out of spawn gate `gateIndex` into a free pool slot; returns the slot
+ * or -1. It waits behind the opening gate for drone.spawnSec, then walks out of it and fights.
+ */
+export function spawnWaveWarden(s: GameState, sim: Sim, gateIndex: number, heavy: boolean): number {
+  const gate = sim.gates[gateIndex]
+  if (!gate) return -1
+  for (let i = 0; i < s.wardens.length; i++) {
+    const w = s.wardens[i] as WardenState
+    if (!w.wave || w.alive || w.spawnTime > 0) continue
+    w.heavy = heavy
+    w.hp = heavy ? sim.cfg.warden.heavy.hp : sim.cfg.warden.hp
+    w.gate = gateIndex
+    w.spawnTime = sim.cfg.drone.spawnSec + (s.gates[gateIndex]?.busy ?? 0)
+    const gs = s.gates[gateIndex]
+    if (gs) gs.busy += sim.cfg.drone.gateStaggerSec
+    openGate(s, sim, gateIndex, w.spawnTime + 0.8)
+    return i
+  }
+  return -1
+}
+
+/** The gate has opened: the wave warden steps out onto the floor in front of it, already fighting. */
+function appearWaveWarden(s: GameState, sim: Sim, i: number): void {
+  const w = s.wardens[i] as WardenState
+  const gate = sim.gates[w.gate]
+  if (!gate) return
+  const p = s.player.pos
+  w.alive = true
+  w.pos.x = gate.out.x
+  w.pos.z = gate.out.z
+  w.pos.y = floorHeightAt(sim.grid, gate.out.x, gate.out.z)
+  w.yaw = Math.atan2(p.x - w.pos.x, p.z - w.pos.z)
+  w.head = 0
+  w.headWant = 0
+  w.mode = 'alert'
+  w.act = 'walk'
+  w.suspicion = 1
+  w.lostTimer = 0
+  w.lastKnown.x = p.x
+  w.lastKnown.y = p.y
+  w.lastKnown.z = p.z
+  w.fireCooldown = sim.cfg.warden.shotFirstSec
+  w.hitTime = 0
+  w.strike = 0
+  w.recover = 0
+  w.aim = 0
+  w.token = 0
+  w.tokenHold = 0
+  w.pushX = 0
+  w.pushZ = 0
+  w.repath = 0
+  w.speed = 0
+  const path = sim.wardenPaths[i]
+  if (path) path.n = 0
+  w.ringDir = i % 2 === 0 ? 1 : -1
+  emit(sim, { type: 'wardenSpawned', index: i, gate: w.gate, heavy: w.heavy })
+}
+
+/** Wave wardens still alive or coming out of a gate. */
+export function liveWaveWardens(s: GameState): number {
+  let n = 0
+  for (const w of s.wardens) if (w.wave && (w.alive || w.spawnTime > 0)) n++
+  return n
 }
 
 /** Where a warden looks (its cone's yaw): the body plus the head turn. */
@@ -172,7 +294,27 @@ export function wardenHit(s: GameState, sim: Sim, i: number): void {
   const w = s.wardens[i]
   if (!w || !w.alive) return
   w.hitTime = sim.cfg.warden.hitAnimSec
+  // knocked back, away from the player (a heavy hit moves it)
+  const p = s.player.pos
+  const dx = w.pos.x - p.x
+  const dz = w.pos.z - p.z
+  const l = Math.sqrt(dx * dx + dz * dz) || 1
+  w.pushX = (dx / l) * sim.cfg.warden.knockback
+  w.pushZ = (dz / l) * sim.cfg.warden.knockback
   alertWarden(s, sim, i)
+}
+
+/** The knockback glides it away and fades out (moveCharacter keeps it out of walls). */
+function applyPush(sim: Sim, w: WardenState, dt: number): void {
+  const m = sim.move
+  sim.world.moveCharacter(w.pos.x, w.pos.y, w.pos.z, w.pushX * dt, 0, w.pushZ * dt, false, dt, m)
+  w.pos.x = m.x
+  w.pos.z = m.z
+  w.pos.y = floorHeightAt(sim.grid, w.pos.x, w.pos.z)
+  const k = Math.max(0, 1 - dt * 8)
+  w.pushX *= k
+  w.pushZ *= k
+  if (Math.abs(w.pushX) + Math.abs(w.pushZ) < 0.05) w.pushX = w.pushZ = 0
 }
 
 /** Stops and turns to look at lastKnown (the "?" cue). The event only when it was calm before. */
@@ -190,6 +332,7 @@ function becomeSuspicious(sim: Sim, w: WardenState, i: number): void {
 function walkTo(sim: Sim, i: number, w: WardenState, gx: number, gz: number, speed: number, turnRate: number, dt: number): number {
   const path = sim.wardenPaths[i] as WalkPath
   const cfg = sim.cfg.warden
+  if (w.heavy) speed *= cfg.heavy.speedFactor
   w.repath -= dt
   if (path.gx !== gx || path.gz !== gz || w.repath <= 0 || path.n <= 0 || path.k >= path.n) {
     path.n = findPath(sim.walk, w.pos.x, w.pos.z, gx, gz, path.pts)
@@ -334,6 +477,7 @@ function fireArmBolt(s: GameState, sim: Sim, w: WardenState, i: number): void {
   const l = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1
   b.active = true
   b.life = sim.cfg.drone.boltLifeSec
+  b.damage = c.boltDamage
   b.pos.x = ox
   b.pos.y = oy
   b.pos.z = oz
@@ -377,10 +521,20 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
   const p = s.player.pos
   for (let i = 0; i < s.wardens.length; i++) {
     const w = s.wardens[i] as WardenState
+    if (w.wave && !w.alive && w.spawnTime > 0) {
+      w.spawnTime -= dt
+      if (w.spawnTime <= 0) appearWaveWarden(s, sim, i)
+      continue
+    }
     if (!w.alive) continue
     const route = sim.wardenRoutes[i] as WardenRoute
     w.hitTime -= dt
     w.fireCooldown -= dt
+    if (w.token === 2 && w.aim <= 0) {
+      w.tokenHold -= dt
+      if (w.tokenHold <= 0) w.token = 0
+    }
+    if ((w.pushX || w.pushZ) && dt > 0) applyPush(sim, w, dt)
     if (w.pausedTime > 0 || w.controlled) {
       // paused by a terminal, or taken over: it stands, sees and hears nothing
       if (w.pausedTime > 0) w.pausedTime -= dt
@@ -388,10 +542,20 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
       w.suspicion = Math.max(0, w.suspicion - det.decay * dt)
       w.strike = 0
       w.aim = 0
+      w.token = 0
       w.speed = 0
       continue
     }
     bump(s, sim, w, i, dt)
+    if (w.wave && s.phase === 'playing') {
+      // wave wardens always know where you are (DESIGN 9: nowhere to hide)
+      w.mode = 'alert'
+      w.lostTimer = 0
+      w.suspicion = 1
+      w.lastKnown.x = p.x
+      w.lastKnown.y = p.y
+      w.lastKnown.z = p.z
+    }
 
     // perception: the cone looks along body + head
     const look = w.yaw + w.head
@@ -560,7 +724,7 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
             w.recover = c.strikeRecoverSec
             const reach = Math.sqrt(dist2(w.pos.x, w.pos.z, p.x, p.z))
             const inArc = Math.abs(angleDiff(toP, w.yaw)) <= (c.strikeArcDeg / 2) * DEG
-            const hit = s.phase === 'playing' && reach <= c.strikeReach && inArc && Math.abs(p.y - w.pos.y) < 1.6 && hurtPlayer(s, sim, c.strikeDamage, w.pos.x, w.pos.z)
+            const hit = s.phase === 'playing' && reach <= c.strikeReach && inArc && Math.abs(p.y - w.pos.y) < 1.6 && hurtPlayer(s, sim, c.strikeDamage * (w.heavy ? c.heavy.strikeDamageFactor : 1), w.pos.x, w.pos.z)
             emit(sim, { type: 'wardenStruck', index: i, hit })
           }
           break
@@ -568,11 +732,13 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
         if (w.recover > 0) {
           w.recover -= dt
           w.speed = 0
+          if (w.recover <= 0 && w.token === 1) w.token = 0 // the melee token comes back after the recovery
           break
         }
         if (w.aim > 0) {
           if (!w.sees || s.phase !== 'playing') {
             w.aim = 0
+            w.token = 0
             w.fireCooldown = Math.max(w.fireCooldown, c.shotAimSec * 0.5)
           } else {
             w.speed = 0
@@ -580,6 +746,7 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
             w.aim -= dt
             if (w.aim <= 0) {
               w.aim = 0
+              w.tokenHold = sim.cfg.tokens.rangedHoldSec
               w.fireCooldown = c.shotIntervalSec
               fireArmBolt(s, sim, w, i)
             }
@@ -589,19 +756,39 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
         const tx = w.sees ? p.x : w.lastKnown.x
         const tz = w.sees ? p.z : w.lastKnown.z
         const d = Math.sqrt(dist2(w.pos.x, w.pos.z, tx, tz))
-        if (w.sees && s.phase === 'playing' && d < c.strikeRange && Math.abs(angleDiff(toP, w.yaw)) < 0.6) {
-          w.strike = c.strikeWindupSec
-          w.speed = 0
-          emit(sim, { type: 'wardenStrike', index: i })
+        const playing = s.phase === 'playing'
+        // close (about 3 m): the melee fight, one warden at a time (the melee token); the others hold off and shoot
+        const inMelee = w.sees && playing && d < c.meleeDist
+        if (inMelee && w.token === 2 && w.aim <= 0) w.token = 0
+        if (inMelee && w.token === 0 && meleeFree(s, sim)) w.token = 1
+        if (!inMelee && w.token === 1 && d > c.meleeDist + 1) w.token = 0
+        if (inMelee && w.token === 1) {
+          if (d < c.strikeRange && Math.abs(angleDiff(toP, w.yaw)) < 0.6) {
+            w.strike = c.strikeWindupSec
+            w.speed = 0
+            emit(sim, { type: 'wardenStrike', index: i })
+            break
+          }
+          if (w.hitTime > 0 || d < c.strikeRange * 0.8) {
+            w.speed = 0
+            face(w, tx, tz, c.alertTurnRate, dt)
+          } else if (walkTo(sim, i, w, tx, tz, c.alertSpeed, c.alertTurnRate, dt) < 0) face(w, tx, tz, c.alertTurnRate, dt)
           break
         }
-        if (w.sees && s.phase === 'playing' && d >= c.shotMinDist && w.fireCooldown <= 0 && w.hitTime <= 0) {
+        if (inMelee) {
+          // no melee token: back off to the ring and shoot from there
+          const k = d > 1e-3 ? 2.5 / d : 0
+          if (walkTo(sim, i, w, w.pos.x + (w.pos.x - tx) * k, w.pos.z + (w.pos.z - tz) * k, c.alertSpeed * 0.8, c.alertTurnRate, dt) < 0) face(w, tx, tz, c.alertTurnRate, dt)
+          break
+        }
+        if (w.sees && playing && d >= c.shotMinDist && w.fireCooldown <= 0 && w.hitTime <= 0 && w.token === 0 && rangedFree(s, sim)) {
+          w.token = 2
           w.aim = c.shotAimSec
           w.speed = 0
           emit(sim, { type: 'wardenAiming', index: i })
           break
         }
-        if (w.hitTime > 0 || d < c.strikeRange * 0.8) {
+        if (w.hitTime > 0 || (w.sees && d <= c.holdDist)) {
           w.speed = 0
           face(w, tx, tz, c.alertTurnRate, dt)
         } else if (walkTo(sim, i, w, tx, tz, c.alertSpeed, c.alertTurnRate, dt) < 0) face(w, tx, tz, c.alertTurnRate, dt)

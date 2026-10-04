@@ -41,6 +41,7 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   p.attackCooldown -= dt
   p.switchCooldown -= dt
   p.slashTime -= dt
+  p.comboTime += dt
   p.shootTime -= dt
   p.hitTime -= dt
   // the player's noise fades out over noiseFadeSec after a jump, a swing, a shot
@@ -68,6 +69,10 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   // dash (buffered by the dash command, towards dashX / dashZ)
   if (!frozen && p.dashBuffer > 0 && p.dashCooldown <= 0) {
     p.dashBuffer = 0
+    // a dash cancels the recovery of an attack and frees the weapon at once
+    p.slashTime = 0
+    p.shootTime = 0
+    p.attackCooldown = 0
     p.dashTime = cfg.dashSec
     p.dashCooldown = cfg.dashCooldownSec
     p.facing = Math.atan2(p.dashX, p.dashZ)
@@ -150,10 +155,10 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   }
   p.speed = dt > 0 ? Math.sqrt(mx * mx + mz * mz) / dt : 0
 
-  // facing: towards the aim while attacking or aiming, otherwise towards the movement
-  const acting = p.slashTime > 0 || p.shootTime > 0 || p.aiming
+  // facing: towards the aim while shooting or aiming (a swing sets it at once and holds it), otherwise towards the movement
+  const acting = p.shootTime > 0 || p.aiming
   if (acting) p.facing = turnTowards(p.facing, intent.lookYaw, cfg.turnRate * 2 * dt)
-  else if (wishing && p.dashTime <= 0) p.facing = turnTowards(p.facing, Math.atan2(wx, wz), cfg.turnRate * dt)
+  else if (wishing && p.dashTime <= 0 && p.slashTime <= 0) p.facing = turnTowards(p.facing, Math.atan2(wx, wz), cfg.turnRate * dt)
   p.facing = angleDiff(p.facing, 0)
 
   // running is loud (DESIGN 8)

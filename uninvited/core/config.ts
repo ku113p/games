@@ -18,6 +18,8 @@ export interface PlayerConfig {
   maxFall: number
   coyoteSec: number
   jumpBufferSec: number
+  /** A jump, dash or attack pressed up to this long before it is allowed (cooldown, hit-stop, a switch) still happens, s. */
+  inputBufferSec: number
   dashSpeed: number
   dashSec: number
   dashCooldownSec: number
@@ -59,10 +61,16 @@ export interface SwordConfig {
   damage: number
   range: number
   arcDeg: number
+  /** The wait after swing 1 and 2 of the combo, s. */
   cooldownSec: number
   reachUp: number
   reachDown: number
+  /** How long swings 1 and 2 play, s. */
   animSec: number
+  /** A swing started within this long after the last one continues the combo (1 -> 2 -> 3 finisher), s. */
+  comboWindowSec: number
+  /** The third swing: a wider, longer sweep with the same damage. */
+  finisher: { cooldownSec: number; animSec: number; arcDeg: number; range: number }
 }
 
 export interface RifleConfig {
@@ -138,6 +146,10 @@ export interface LaserConfig {
 export interface DroneConfig {
   hp: number
   hover: number
+  /** A drone rises over a block up to this tall above its floor (hex modules, server blocks, parapets), m; taller ones it flies around. */
+  overMax: number
+  /** The gap it keeps over what it flies across, m. */
+  clearance: number
   radius: number
   patrolSpeed: number
   searchSpeed: number
@@ -233,18 +245,85 @@ export interface WardenConfig {
   strikeWindupSec: number
   strikeRecoverSec: number
   strikeDamage: number
-  /** The slow arm shot: only from this far, a long aim (the telegraph), then a slow bolt. */
+  /** In a fight it walks up to this distance and holds there (shooting), m. */
+  holdDist: number
+  /** Within this distance it fights in melee (closes in and strikes), further out it shoots, m. */
+  meleeDist: number
+  /** The arm shot: only from this far, a long aim (the telegraph), then a bolt. */
   shotMinDist: number
   shotAimSec: number
   shotIntervalSec: number
   shotFirstSec: number
   boltSpeed: number
+  boltDamage: number
+  /** The heavy warden: tougher, slower, with a shield in front that stops rifle bolts (the sword and flanking get through). */
+  heavy: { hp: number; speedFactor: number; shieldHalfDeg: number; strikeDamageFactor: number }
   /** The flinch after a hit, s. */
   hitAnimSec: number
+  /** A sword or rifle hit pushes it back at this speed, m/s (fades out in about 0.15 s). */
+  knockback: number
   /** Bumped into: suspicion jumps to this. */
   bumpSuspicion: number
   /** Re-plan the walk this often, s. */
   repathSec: number
+}
+
+/** One wave of alarm 3 (DESIGN 9): worm packs from different gates plus drones and wardens out of the gates. */
+export interface WaveConfig {
+  /** The size of each worm pack; every pack comes out of its own gate, on another side of the player when it can. */
+  packs: number[]
+  /** Spotter drones. */
+  drones: number
+  /** Wardens (the main fighters), and heavy wardens (with a frontal shield) on top of them. */
+  wardens: number
+  heavy: number
+}
+
+/**
+ * Attack tokens (DESIGN 9): only so many attacks of a kind run at once; the rest hold a ring around the player and wait
+ * for a token, which comes back after the attack's recovery.
+ */
+export interface TokenConfig {
+  /** Worm bites (windup + bite + recovery) at once. */
+  bite: number
+  /** Warden melee strikes at once. */
+  melee: number
+  /** Ranged shots (warden and drone aims) at once. */
+  ranged: number
+  /** Waiting enemies hold this far from the player [min, max], m. */
+  ringMin: number
+  ringMax: number
+  /** A waiting enemy re-picks its place on the ring this often, s. */
+  regroupSec: number
+  /** A worm that got a bite token but did not start the bite within this long gives it back, s. */
+  biteWaitSec: number
+  /** A shot token is kept this long after the shot, s. */
+  rangedHoldSec: number
+}
+
+/** Signal shards (DESIGN 9): killed enemies drop them, picking them up heals. */
+export interface ShardConfig {
+  lifeSec: number
+  /** A shard within this distance of the player flies to it, m. */
+  magnetDist: number
+  magnetSpeed: number
+  /** Taken when this close, m. */
+  pickupDist: number
+  /** Hit points per shard, and per big shard (a sword finisher that cut down several). */
+  heal: number
+  bigHeal: number
+  /** Rifle charges per shard / big shard (drones are a rifle job: killing feeds the rifle). */
+  charges: number
+  bigCharges: number
+  /** Shards dropped by a killed worm / drone / warden / heavy warden. */
+  wormDrops: number
+  droneDrops: number
+  wardenDrops: number
+  heavyDrops: number
+  /** A sword finisher that kills at least this many at once drops a big shard. */
+  finisherKills: number
+  /** Slots (the oldest is reused when they run out). */
+  max: number
 }
 
 export interface AlarmConfig {
@@ -254,15 +333,14 @@ export interface AlarmConfig {
   searchers: number[]
   /** How far from the alarm point searchers look, m; index = stage. */
   searchRadius: number[]
-  /** Drones per wave (index = wave number from 0; the last one repeats). */
-  waveSizes: number[]
-  /** Worm packs per wave: the size of each pack (index = wave number; the last one repeats; empty = no worms). */
-  wavePacks: number[][]
+  /** The waves of alarm 3 (index = wave number from 0; the last one repeats until the firewall drops). */
+  waves: WaveConfig[]
+  /** Warden slots kept ready for wave wardens (they walk out of the spawn gates); heavy ones included. */
+  waveWardenSlots: number
   waveFirstDelaySec: number
   waveGapSec: number
   /** Stage 3: after this many cleared waves the firewall (every red wall) drops. */
   firewallAfterWaves: number
-  maxWaveDrones: number
   /** A pack of this many worms joins the search when the alarm reaches stage 1 / 2 (0 = none); index = stage. */
   searchPacks: number[]
   minSpawnDist: number
@@ -286,7 +364,7 @@ export interface TerminalConfig {
 }
 
 export interface EndingConfig {
-  /** Checkpoints passed under alarm 3 that make the ending sad (DESIGN 4: 4 of 9). */
+  /** Red checkpoints (a wave fight happened in their segment) that make the ending sad (DESIGN 4: 4 of 9). */
   sadAt: number
   totalCheckpoints: number
 }
@@ -374,6 +452,8 @@ export interface GameConfig {
   worm: WormConfig
   warden: WardenConfig
   alarm: AlarmConfig
+  tokens: TokenConfig
+  shards: ShardConfig
   scan: ScanConfig
   terminal: TerminalConfig
   checkpoint: { radius: number }

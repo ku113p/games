@@ -388,23 +388,35 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
     return { root: g, mat, open: 0 }
   })
 
-  // ---- terminals: a console in the wall with a glowing screen
+  // ---- terminals: a free-standing console (a slim pedestal with a floating holo screen) in front of the wall
   const terminalViews: TerminalView[] = terminals(s).map((t, i) => {
     const g = new Group()
-    g.position.set(t.pos.x, t.pos.y, t.pos.z)
+    // the state puts the terminal on the wall face; the console stands this far out from it, clear of the wall
+    g.position.set(t.pos.x + Math.sin(t.yaw) * 0.55, t.pos.y, t.pos.z + Math.cos(t.yaw) * 0.55)
     g.rotation.y = t.yaw
-    const body = new Mesh(new RoundedBoxGeometry(1.0, 1.5, 0.3, 3, 0.1), mats.glossBlack)
-    body.position.set(0, 1.05, -0.05)
-    const screenMat = new MeshBasicMaterial({ map: screenTexture(12, 7 + i * 13, '#4ff0ff'), color: palette.terminal.clone(), toneMapped: false })
-    const screen = new Mesh(new PlaneGeometry(0.72, 0.9), screenMat)
-    screen.position.set(0, 1.2, 0.11)
-    const ledge = new Mesh(new RoundedBoxGeometry(0.9, 0.08, 0.4, 2, 0.03), mats.glossBlack)
-    ledge.position.set(0, 0.62, 0.15)
+    const foot = new Mesh(new CylinderGeometry(0.42, 0.48, 0.1, 6), mats.glossBlack)
+    foot.position.y = 0.05
+    foot.rotation.y = Math.PI / 6
+    const post = new Mesh(new RoundedBoxGeometry(0.3, 0.9, 0.22, 2, 0.06), mats.glossBlack)
+    post.position.y = 0.55
+    const head = new Mesh(new RoundedBoxGeometry(0.5, 0.12, 0.34, 2, 0.04), mats.glossBlack)
+    head.position.set(0, 1.04, 0.02)
+    const screenMat = new MeshBasicMaterial({ map: screenTexture(12, 7 + i * 13, '#4ff0ff'), color: palette.terminal.clone(), toneMapped: false, side: DoubleSide })
+    const screen = new Mesh(new PlaneGeometry(0.86, 0.56), screenMat)
+    screen.position.set(0, 1.42, 0.06)
+    screen.rotation.x = -0.28
     const halo = new MeshBasicMaterial({ color: palette.terminal.clone(), toneMapped: false })
-    const frame = new Mesh(new TorusGeometry(0.62, 0.018, 6, 48), halo)
-    frame.scale.set(0.85, 1.15, 1)
-    frame.position.set(0, 1.1, 0.12)
-    g.add(body, screen, ledge, frame)
+    for (const [w, h, x, y] of [[0.9, 0.018, 0, 0.29], [0.9, 0.018, 0, -0.29], [0.018, 0.58, 0.44, 0], [0.018, 0.58, -0.44, 0]] as const) {
+      const bar = new Mesh(new PlaneGeometry(w, h), halo)
+      bar.position.set(x, y, 0.002)
+      screen.add(bar)
+    }
+    const ring = new Mesh(new RingGeometry(0.5, 0.54, 6), halo)
+    ring.rotation.set(-Math.PI / 2, 0, Math.PI / 6)
+    ring.position.y = 0.012
+    const beam = new Mesh(new CylinderGeometry(0.09, 0.2, 0.34, 12, 1, true), columnMaterial(palette.terminal.clone().multiplyScalar(0.18)))
+    beam.position.y = 1.2
+    g.add(foot, post, head, screen, noReflect(ring), beam)
     root.add(g)
     return { root: g, screenMat, halo }
   })

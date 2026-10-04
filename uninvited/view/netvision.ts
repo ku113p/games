@@ -275,7 +275,7 @@ export function buildNetVision(s: GameState, sim: Sim): NetVision {
         v.mesh.quaternion.setFromUnitVectors(UP, tmpDir.multiplyScalar(1 / len))
         v.mesh.scale.set(1, len, 1)
         ;(v.mat.uniforms['uLen'] as { value: number }).value = len
-        ;(v.mat.uniforms['uColor']?.value as Color).copy(l.kind === 'drone' || l.kind === 'warden' ? palette.paused : palette.terminal).multiplyScalar(N.linkStrength)
+        ;(v.mat.uniforms['uColor']?.value as Color).copy(l.kind === 'drone' || l.kind === 'warden' || l.kind === 'camera' ? palette.paused : palette.terminal).multiplyScalar(N.linkStrength)
         setFade(v.mat, fade, time)
       }
 

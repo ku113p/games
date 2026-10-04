@@ -21,10 +21,12 @@ export interface Nav {
   linked: Nav[]
   /** A ground nav only crosses floor steps up to this high, m. */
   climb: number
+  /** 1 = a block too tall to fly over fills (part of) this cell: no flying through it (drones only). */
+  tall: Uint8Array
 }
 
 /** `shareWalls`: a nav whose red-wall flags this one follows (a ground nav next to the drones' one). */
-export function createNav(grid: Grid, ground = false, shareWalls?: Nav, climb = Infinity): Nav {
+export function createNav(grid: Grid, ground = false, shareWalls?: Nav, climb = Infinity, tall?: Uint8Array): Nav {
   const n = grid.cols * grid.rows
   const fields: Int16Array[] = []
   for (let i = 0; i < SLOTS; i++) fields.push(new Int16Array(n))
@@ -39,9 +41,27 @@ export function createNav(grid: Grid, ground = false, shareWalls?: Nav, climb = 
     ground,
     linked: [],
     climb,
+    tall: tall ?? new Uint8Array(n),
   }
   if (shareWalls) shareWalls.linked.push(nav)
   return nav
+}
+
+/**
+ * The cells a drone cannot fly through because a block (server block, hex module) taller than `overMax` above its
+ * floor stands in them; lower blocks it flies over (see droneAltitude). Cold path.
+ */
+export function tallCells(grid: Grid, overMax: number): Uint8Array {
+  const out = new Uint8Array(grid.cols * grid.rows)
+  for (const b of grid.blocks) {
+    if (b.maxY - b.minY <= overMax) continue
+    const c0 = Math.max(0, Math.floor((b.minX + 0.01) / grid.cell))
+    const c1 = Math.min(grid.cols - 1, Math.floor((b.maxX - 0.01) / grid.cell))
+    const r0 = Math.max(0, Math.floor((b.minZ + 0.01) / grid.cell))
+    const r1 = Math.min(grid.rows - 1, Math.floor((b.maxZ - 0.01) / grid.cell))
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out[r * grid.cols + c] = 1
+  }
+  return out
 }
 
 /**
@@ -63,8 +83,24 @@ export function flyable(nav: Nav, index: number): boolean {
   const g = nav.grid
   const k = g.kind[index]
   if (k === CellKind.Wall || k === CellKind.Niche) return false
+  if (!nav.ground && nav.tall[index] === 1) return false
   if (nav.ground && !crawlable(g, index)) return false
   if (k === CellKind.RedWall) return nav.wallOpen[g.group[index] as number] === 1
+  return true
+}
+
+/** Does the straight line a -> b stay out of the cells that tall blocks fill? (Sampled every half metre.) */
+export function clearOfTall(nav: Nav, ax: number, az: number, bx: number, bz: number): boolean {
+  const g = nav.grid
+  const len = Math.hypot(bx - ax, bz - az)
+  const n = Math.max(1, Math.ceil(len / 0.5))
+  for (let k = 0; k <= n; k++) {
+    const x = ax + ((bx - ax) * k) / n
+    const z = az + ((bz - az) * k) / n
+    const col = Math.floor(x / g.cell)
+    const row = Math.floor(z / g.cell)
+    if (col >= 0 && row >= 0 && col < g.cols && row < g.rows && nav.tall[row * g.cols + col] === 1) return false
+  }
   return true
 }
 

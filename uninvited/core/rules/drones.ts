@@ -1,13 +1,15 @@
 // Patrol drones (DESIGN 8-9): patrol waypoints, see in a cone, grow suspicion, stare, then alert -> chase and shoot,
 // lose you -> look around the last known place. Searchers comb the area at alarm 1-2; wave drones always hunt.
-import { cellAt, floorHeightAt } from '../grid'
+import { cellAt, floorHeightAt, solidTopAt, type Grid } from '../grid'
+import type { DroneConfig } from '../config'
 import type { DroneState, GameState, Sim } from '../state'
 import { angleDiff, clamp, DEG, dist2, emit, turnTowards } from '../util'
 import { raiseAlarm, randomSearchPoint } from './alarm'
 import { fireBolt } from './combat'
 import { seeFactor } from './detection'
 import { abortGateIn, enterGate, gateStep, nearestGate } from './gates'
-import { nextCell } from './nav'
+import { clearOfTall, nextCell } from './nav'
+import { rangedFree } from './tokens'
 
 export { spawnDrone } from './gates'
 
@@ -39,16 +41,32 @@ export function alertDrone(s: GameState, sim: Sim, i: number): void {
   if (d.role !== 'wave') raiseAlarm(s, sim, 'drone', s.player.pos.x, s.player.pos.y, s.player.pos.z)
 }
 
+const LOOK = [0, 0, 0.9, 0, -0.9, 0, 0, 0.9, 0, -0.9]
+
+/**
+ * The height a drone flies at over (x, z): its hover height over the floor, or higher where low blocks (hex modules,
+ * server blocks, parapets up to `overMax` tall) are below or just ahead of it. Taller ones are not flown over (the
+ * nav sends the drone around them). Not hot-path heavy: a few lookups per drone and tick.
+ */
+export function droneAltitude(g: Grid, cfg: DroneConfig, x: number, z: number): number {
+  const floor = floorHeightAt(g, x, z)
+  let y = floor + cfg.hover
+  for (let k = 0; k < LOOK.length; k += 2) {
+    const top = solidTopAt(g, x + (LOOK[k] as number), z + (LOOK[k + 1] as number))
+    if (top - floor <= cfg.overMax && top + cfg.clearance > y) y = top + cfg.clearance
+  }
+  return y
+}
+
 /** Flies towards (tx, tz): straight when the way is clear, otherwise along the grid's flow field. Returns the distance left. */
 function flyTowards(sim: Sim, d: DroneState, tx: number, tz: number, speed: number, dt: number): number {
   const g = sim.grid
-  const hover = sim.cfg.drone.hover
   let gx = tx
   let gz = tz
   const total = Math.sqrt(dist2(d.pos.x, d.pos.z, tx, tz))
   if (total < 0.05) return 0
-  const ty = floorHeightAt(g, tx, tz) + hover
-  if (!sim.world.lineOfSight(d.pos.x, d.pos.y, d.pos.z, tx, ty, tz)) {
+  const ty = droneAltitude(g, sim.cfg.drone, tx, tz)
+  if (!sim.world.lineOfSight(d.pos.x, d.pos.y, d.pos.z, tx, ty, tz) || !clearOfTall(sim.nav, d.pos.x, d.pos.z, tx, tz)) {
     const from = cellAt(g, d.pos.x, d.pos.z)
     const to = cellAt(g, tx, tz)
     const next = nextCell(sim.nav, from, to)
@@ -66,7 +84,7 @@ function flyTowards(sim: Sim, d: DroneState, tx: number, tz: number, speed: numb
     d.pos.z += (dz / l) * step
     if (!d.sees) d.yaw = turnTowards(d.yaw, Math.atan2(dx, dz), sim.cfg.drone.turnRate * dt)
   }
-  const wantY = floorHeightAt(g, d.pos.x, d.pos.z) + hover
+  const wantY = droneAltitude(g, sim.cfg.drone, d.pos.x, d.pos.z)
   d.pos.y += (wantY - d.pos.y) * clamp(dt * 3, 0, 1)
   return total
 }
@@ -88,6 +106,10 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
     if (!d.active || !d.alive) continue
     if (gateStep(sim, i, d, dt)) continue
     d.fireCooldown -= dt
+    if (d.token && d.aim <= 0) {
+      d.tokenHold -= dt
+      if (d.tokenHold <= 0) d.token = false
+    }
     if (d.pausedTime > 0) {
       d.pausedTime -= dt
       d.sees = false
@@ -190,11 +212,13 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
         if (d.aim > 0) {
           if (!d.sees || s.phase !== 'playing') {
             d.aim = 0
+            d.token = false
             d.fireCooldown = Math.max(d.fireCooldown, cfg.aimSec * 0.5)
           } else {
             d.aim -= dt
             if (d.aim <= 0) {
               d.aim = 0
+              d.tokenHold = sim.cfg.tokens.rangedHoldSec
               d.fireCooldown = cfg.fireIntervalSec
               fireBolt(s, sim, d, i)
             }
@@ -203,7 +227,8 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
         }
         const dd = Math.sqrt(dist2(d.pos.x, d.pos.z, d.lastKnown.x, d.lastKnown.z))
         if (!(d.sees && dd < cfg.keepDist)) flyTowards(sim, d, d.lastKnown.x, d.lastKnown.z, cfg.chaseSpeed, dt)
-        if (d.sees && d.fireCooldown <= 0 && s.phase === 'playing') {
+        if (d.sees && d.fireCooldown <= 0 && s.phase === 'playing' && rangedFree(s, sim)) {
+          d.token = true
           d.aim = cfg.aimSec
           emit(sim, { type: 'droneAiming', index: i })
         }

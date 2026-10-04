@@ -1,5 +1,6 @@
-// Checkpoints and the ending counter (DESIGN 4, 6): every checkpoint passed with the alarm at stage 3 adds one to
-// the sad ending; the hero's line color shows where the counter is heading - white, then red or blue.
+// Checkpoints and the ending counter (DESIGN 4, 6): a checkpoint is red (adds one to the sad ending) only when an alarm-3
+// wave fight happened since the previous checkpoint - at most one red per segment, and once the firewall is down no more
+// waves come, so one mistake cannot cascade into several reds. A checkpoint also heals fully; the hero's line color shows where the counter is heading - white, then red or blue.
 import type { EndingConfig } from '../config'
 import type { GameState, RunState, Sim } from '../state'
 import { dist2, emit } from '../util'
@@ -20,7 +21,9 @@ export function passCheckpoint(s: GameState, sim: Sim, i: number): void {
   const c = s.checkpoints[i]
   if (!c || c.passed) return
   c.passed = true
-  c.underAlarm = s.alarm.stage >= 3
+  c.underAlarm = s.alarm.segmentFight
+  s.alarm.segmentFight = false // the next segment starts clean
+  s.player.hp = sim.cfg.player.maxHp
   s.run.checkpointsPassed++
   if (c.underAlarm) s.run.alarmCheckpoints++
   else s.run.calmCheckpoints++

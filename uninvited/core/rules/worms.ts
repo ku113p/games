@@ -9,6 +9,7 @@ import { randomSearchPoint } from './alarm'
 import { hurtPlayer } from './combat'
 import { pickGate, openGate } from './gates'
 import { flyable, navDistance, nextCell } from './nav'
+import { biteTokens, ringRadius } from './tokens'
 
 /** Seconds between two line-of-sight checks of one worm (they are spread over the ticks). */
 const THINK_SEC = 0.2
@@ -112,6 +113,10 @@ export function spawnWormPack(s: GameState, sim: Sim, gateIndex: number, count: 
     w.think = (i % 5) * (THINK_SEC / 5)
     // a fixed per-slot pace in [1 - spread, 1 + spread] (golden-ratio spacing: no two neighbours alike)
     w.pace = 1 + cfg.speedSpread * (((i * 0.618034) % 1) * 2 - 1)
+    w.token = false
+    w.tokenWait = 0
+    w.regroup = 0
+    w.ringDir = i % 2 === 0 ? 1 : -1
     n++
   }
   if (n > 0) {
@@ -239,6 +244,8 @@ export function damageWorm(s: GameState, sim: Sim, i: number, amount: number): b
   if (w.mode === 'windup') {
     w.mode = 'hunt'
     w.timer = 0
+    w.token = false
+    w.regroup = sim.cfg.tokens.regroupSec * 0.5
   }
   if (w.role === 'searcher' && (w.mode === 'search' || w.mode === 'leave')) {
     w.mode = 'hunt'
@@ -318,14 +325,47 @@ function emergeStep(sim: Sim, w: WormState, dt: number): void {
   }
 }
 
+/**
+ * Gives the free bite tokens to the hunting worms nearest the player (ties: the lower slot), those that already came
+ * within the ring's reach. The others keep waiting on the ring.
+ */
+function grantBiteTokens(s: GameState, sim: Sim): void {
+  const t = sim.cfg.tokens
+  let free = t.bite - biteTokens(s)
+  if (free <= 0) return
+  const p = s.player.pos
+  const reach = t.ringMax + 1.5
+  while (free > 0) {
+    let best = -1
+    let bestD = reach * reach
+    for (let i = 0; i < s.worms.length; i++) {
+      const w = s.worms[i] as WormState
+      if (!w.active || !w.alive || w.token || w.mode !== 'hunt' || w.spawnTime > 0 || w.stagger > 0 || w.regroup > 0) continue
+      if (Math.abs(p.y - w.pos.y) > 1.5) continue
+      const d = dist2(w.pos.x, w.pos.z, p.x, p.z)
+      if (d < bestD) {
+        bestD = d
+        best = i
+      }
+    }
+    if (best < 0) return
+    const w = s.worms[best] as WormState
+    w.token = true
+    w.tokenWait = 0
+    free--
+  }
+}
+
 export function updateWorms(s: GameState, sim: Sim, dt: number): void {
   const cfg = sim.cfg.worm
   const p = s.player
   const playing = s.phase === 'playing'
   const r = cfg.radius
+  if (playing) grantBiteTokens(s, sim)
   for (let i = 0; i < s.worms.length; i++) {
     const w = s.worms[i] as WormState
     if (!w.active || !w.alive) continue
+    if (w.regroup > 0) w.regroup -= dt
     if (w.spawnTime > 0) {
       w.spawnTime -= dt
       continue
@@ -387,7 +427,15 @@ export function updateWorms(s: GameState, sim: Sim, dt: number): void {
       }
       case 'hunt': {
         if (!playing) break
-        if (dist < cfg.biteRange && dy < 1.5) {
+        if (w.token) {
+          // a token that is not used soon goes back (the worm is stuck behind something): others get their turn
+          w.tokenWait += dt
+          if (w.tokenWait > sim.cfg.tokens.biteWaitSec) {
+            w.token = false
+            w.regroup = sim.cfg.tokens.regroupSec
+          }
+        }
+        if (w.token && dist < cfg.biteRange && dy < 1.5) {
           w.mode = 'windup'
           w.timer = cfg.windupSec
           emit(sim, { type: 'wormWindup', index: i })
@@ -408,11 +456,23 @@ export function updateWorms(s: GameState, sim: Sim, dt: number): void {
             tz = w.target.z
             if (w.lost > cfg.loseSec) {
               w.mode = 'search'
+              w.token = false
               break
             }
           }
         } else if (thinking) {
           w.direct = clearLine(s, sim, w, cfg.directDist, 0.35)
+        }
+        if (!w.token && w.direct && dist < sim.cfg.tokens.ringMax + 1.5 && dist > 1e-3) {
+          // no token: hold the ring around the player and circle slowly until one is free
+          const ring = ringRadius(sim, i)
+          const b = Math.atan2(-dx, -dz) + w.ringDir * 0.35
+          const fx = p.pos.x + Math.sin(b) * ring
+          const fz = p.pos.z + Math.cos(b) * ring
+          const ok = walkable(sim, fx, fz)
+          if (dist > ring + 0.5) crawl(sim, w, ok ? fx : p.pos.x, ok ? fz : p.pos.z, cfg.speed * w.pace, dt)
+          else if (ok) crawl(sim, w, fx, fz, cfg.speed * w.pace * 0.5, dt)
+          break
         }
         if (w.direct) {
           way.x = tx
@@ -452,7 +512,11 @@ export function updateWorms(s: GameState, sim: Sim, dt: number): void {
         w.timer -= dt
         if (dist > 1e-3) moveBy(sim, w, (-dx / dist) * 1.2 * dt, (-dz / dist) * 1.2 * dt, r)
         w.yaw = turnTowards(w.yaw, Math.atan2(dx, dz), cfg.turnRate * dt)
-        if (w.timer <= 0) w.mode = 'hunt'
+        if (w.timer <= 0) {
+          w.mode = 'hunt'
+          w.token = false // the token comes back after the recovery
+          w.regroup = sim.cfg.tokens.regroupSec * 0.5
+        }
         break
       }
       case 'leave': {

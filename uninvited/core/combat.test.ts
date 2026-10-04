@@ -94,6 +94,7 @@ describe('the gunblade', () => {
     if (!b) return
     const fire = (): void => {
       b.active = true
+      b.damage = 10
       b.life = 2
       b.pos.x = f.s.player.pos.x
       b.pos.y = 1.1

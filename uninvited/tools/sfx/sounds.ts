@@ -3,6 +3,7 @@
 // so the gains in a mix are relative peak levels. The final level is the `level` field (dBFS).
 
 import * as S from "./synth.ts";
+import libraryManifest from "./library-manifest.json";
 import * as R from "./recipes.ts";
 import type { Buf, Layer, Rng } from "./synth.ts";
 
@@ -2016,4 +2017,12 @@ def({
   },
 });
 
-export const SOUNDS: readonly Sound[] = sounds;
+/**
+ * Sounds that are built from the Kenney libraries by tools/sfx/library.ts (listed in library-manifest.json) are NOT
+ * rendered here: their synthesized definitions above are the old versions, kept only as a fallback / for comparison.
+ * Without this filter build.ts would overwrite the library files, because both write audio/sfx/<name>.mp3.
+ */
+const libraryGroups = new Set((libraryManifest as { group: string }[]).map((e) => e.group));
+/** Retired synthesized sounds: replaced by library sets (footstep_run -> footstep_sprint) and not used by the game. */
+const retired = new Set(["footstep_run"]);
+export const SOUNDS: readonly Sound[] = sounds.filter((s) => !libraryGroups.has(s.name) && !retired.has(s.name));

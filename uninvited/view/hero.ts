@@ -41,9 +41,12 @@ export interface HeroView {
   readonly root: Group
   setLineColor(c: Color): void
   setMode(mode: 'sword' | 'rifle'): void
-  update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number): void
+  /** `combo` is the sword combo step (0, 1, 2 = finisher) of the swing being played. */
+  update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo?: number): void
   /** World position of the gunblade's muzzle; false until the model has loaded. */
   muzzle(out: Vector3): boolean
+  /** World positions of the blade's hilt and tip (for the sword trail); false until the model has loaded. */
+  blade(hilt: Vector3, tip: Vector3): boolean
 }
 
 // --- locomotion. Strides (m per cycle of the planted foot) measured on the blended clips (on the Universal Base Characters legs), see tools/hero/README.md.
@@ -56,9 +59,14 @@ const WALK_SPEED = 1.02 // the walk clip's own speed, m/s
 const CADENCE = 1.15 // cycles per second the blend aims for between walk and run (picks the run share by speed)
 const SPRINT_FROM = 4.3 // m/s: sprint starts to blend in ...
 const SPRINT_FULL = 5.8 // ... and is full from here
-const FADE = 10 // 1/s, base layer crossfade
-const FADE_FAST = 22 // 1/s, for actions that must read at once (dash, hit, slash)
+// Crossfades are rates (1/s): the weight closes this share of the gap per second (exp-like), so 20/s is ~50 ms to 63 %.
+// What the player does must show at once (a combat stance, a dash, a jump, a crouch); only the walk -> run -> sprint
+// blend stays soft, because the speed that drives it ramps up by itself.
+const FADE = 20 // base layer: idle, crouch, jump loop, hack, landing - a change of stance
+const FADE_LOCO = 13 // base layer: walk, run, sprint (they follow the speed)
+const FADE_FAST = 42 // for actions that must read at once (dash, hit, jump take-off, slash, shot)
 const OVER = 24 // weight of the upper-body overlay against the base layer's 1
+const OVER_OUT = 22 // the overlay lets go this fast (at weight 24 against 1 a slow fade keeps the arms in the old pose for 0.4 s)
 const LAND_SEC = 0.42
 const AIM_HOLD_SEC = 0.8 // the rifle stays raised this long after a shot
 const UPPER = /^(spine_|neck_|Head|clavicle_|upperarm_|lowerarm_|hand_|thumb_|index_|middle_|ring_|pinky_)/
@@ -412,14 +420,12 @@ export function createHero(): HeroView {
   let gunK = 0 // 0 sword grip .. 1 rifle grip
   let bladeOut = 1
   let prevAnim: HeroAnim = 'idle'
-  let prevActionT = 0
   let legs: 'stand' | 'crouch' | 'air' = 'stand'
   let airTime = 0
   let landT = -1
   let locoPhase = 0
   let crouchPhase = 0
   let slashVariant = 0
-  let lastSlash = -10
   let lastShot = -10
   let deathT = 0
   let crouchK = 0 // smoothed 0..1, drives the coat lift
@@ -684,8 +690,8 @@ export function createHero(): HeroView {
 
   function updateGun(dt: number, anim: HeroAnim, actionT: number): void {
     if (!gunRoot || !bladeMesh) return
-    gunK = smooth(gunK, mode === 'rifle' ? 1 : 0, 12, dt)
-    bladeOut = smooth(bladeOut, mode === 'sword' ? 1 : 0, 14, dt)
+    gunK = smooth(gunK, mode === 'rifle' ? 1 : 0, 24, dt)
+    bladeOut = smooth(bladeOut, mode === 'sword' ? 1 : 0, 26, dt)
     gunRoot.position.lerpVectors(swordPos, riflePos, gunK)
     gunRoot.quaternion.slerpQuaternions(swordQuat, rifleQuat, gunK)
     gunRoot.scale.lerpVectors(swordScale, rifleScale, gunK)
@@ -729,7 +735,13 @@ export function createHero(): HeroView {
       muzzleNode.getWorldPosition(out)
       return true
     },
-    update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number): void {
+    blade(hilt: Vector3, tip: Vector3): boolean {
+      if (!muzzleNode || !gunRoot) return false
+      muzzleNode.getWorldPosition(tip)
+      gunRoot.getWorldPosition(hilt)
+      return true
+    },
+    update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo = 0): void {
       timeU.value = time
       if (!ready || !mixer) return
       const sword = mode === 'sword'
@@ -747,13 +759,11 @@ export function createHero(): HeroView {
         landT += dt
         if (landT > LAND_SEC || legs === 'crouch') landT = -1
       }
-      if (anim === 'slash' && (prevAnim !== 'slash' || actionT < prevActionT - 0.2)) {
-        slashVariant = time - lastSlash < 1.1 ? (slashVariant + 1) % SLASH_RANGE.length : 0
-        lastSlash = time
-      }
+      // the clip of the swing is the core's combo step (a swing that lands in the frame the last one ended still flips it)
+      if (anim === 'slash') slashVariant = combo % SLASH_RANGE.length
       if (anim === 'shoot') lastShot = time
       if (anim === 'death') deathT = prevAnim === 'death' ? deathT + dt : 0
-      crouchK = smooth(crouchK, legs === 'crouch' && anim !== 'death' ? 1 : 0, 7, dt)
+      crouchK = smooth(crouchK, legs === 'crouch' && anim !== 'death' ? 1 : 0, 12, dt)
       deathK = smooth(deathK, anim === 'death' ? clamp01((deathT - 0.35) / 0.6) : 0, 6, dt)
 
       // base layer
@@ -761,8 +771,9 @@ export function createHero(): HeroView {
       let sum = 0
       for (let i = 0; i < BASE.length; i++) {
         const t = baseT[i] ?? 0
-        const fast = i === DASH || i === HIT || i === DEATH
-        const w = smooth(baseW[i] ?? 0, t, fast && t > 0 ? FADE_FAST : FADE, dt)
+        const fast = i === DASH || i === HIT || i === DEATH || i === J_START
+        const rate = fast && t > 0 ? FADE_FAST : i === WALK || i === RUN || i === SPRINT ? FADE_LOCO : FADE
+        const w = smooth(baseW[i] ?? 0, t, rate, dt)
         baseW[i] = w
         sum += w
       }
@@ -834,7 +845,7 @@ export function createHero(): HeroView {
       }
       for (let i = 0; i < OVERLAY.length; i++) {
         const t = overT[i] ?? 0
-        const w = smooth(overW[i] ?? 0, t, t > 0 ? FADE_FAST : 8, dt)
+        const w = smooth(overW[i] ?? 0, t, t > 0 ? FADE_FAST : OVER_OUT, dt)
         overW[i] = w
         const a = over[i]
         if (!a) continue
@@ -843,7 +854,7 @@ export function createHero(): HeroView {
       }
 
       mixer.update(dt)
-      aimK = smooth(aimK, !sword && !fullBody ? 1 : 0, 8, dt)
+      aimK = smooth(aimK, !sword && !fullBody ? 1 : 0, 16, dt)
       if (aimK > 1e-3 && spine && neck) {
         twist(spine, AIM_TWIST * aimK)
         twist(neck, -AIM_TWIST * aimK)
@@ -853,7 +864,6 @@ export function createHero(): HeroView {
       updateGun(dt, anim, actionT)
       holo.opacity = anim === 'hack' || anim === 'hackCrouched' ? 0.75 + 0.2 * Math.sin(time * 37) * Math.sin(time * 11) : 0.4
       prevAnim = anim
-      prevActionT = actionT
     },
   }
 }

@@ -1,6 +1,8 @@
 {
   "title": "UNINVITED",
   "level.slice": "Sector 0 - the corridor",
+  "level.l1": "Level 1 - Jim's computer",
+  "may.l1.meet": "A terminal hums at the end of the ledge. Something in the network answers when you touch it - your assistant, but not quite the one you knew.",
   "start.tagline": "You were fired. You were exiled. Now you are inside their network.",
   "start.click": "Click to start",
   "start.note": "Headphones on. Mouse and keyboard.",
@@ -18,6 +20,7 @@
     ["Q / wheel", "sword <-> rifle"],
     ["E", "hack / take"],
     ["Tab (hold)", "network vision - not for too long"],
+    ["F3", "frame rate and frame time (for bug reports)"],
     ["Esc", "pause"]
   ],
   "routes": "Pass unseen and hack your way through - or break everything and survive the waves.",
@@ -72,6 +75,8 @@
   "hack.wallsOpen": "{n} RED WALLS OPEN",
   "hack.laser": "LASER GRID",
   "hack.lasers": "{n} LASER GRIDS",
+  "hack.camera": "CAMERA",
+  "hack.cameras": "{n} CAMERAS",
   "hack.drone": "DRONE",
   "hack.drones": "{n} DRONES",
   "hack.paused": "{what} PAUSED {sec} S",
@@ -97,5 +102,17 @@
   "reason.scan": "network vision traced",
   "reason.hack": "the hack timed out",
   "reason.attack": "an attack",
-  "reason.warden": "a warden saw you"
+  "reason.warden": "a warden saw you",
+  "settings.title": "SETTINGS",
+  "settings.open": "Settings",
+  "settings.back": "Back",
+  "settings.master": "MASTER",
+  "settings.music": "MUSIC",
+  "settings.sfx": "SOUND FX",
+  "settings.sensitivity": "MOUSE",
+  "settings.invertY": "INVERT Y",
+  "settings.reduceFx": "REDUCE SHAKE / FLASH",
+  "settings.hudSize": "HUD SIZE",
+  "settings.note": "Saved in this browser.",
+  "hack.escAgain": "Esc again to abort the hack"
 }

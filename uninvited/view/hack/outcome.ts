@@ -19,6 +19,7 @@ export function hackOutcome(events: readonly GameEvent[], alarmStage: number): H
   let walls = 0
   let lasers = 0
   let drones = 0
+  let cameras = 0
   let sec = 0
   let raisedTo = -1
   for (const e of events) {
@@ -27,6 +28,7 @@ export function hackOutcome(events: readonly GameEvent[], alarmStage: number): H
     else if (solved && e.type === 'wallOpened') walls++
     else if (solved && e.type === 'devicePaused') {
       if (e.target === 'laser') lasers++
+      else if (e.target === 'camera') cameras++
       else drones++
       sec = Math.max(sec, Math.round(e.sec))
     } else if (timedOut && e.type === 'alarmRaised') raisedTo = e.stage
@@ -37,6 +39,7 @@ export function hackOutcome(events: readonly GameEvent[], alarmStage: number): H
     if (walls > 0) parts.push(walls === 1 ? t('hack.wallOpen') : t('hack.wallsOpen', { n: walls }))
     const paused: string[] = []
     if (lasers > 0) paused.push(lasers === 1 ? t('hack.laser') : t('hack.lasers', { n: lasers }))
+    if (cameras > 0) paused.push(cameras === 1 ? t('hack.camera') : t('hack.cameras', { n: cameras }))
     if (drones > 0) paused.push(drones === 1 ? t('hack.drone') : t('hack.drones', { n: drones }))
     if (paused.length > 0) parts.push(t('hack.paused', { what: paused.join(' + '), sec }))
     const detail = parts.length > 0 ? parts.join(', ') : t('hack.nothing')

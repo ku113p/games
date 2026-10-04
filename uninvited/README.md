@@ -28,14 +28,27 @@ hooks (`state`, `sim`, `place(col, row, yaw, pitch)`, `hold(key, on)`, `press(ke
 | Space | jump |
 | C | crouch / stand (toggle) |
 | Ctrl (hold) | crouch while held |
-| LMB | attack (sword swing or rifle fire) |
+| LMB | attack: a 3-swing sword combo (click on, the third swing is a wide finisher; an early click is kept for 0.12 s) or rifle fire; a dash cancels a swing |
 | RMB (hold) | aim - the camera eases in over the right shoulder, a crosshair, slower mouse, walk speed, the rifle drawn (a sword comes back on release) with a tighter spread |
 | Q / wheel | sword <-> rifle |
 | E | hack a terminal / take the artifact |
+| F3 | show / hide the frame-rate overlay (fps, frame time) |
 | Tab (hold) | network vision - terminal links, drone routes, camera cones through walls, sensor zones, your noise ring; an overheat meter warns before it calls the security |
 | Esc | pause |
 
 During a hack: arrows + Enter (or click a lit code), Esc to abort.
+
+## Levels
+
+`?level=<id>` in the URL picks the level (registry: `levels/index.ts`); the default is **l1**, the slice is `?level=slice`.
+
+**Level 1, Jim's computer (`levels/l1.ts`)** - the tutorial, ~4.4 slices. A start ledge 2 m over the void (T0, May's first meeting, opens
+the red wall D1 at the end of a light bridge), arena 1 "the plaza" (a camera on the north slab, hex cover, a high drone, warden 1 on the
+west street where the exit is), the roofed passage P1 (C1, a motion sensor), arena 2 "the river" (a balcony 2 m up, a void river with a
+drone along it, a low bridge with a laser grid and a high bridge, warden 2 on the north bank; T1 pauses the laser and the drone), P2 (C2, a
+sound camera), arena 3 "the core" (C3 on the entry terrace, the landmark tower with Jim's notes in a roofed vault behind the red wall
+D2, two cameras at its foot and a drone circling it - T2 pauses all three; T3 on the east terrace behind the posted warden 3 opens D2;
+warden 4 walks the south ring). Spawn gates in slab sides, floor and roof hatches and sky portals surround every arena.
 
 ## The slice level (`levels/slice.ts`)
 
@@ -66,7 +79,7 @@ sky; only the roofs put a ceiling over a stretch.
 | Char | Cell |
 | --- | --- |
 | `#` | slab: a solid block as tall as its `tops` character says (a clean NF6 slab) |
-| `H` | hex block: the same solid block, dressed in hex modules (NF4) |
+| `H` | hex block: the same solid block (a terraced base) with a honeycomb of hexagonal prism columns of varied heights rising out of it (real geometry, no hex texture) |
 | `_` | void: no floor, a drop into the dark (falling in puts you back on the last safe ground, `world.fall` in config) |
 | `.` | floor (a floor cell with the void on two opposite sides is drawn as a light bridge) |
 | `~` | low cover (waist high - hides you only while crouched; you can jump onto it) |
@@ -90,7 +103,7 @@ Ground-level stealth still needs walls: tall blocks block every line of sight, l
 above y = 0 (default: the level's `ceiling`). Use them for the short enclosed passages between arenas.
 
 Entities (`[col, row]` cells): `videoCamera` (wall side, sweep in degrees, period, phase), `soundCamera`, `motionSensor`,
-`drone` (patrol waypoints), `laser`, `redWall`, `terminal` (targets = ids of red walls / lasers / drones, difficulty),
+`drone` (patrol waypoints; it flies over blocks up to `drone.overMax` tall - hex modules, server blocks, parapets - and round taller ones), `laser`, `redWall`, `terminal` (targets = ids of red walls / lasers / drones / wardens / cameras, difficulty),
 `spawn` (a spawn gate alarm drones fly and worms crawl out of: `wall` = `n`/`e`/`s`/`w` - cut into the slab on that
 side, which must be tall enough; `down` - a hatch in the floor; `up` - a hatch in the roof over the cell, or in the open
 a portal in the sky `world.skyGate` metres up), `cover` (a tall server block to crouch behind: `size` = [w, d, h],
@@ -107,7 +120,8 @@ stop with `waitSec` it stands about that long (varied) facing `look` (`n`/`e`/`s
 Without a route it keeps its post at `at`, facing `post` (`n`/`e`/`s`/`w`). Every stop must be reachable on foot
 (`createSim` says which one is not). A terminal's `targets` may name a warden (it is paused like a drone).
 
-`bun tools/slice-bot.ts loud|quiet [seeds] [normal|sloppy]` plays the slice headless with the real core and Rapier.
+`bun tools/slice-bot.ts loud|quiet [seeds] [normal|sloppy] [--level slice|l1]` plays a level headless with the real core and Rapier (default: the
+slice; the routes per level are in `tools/bot-routes.ts`).
 
 All balance numbers live in `config.json`.
 
@@ -128,3 +142,17 @@ main.ts     wires everything: modes, saves, the loop
 
 `bun run lint:layers` enforces the boundaries (the core imports nothing outside itself and uses no clock or
 `Math.random`).
+
+## Music files
+
+Drop looping mp3 files into `audio/music/` (the folder may be empty: the game then plays no music) and run
+`bun run music:manifest` (`play`, `build` and `check` run it too). All tracks share one tempo (`audio.music.bpm`, default
+120) and a whole number of bars, so crossfades on bar lines stay in time. Expected names:
+
+- `net_a.stem1.mp3` .. `net_a.stem4.mp3` - vertical stems of the level track (stem 1 always, more with tension and combat), or
+- `net_calm.mp3`, `net_tension.mp3`, `net_combat.mp3` - horizontal versions of it
+- `hack.mp3`, `room.mp3`, `office.mp3`, `menu.mp3` - one loop each (a missing hack plays the level track at tension, a missing menu its calm version)
+- `sting_win.mp3`, `sting_death.mp3`, `sting_end.mp3` - one-shot stingers (synthesized stand-ins play when missing)
+
+The three `net_*` files now there are placeholders from `bun tools/music/build.ts`; replace them with the real tracks.
+Use gapless-trimmed files: an mp3 encoder delay leaves a tiny gap at the loop seam.

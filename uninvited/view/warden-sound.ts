@@ -1,7 +1,8 @@
-// The warden's sounds, synthesized live with Web Audio (no files): heavy armored footsteps, a servo whine when it
+// The warden's sounds. The footstep is a Kenney-based sample (audio/sfx/warden_step_v*.mp3, played through the mixer
+// with its enemy bus and panning); the rest is synthesized live with Web Audio (no files): a servo whine when it
 // turns its head or body, a rising chirp when it notices something (the "?"), a harsh two-tone bark when it spots you,
-// a charging whine before a strike and the whoosh of the blow. Everything goes into the game's sound bus, so the master
-// volume and pause apply. A few nodes per sound (cold enough: a handful per second at most).
+// a charging whine before a strike and the whoosh of the blow. The live sounds go to the mixer's enemy bus (so the
+// master / SFX volume, the hack duck and the limiter apply) and, with a world position (x, z), are panned like playAt. A few nodes per sound (cold enough: a handful per second at most).
 import type { Sound } from './audio'
 
 let noise: AudioBuffer | null = null
@@ -20,13 +21,18 @@ function noiseBuffer(ctx: AudioContext): AudioBuffer {
   return b
 }
 
-function out(snd: Sound, vol: number): { ctx: AudioContext; g: GainNode; t: number } | null {
+/** The sound's entry: a gain on the enemy bus, panned when the source position is known (x, z). */
+function out(snd: Sound, vol: number, x?: number, z?: number): { ctx: AudioContext; g: GainNode; t: number } | null {
   const ctx = snd.ctx
-  const bus = snd.bus
+  const bus = snd.enemyBus
   if (!ctx || !bus || vol <= 0.002) return null
   const g = ctx.createGain()
   g.gain.value = vol
-  g.connect(bus)
+  if (x !== undefined && z !== undefined && typeof ctx.createStereoPanner === 'function') {
+    const pan = ctx.createStereoPanner()
+    pan.pan.value = snd.panOf(x, z)
+    g.connect(pan).connect(bus)
+  } else g.connect(bus)
   return { ctx, g, t: ctx.currentTime }
 }
 
@@ -61,18 +67,16 @@ function hiss(ctx: AudioContext, dest: AudioNode, type: BiquadFilterType, f0: nu
   src.stop(t + dur + 0.02)
 }
 
-/** One armored footstep: a low thud, a short metal clank. `heavy` for running. */
-export function wardenStep(snd: Sound, vol: number, heavy: boolean): void {
-  const o = out(snd, vol)
-  if (!o) return
-  tone(o.ctx, o.g, 'sine', heavy ? 95 : 80, 38, o.t, 0.14, 0.9)
-  hiss(o.ctx, o.g, 'lowpass', 500, 120, 0.7, o.t, 0.09, 0.5)
-  hiss(o.ctx, o.g, 'bandpass', 2600, 1800, 6, o.t + 0.01, 0.05, heavy ? 0.22 : 0.14)
+/** One armored footstep (a sample: boot thud + metal clank). `heavy` for running. */
+export function wardenStep(snd: Sound, vol: number, heavy: boolean, x?: number, z?: number): void {
+  const rate = heavy ? 1 : 0.88
+  if (x !== undefined && z !== undefined) snd.playAt('warden_step', x, z, vol, rate)
+  else snd.play('warden_step', vol, rate)
 }
 
 /** A servo turning (head or body). */
-export function wardenServo(snd: Sound, vol: number, dur: number): void {
-  const o = out(snd, vol)
+export function wardenServo(snd: Sound, vol: number, dur: number, x?: number, z?: number): void {
+  const o = out(snd, vol, x, z)
   if (!o) return
   const f = o.ctx.createBiquadFilter()
   f.type = 'bandpass'
@@ -84,16 +88,16 @@ export function wardenServo(snd: Sound, vol: number, dur: number): void {
 }
 
 /** It noticed something: a rising questioning chirp. */
-export function wardenQuery(snd: Sound, vol: number): void {
-  const o = out(snd, vol)
+export function wardenQuery(snd: Sound, vol: number, x?: number, z?: number): void {
+  const o = out(snd, vol, x, z)
   if (!o) return
   tone(o.ctx, o.g, 'triangle', 420, 520, o.t, 0.12, 0.5)
   tone(o.ctx, o.g, 'triangle', 560, 900, o.t + 0.13, 0.2, 0.5)
 }
 
 /** It spotted you: a harsh descending two-tone bark with a distorted edge. */
-export function wardenBark(snd: Sound, vol: number): void {
-  const o = out(snd, vol)
+export function wardenBark(snd: Sound, vol: number, x?: number, z?: number): void {
+  const o = out(snd, vol, x, z)
   if (!o) return
   const shaper = o.ctx.createWaveShaper()
   const curve = new Float32Array(256)
@@ -109,16 +113,16 @@ export function wardenBark(snd: Sound, vol: number): void {
 }
 
 /** The strike's telegraph: a charging whine over `dur` seconds. */
-export function wardenCharge(snd: Sound, vol: number, dur: number): void {
-  const o = out(snd, vol)
+export function wardenCharge(snd: Sound, vol: number, dur: number, x?: number, z?: number): void {
+  const o = out(snd, vol, x, z)
   if (!o) return
   tone(o.ctx, o.g, 'sawtooth', 120, 520, o.t, dur, 0.18, dur * 0.7)
   tone(o.ctx, o.g, 'sine', 240, 1040, o.t, dur, 0.2, dur * 0.7)
 }
 
 /** The blow: a heavy whoosh. */
-export function wardenSwing(snd: Sound, vol: number): void {
-  const o = out(snd, vol)
+export function wardenSwing(snd: Sound, vol: number, x?: number, z?: number): void {
+  const o = out(snd, vol, x, z)
   if (!o) return
   hiss(o.ctx, o.g, 'bandpass', 600, 2400, 1.2, o.t, 0.22, 0.8, 0.03)
   tone(o.ctx, o.g, 'sine', 140, 60, o.t, 0.2, 0.4)

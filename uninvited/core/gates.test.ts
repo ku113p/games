@@ -94,7 +94,7 @@ describe('spawn gates', () => {
     events(f, f.sim.cfg.alarm.waveFirstDelaySec + 0.1)
     for (const d of f.s.drones) if (d.active && d.role === 'wave') used.add(d.gate)
     expect(used.has(0)).toBe(false)
-    expect(used.size).toBeGreaterThanOrEqual(Math.min(2, f.sim.cfg.alarm.waveSizes[0] ?? 1))
+    expect(used.size).toBeGreaterThanOrEqual(Math.min(2, f.sim.cfg.alarm.waves[0]?.drones ?? 1))
   })
 
   test('drones queued at the same gate come out one after another', () => {

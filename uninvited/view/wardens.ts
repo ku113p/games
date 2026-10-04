@@ -1,11 +1,14 @@
-// Wardens (core/rules/wardens.ts): walking sentinel programs. The model is assets/models/warden.glb (built by
-// tools/warden/build.py): a heavy faceted body, a tall "lantern" helmet whose visor slit glows where it looks, hostile
-// red-orange light lines, a chest core and an emitter on the right wrist. One clone per warden.
+// Wardens (core/rules/wardens.ts): walking sentinel programs. Two models built by tools/warden/build.py:
+// assets/models/warden.glb - EW1, the slender sentinel (a narrow helmet with one vertical visor slit, long hanging plates,
+// light along the armor seams, an energy halberd whose blade tip fires the bolts), and warden-heavy.glb - EW2, the
+// enforcer for waves (broad armor, a horizontal visor band, a hex energy shield on the left forearm, a short energy
+// blade). A warden state's `heavy` picks the model; each slot builds the rig it needs on demand (one per frame at most).
 //
 // Reading a warden without network vision: the visor and a short look beam show where it looks (the head turns on top
 // of the clips, so the visor follows the cone), the lines go amber and a "?" floats over it while it checks something,
-// a red "!" and a bark when it spots you; the strike and the arm shot are telegraphed (the wrist charges, a thin beam
-// for the shot). In network vision: its view cone (through walls, cut where it cannot see) and its round on the floor.
+// a red "!" and a bark when it spots you; the strike and the shot are telegraphed (the blade charges, a thin beam from
+// the blade tip for the shot). A rifle bolt stopped by the heavy's shield flashes the hex plane. In network vision: its
+// view cone (through walls, cut where it cannot see) and its round on the floor.
 //
 // Animation: every clip is an AnimationAction whose time and weight are set here each frame (like view/hero.ts): the
 // state from wardenAnim picks the targets, weights fade toward them; walking, searching and running share one phase
@@ -36,9 +39,10 @@ import {
   Vector3,
   type Material,
 } from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import wardenUrl from '../assets/models/warden.glb'
+import heavyUrl from '../assets/models/warden-heavy.glb'
 import cfgAll from '../config.json'
 import type { GameEvent } from '../core/events'
 import { floorHeightAt } from '../core/grid'
@@ -58,9 +62,10 @@ const DEG = Math.PI / 180
 const SPREAD = fanSpread(W.halfAngleDeg * DEG, W.pitchDeg * DEG)
 /** Sight fan rows for wardens (view/sight.ts: cameras from 0, drones from DRONE_KEY = 8, up to MAX_FANS = 32). */
 export const WARDEN_KEY = 24
-const MAX_WARDENS = 8
-/** The mannequin is ~1.85 m; the warden is shown a little bigger (its eye then sits at the core's eyeHeight). */
-const SCALE = 1.1
+const MAX_WARDENS = 10
+/** The models are ~1.87 m; the sentinel is shown at ~2.1 m, the enforcer at ~2.2 m. */
+const SCALE = 1.13
+const SCALE_HEAVY = 1.19
 
 // clips (names in the glb) - base layer, full body
 const CLIPS = ['idle', 'post', 'walk', 'search_walk', 'run', 'scan', 'check', 'alert', 'strike', 'shoot', 'hit', 'death'] as const
@@ -76,15 +81,15 @@ const STRIKE = 8
 const SHOOT = 9
 const HIT = 10
 const DEATH = 11
-// strides of the planted foot, m per cycle at the clip's own speed (printed by tools/warden/build.py), times SCALE
-const WALK_STRIDE = 1.306 * SCALE
-const SEARCH_STRIDE = 1.305 * SCALE
-const RUN_STRIDE = 5.516 * SCALE
+// strides of the planted foot, m per cycle at the clip's own speed (printed by tools/warden/build.py), times the scale
+const WALK_STRIDE = 1.362
+const SEARCH_STRIDE = 1.36
+const RUN_STRIDE = 5.77
 const RUN_PHASE = 0.85 // the jog's foot contacts line up with the walks' this far into its loop
 const RUN_FROM = 1.6 // m/s: the jog starts to blend in ...
 const RUN_FULL = 4.2 // ... and would be full here (alert speed 3.3 is a fast stride, mostly jog)
-const STRIKE_HIT = 0.42 // share of the hook clip where the blow lands (windup before, follow-through after)
-const SHOT_FIRE = 0.45 // share of the cast clip where the arm is out
+const STRIKE_HIT = 0.5 // share of the slash clip where the blow lands (windup before, follow-through after)
+const SHOT_FIRE = 0.45 // share of the two-handed aim clip where the halberd is level
 const SHOT_TAIL = 0.6 // s of follow-through after a shot
 const FADE = 7
 const FADE_FAST = 20
@@ -95,7 +100,7 @@ const LINES_CALM = 0.7
 const LANTERN = 2.2
 const LANTERN_RANGE = 4.5
 const VISOR_K = 1.25
-const MARK_Y = 2.45
+const MARK_Y = 2.55
 const ALERT_MARK_SEC = 2
 
 const smooth = (cur: number, to: number, rate: number, dt: number): number => cur + (to - cur) * Math.min(1, dt * rate)
@@ -142,15 +147,24 @@ interface WardenView {
   model: Object3D | null
   mixer: AnimationMixer | null
   actions: AnimationAction[]
+  /** The rigs built so far: [sentinel, heavy]. The active one is mirrored in model / mixer / actions / head / neck / muzzle. */
+  rigs: (Rig | null)[]
+  cur: number
+  scale: number
+  blade: MeshBasicMaterial
+  shield: MeshBasicMaterial
+  coat: MeshStandardMaterial
+  shieldT: number
+  spawnT: number
   weight: Float32Array
   target: Float32Array
   loopT: Float32Array
   head: Object3D | null
   neck: Object3D | null
-  hand: Object3D | null
+  /** The halberd's tip / the blade's tip: where the shot telegraph starts. */
+  muzzle: Object3D | null
   lines: MeshBasicMaterial
   visor: MeshBasicMaterial
-  core: MeshBasicMaterial
   under: MeshStandardMaterial
   armor: MeshStandardMaterial
   eyes: Group
@@ -169,6 +183,15 @@ interface WardenView {
   lastHead: number
   lastYaw: number
   prev: WardenAnim
+}
+
+interface Rig {
+  model: Object3D
+  mixer: AnimationMixer
+  actions: AnimationAction[]
+  head: Object3D | null
+  neck: Object3D | null
+  muzzle: Object3D | null
 }
 
 export interface WardenViews {
@@ -261,22 +284,33 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     g.rotation.y = w.yaw
     const under = new MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.55, metalness: 0.4 })
     const armor = new MeshStandardMaterial({ color: 0x15161a, roughness: 0.28, metalness: 0.8 })
+    const coat = new MeshStandardMaterial({ color: 0x131419, roughness: 0.4, metalness: 0.6, side: DoubleSide })
     addRim(under, RIM_UNDER)
     addRim(armor, RIM_ARMOR)
+    addRim(coat, RIM_ARMOR)
+    const blade = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide })
+    const shield = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false })
     return {
       root: g,
       model: null,
       mixer: null,
       actions: [],
+      rigs: [null, null],
+      cur: -1,
+      scale: SCALE,
+      blade,
+      shield,
+      coat,
+      shieldT: 0,
+      spawnT: 0,
       weight: new Float32Array(CLIPS.length),
       target: new Float32Array(CLIPS.length),
       loopT: new Float32Array(CLIPS.length),
       head: null,
       neck: null,
-      hand: null,
-      lines: new MeshBasicMaterial({ color: base.clone(), toneMapped: false }),
+      muzzle: null,
+      lines: new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide }),
       visor: new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide }),
-      core: new MeshBasicMaterial({ color: base.clone(), toneMapped: false }),
       under,
       armor,
       eyes,
@@ -360,52 +394,86 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
   routeMesh.userData['noReflect'] = true
   root.add(routeMesh)
 
-  // the model: loaded once, cloned per warden
-  new GLTFLoader().load(
-    wardenUrl,
-    (gltf) => {
-      const clips = new Map<string, AnimationClip>()
-      for (const c of gltf.animations) {
-        c.tracks = c.tracks.filter((t) => !t.name.endsWith('.scale') && (!t.name.endsWith('.position') || t.name.startsWith('pelvis')))
-        clips.set(c.name, c)
-      }
-      for (const v of views) {
-        const model = cloneSkinned(gltf.scene)
-        model.scale.setScalar(SCALE)
-        const byName: Record<string, Material> = { Under: v.under, Armor: v.armor, Lines: v.lines, Visor: v.visor, Core: v.core }
-        model.traverse((o) => {
-          o.layers.mask = v.root.layers.mask // the game view marks the root for the floor reflection before we load
-          const m = o as Mesh
-          if (!m.isMesh) return
-          m.frustumCulled = false
-          const old = m.material as Material
-          m.material = byName[old.name] ?? v.under
-        })
-        v.root.add(model)
-        v.model = model
-        v.head = model.getObjectByName('Head') ?? null
-        v.neck = model.getObjectByName('neck_01') ?? null
-        v.hand = model.getObjectByName('hand_r') ?? null
-        const mx = new AnimationMixer(model)
-        for (const name of CLIPS) {
-          const clip = clips.get(name)
-          if (!clip) throw new Error(`warden.glb: no clip ${name}`)
-          const a = mx.clipAction(clip)
-          a.setLoop(LoopRepeat, Infinity)
-          a.timeScale = 0 // times are set by hand every frame
-          a.setEffectiveWeight(0)
-          a.play()
-          v.actions.push(a)
+  // the models: loaded once, cloned per warden slot on demand
+  const gltfs: (GLTF | null)[] = [null, null]
+  const clipSets: Map<string, AnimationClip>[] = [new Map(), new Map()]
+  ;[wardenUrl, heavyUrl].forEach((url, k) => {
+    new GLTFLoader().load(
+      url,
+      (gltf) => {
+        for (const c of gltf.animations) {
+          c.tracks = c.tracks.filter((t) => !t.name.endsWith('.scale') && (!t.name.endsWith('.position') || t.name.startsWith('pelvis')))
+          clipSets[k]?.set(c.name, c)
         }
-        v.weight[IDLE] = 1
-        v.mixer = mx
-      }
-    },
-    undefined,
-    (err) => {
-      console.error('warden.glb failed to load', err)
-    },
-  )
+        gltfs[k] = gltf
+      },
+      undefined,
+      (err) => {
+        console.error(`${url} failed to load`, err)
+      },
+    )
+  })
+
+  /** Builds the rig of one variant for one warden slot. */
+  function buildRig(v: WardenView, k: number): Rig | null {
+    const gltf = gltfs[k]
+    const clips = clipSets[k]
+    if (!gltf || !clips) return null
+    const model = cloneSkinned(gltf.scene)
+    const byName: Record<string, Material> = { Under: v.under, Armor: v.armor, Coat: v.coat, Lines: v.lines, Visor: v.visor, Blade: v.blade, Shield: v.shield }
+    model.traverse((o) => {
+      o.layers.mask = v.root.layers.mask // the game view marks the root for the floor reflection before we load
+      const m = o as Mesh
+      if (!m.isMesh) return
+      m.frustumCulled = false
+      const old = m.material as Material
+      m.material = byName[old.name] ?? v.under
+      if (old.name === 'Shield') m.renderOrder = 7
+    })
+    model.scale.setScalar(k === 1 ? SCALE_HEAVY : SCALE)
+    model.visible = false
+    v.root.add(model)
+    const mx = new AnimationMixer(model)
+    const actions: AnimationAction[] = []
+    for (const name of CLIPS) {
+      const clip = clips.get(name)
+      if (!clip) throw new Error(`warden model ${k}: no clip ${name}`)
+      const a = mx.clipAction(clip)
+      a.setLoop(LoopRepeat, Infinity)
+      a.timeScale = 0 // times are set by hand every frame
+      a.setEffectiveWeight(0)
+      a.play()
+      actions.push(a)
+    }
+    return { model, mixer: mx, actions, head: model.getObjectByName('Head') ?? null, neck: model.getObjectByName('neck_01') ?? null, muzzle: model.getObjectByName('Muzzle') ?? null }
+  }
+
+  let built = 0
+  /** Makes the rig for the variant the warden state wants the active one (at most two builds per frame). */
+  function ensureRig(v: WardenView, heavy: boolean): void {
+    const k = heavy ? 1 : 0
+    if (v.cur === k) return
+    let rig = v.rigs[k] ?? null
+    if (!rig) {
+      if (built >= 2) return
+      rig = buildRig(v, k)
+      if (!rig) return
+      built++
+      v.rigs[k] = rig
+    }
+    const old = v.rigs[1 - k]
+    if (old) old.model.visible = false
+    rig.model.visible = true
+    v.cur = k
+    v.scale = k === 1 ? SCALE_HEAVY : SCALE
+    v.model = rig.model
+    v.mixer = rig.mixer
+    v.actions = rig.actions
+    v.head = rig.head
+    v.neck = rig.neck
+    v.muzzle = rig.muzzle
+    v.weight[IDLE] = 1
+  }
 
   function volumeAt(x: number, z: number, st: GameState): number {
     const p = playerPos(st)
@@ -471,17 +539,17 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       const vol = volumeAt(w.pos.x, w.pos.z, st)
       switch (e.type) {
         case 'wardenSuspicious':
-          wardenQuery(sound, 0.55 * Math.max(0.3, vol))
+          wardenQuery(sound, 0.55 * Math.max(0.3, vol), w.pos.x, w.pos.z)
           break
         case 'wardenAlerted':
-          wardenBark(sound, 0.9 * Math.max(0.4, vol))
+          wardenBark(sound, 0.9 * Math.max(0.4, vol), w.pos.x, w.pos.z)
           v.alertT = ALERT_MARK_SEC
           break
         case 'wardenStrike':
-          wardenCharge(sound, 0.6 * vol, W.strikeWindupSec)
+          wardenCharge(sound, 0.6 * vol, W.strikeWindupSec, w.pos.x, w.pos.z)
           break
         case 'wardenStruck':
-          wardenSwing(sound, 0.8 * vol)
+          wardenSwing(sound, 0.8 * vol, w.pos.x, w.pos.z)
           break
         case 'wardenAiming':
           sound.play('suspicion_rise', 0.7 * vol, 0.55)
@@ -490,8 +558,18 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
           sound.play('drone_shot', 0.8 * vol, 0.75)
           v.shotT = 0
           break
+        case 'wardenSpawned':
+          // it walks out of a spawn gate: its lights flare and fade, a glitch sting
+          v.spawnT = 1
+          sound.playAt('glitch', w.pos.x, w.pos.z, 0.5 * Math.max(0.4, vol))
+          break
+        case 'shieldBlocked':
+          // a rifle bolt stopped by the heavy's shield: the hex plane flares, a deflect ping
+          v.shieldT = 1
+          sound.playAt('bullet_impact', w.pos.x, w.pos.z, 0.7 * Math.max(0.5, vol), 1.7)
+          break
         case 'wardenGaveUp':
-          wardenServo(sound, 0.3 * vol, 0.3)
+          wardenServo(sound, 0.3 * vol, 0.3, w.pos.x, w.pos.z)
           break
         default:
           break
@@ -513,6 +591,9 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         v.shotT += dt
         v.alertT = Math.max(0, v.alertT - dt)
         const dead = !w.alive
+        if (w.alive || w.pos.y > -500) ensureRig(v, w.heavy)
+        v.spawnT = Math.max(0, v.spawnT - dt * 1.2)
+        v.shieldT = Math.max(0, v.shieldT - dt * 3)
         const paused = anim === 'paused'
         const alert = w.mode === 'alert' && !dead
         const checking = !dead && !paused && (w.mode === 'suspicious' || w.mode === 'investigate')
@@ -525,8 +606,13 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         else tmp.copy(base).multiplyScalar(LINES_CALM + Math.min(0.4, w.suspicion))
         v.lines.color.copy(tmp)
         const charge = anim === 'strike' || anim === 'aim' ? prog : 0
-        v.visor.color.copy(tmp).multiplyScalar(dead ? 0 : VISOR_K * (1 + charge * 1.5))
-        v.core.color.copy(tmp).multiplyScalar(1 + charge * 3 + (v.shotT < 0.15 ? 3 : 0))
+        const flare = 1 + v.spawnT * 3 * (0.6 + 0.4 * Math.sin(time * 40))
+        v.lines.color.multiplyScalar(flare)
+        v.visor.color.copy(tmp).multiplyScalar(dead ? 0 : VISOR_K * (1 + charge * 1.5) * flare)
+        // the blade: dim in a calm round, flares when it charges (the strike windup, the shot's aim) and at the shot
+        v.blade.color.copy(tmp).multiplyScalar(dead ? 0 : (0.9 + charge * 2.2 + (v.shotT < 0.15 ? 3 : 0)) * flare)
+        v.shield.color.copy(tmp).multiplyScalar(dead ? 0 : 0.7 + v.shieldT * 4)
+        v.shield.opacity = dead ? 0 : 0.3 + v.shieldT * 0.6
         const m = Math.max(tmp.r, tmp.g, tmp.b, 1e-3)
         v.lantern.color.setRGB(tmp.r / m, tmp.g / m, tmp.b / m)
         v.lantern.intensity = dead ? 0 : LANTERN * (paused ? 0.4 : alert ? 1.4 : 1) * (1 + charge)
@@ -550,10 +636,10 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
           v.mark.position.y = MARK_Y + Math.sin(time * 3) * 0.05
         }
 
-        // the arm shot's telegraph: a thin beam from the wrist to the hero, narrowing as the aim completes
-        v.beam.visible = anim === 'aim' && v.hand !== null
-        if (v.beam.visible && v.hand) {
-          v.hand.getWorldPosition(tA)
+        // the shot's telegraph: a thin beam from the blade tip to the hero, narrowing as the aim completes
+        v.beam.visible = anim === 'aim' && v.muzzle !== null
+        if (v.beam.visible && v.muzzle) {
+          v.muzzle.getWorldPosition(tA)
           tB.set(p.x - tA.x, p.y + cfgAll.player.chestHeight - tA.y, p.z - tA.z)
           const len = tB.length()
           if (len > 0.1) {
@@ -569,7 +655,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         v.servoCd -= dt
         const turn = Math.abs(w.head - v.lastHead) + Math.abs(Math.atan2(Math.sin(w.yaw - v.lastYaw), Math.cos(w.yaw - v.lastYaw)))
         if (!dead && !paused && dt > 0 && turn / dt > 0.6 && w.speed < 0.3 && v.servoCd <= 0) {
-          wardenServo(sound, 0.22 * volumeAt(w.pos.x, w.pos.z, st), 0.35)
+          wardenServo(sound, 0.22 * volumeAt(w.pos.x, w.pos.z, st), 0.35, w.pos.x, w.pos.z)
           v.servoCd = 0.9
         }
         v.lastHead = w.head
@@ -594,11 +680,11 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         // the shared walk phase: advance by the real speed over the stride of the current mix; steps on the contacts
         const ww = (v.weight[WALK] ?? 0) + (v.weight[SEARCH] ?? 0)
         const wr = v.weight[RUN] ?? 0
-        const walkStride = (v.weight[WALK] ?? 0) >= (v.weight[SEARCH] ?? 0) ? WALK_STRIDE : SEARCH_STRIDE
-        const stride = ww + wr > 1e-4 ? walkStride + (RUN_STRIDE - walkStride) * (wr / (ww + wr)) : walkStride
+        const walkStride = ((v.weight[WALK] ?? 0) >= (v.weight[SEARCH] ?? 0) ? WALK_STRIDE : SEARCH_STRIDE) * v.scale
+        const stride = ww + wr > 1e-4 ? walkStride + (RUN_STRIDE * v.scale - walkStride) * (wr / (ww + wr)) : walkStride
         const before = v.phase
         if (w.speed > 0.05) v.phase = (v.phase + (dt * w.speed) / stride) % 1
-        if (w.speed > 0.2 && !dead && ((before < 0.5 && v.phase >= 0.5) || v.phase < before)) wardenStep(sound, 0.5 * volumeAt(w.pos.x, w.pos.z, st), w.speed > 2.2)
+        if (w.speed > 0.2 && !dead && ((before < 0.5 && v.phase >= 0.5) || v.phase < before)) wardenStep(sound, 0.5 * volumeAt(w.pos.x, w.pos.z, st), w.speed > 2.2, w.pos.x, w.pos.z)
         if (anim === 'death') v.deathT += dt
         else v.deathT = 0
         for (let k = 0; k < CLIPS.length; k++) {

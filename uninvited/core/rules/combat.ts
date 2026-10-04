@@ -10,7 +10,8 @@ import { makeNoise, makeNoiseAt } from './detection'
 import { alertDrone } from './drones'
 import { playerFrozen } from './movement'
 import { damageWorm } from './worms'
-import { wardenHit } from './wardens'
+import { alertWarden, wardenHit } from './wardens'
+import { dropShards, shardsFor } from './shards'
 
 /**
  * Hurts the player (bolts, lasers, bites) from (fromX, fromZ) - the player's own position when it has no direction.
@@ -127,6 +128,16 @@ export function damageTarget(s: GameState, sim: Sim, kind: TargetKind, i: number
   } else if (kind === 'warden') {
     const w = s.wardens[i]
     if (!w) return
+    // the heavy warden's shield: rifle bolts from the front stop on it (the sword cuts through, and so do bolts from the side or back)
+    if (byRifle && w.heavy) {
+      const p = s.player.pos
+      const from = Math.atan2(p.x - w.pos.x, p.z - w.pos.z)
+      if (Math.abs(angleDiff(from, w.yaw)) <= sim.cfg.warden.heavy.shieldHalfDeg * DEG) {
+        emit(sim, { type: 'shieldBlocked', index: i, x, y, z })
+        alertWarden(s, sim, i)
+        return
+      }
+    }
     // armor: the rifle's charges hit it a little harder than their damage (about 8 shots or 3 sword hits)
     w.hp -= byRifle ? amount * sim.cfg.warden.rifleFactor : amount
     killed = w.hp <= 0
@@ -151,6 +162,10 @@ export function damageTarget(s: GameState, sim: Sim, kind: TargetKind, i: number
     if (killed) c.alive = false
   }
   emit(sim, { type: 'targetHit', target: kind, index: kind === 'laser' ? i >> 1 : i, x, y, z, killed, byRifle })
+  if (killed && (kind === 'worm' || kind === 'drone' || kind === 'warden')) {
+    const heavy = kind === 'warden' && (s.wardens[i]?.heavy ?? false)
+    dropShards(s, sim, x, z, shardsFor(sim, kind, heavy), false)
+  }
   makeNoiseAt(sim, x, y, z, killed ? sim.cfg.noise.kill : sim.cfg.noise.hit)
   if (killed && kind !== 'worm') {
     // (worms are the alarm's own: killing one is noise enough)
@@ -159,24 +174,52 @@ export function damageTarget(s: GameState, sim: Sim, kind: TargetKind, i: number
   }
 }
 
-/** LMB: swing or fire, rate-limited by the weapon's cooldown (main calls it every frame the button is held). */
-export function attack(s: GameState, sim: Sim, aimYaw: number, aimPitch: number): void {
+/**
+ * LMB: swing or fire at once when the weapon is ready (the same frame as the press); rate-limited by the weapon's
+ * cooldown. A press that comes too early is kept for inputBufferSec and fires the moment it can (see fireBuffered).
+ * main calls it every frame the button is held (press = false on the frames that are only a hold).
+ */
+export function attack(s: GameState, sim: Sim, aimYaw: number, aimPitch: number, press = true): void {
   const p = s.player
-  if (playerFrozen(s) || p.attackCooldown > 0 || p.switchCooldown > 0) return
+  if (playerFrozen(s)) return
+  if (p.attackCooldown > 0 || p.switchCooldown > 0) {
+    if (!press) return // a held button only repeats the attack: it is not kept once released
+    p.attackBuffer = sim.cfg.player.inputBufferSec
+    p.bufYaw = aimYaw
+    p.bufPitch = aimPitch
+    return
+  }
+  p.attackBuffer = 0
   if (p.mode === 'sword') swing(s, sim, aimYaw)
   else fire(s, sim, aimYaw, aimPitch)
+}
+
+/** Once per tick, after the timers ran: a buffered attack goes off as soon as the weapon is ready. */
+export function fireBuffered(s: GameState, sim: Sim, dt: number): void {
+  const p = s.player
+  if (!(p.attackBuffer > 0)) return
+  p.attackBuffer -= dt
+  if (p.attackBuffer <= 0 || playerFrozen(s) || p.attackCooldown > 0 || p.switchCooldown > 0) return
+  attack(s, sim, p.bufYaw, p.bufPitch, false)
 }
 
 function swing(s: GameState, sim: Sim, aimYaw: number): void {
   const p = s.player
   const cfg = sim.cfg.combat.sword
-  p.attackCooldown = cfg.cooldownSec
-  p.slashTime = cfg.animSec
+  // the combo: a swing soon after the last one goes on to the next step; the third is the wide finisher
+  p.combo = p.comboTime <= cfg.comboWindowSec ? (p.combo + 1) % 3 : 0
+  p.comboTime = 0
+  const fin = p.combo === 2
+  p.attackCooldown = fin ? cfg.finisher.cooldownSec : cfg.cooldownSec
+  p.slashLen = fin ? cfg.finisher.animSec : cfg.animSec
+  p.slashTime = p.slashLen
   p.facing = aimYaw
-  emit(sim, { type: 'swordSwing', yaw: aimYaw })
+  emit(sim, { type: 'swordSwing', yaw: aimYaw, combo: p.combo })
   makeNoise(s, sim, sim.cfg.noise.sword)
-  const half = (cfg.arcDeg / 2) * DEG
+  const half = ((fin ? cfg.finisher.arcDeg : cfg.arcDeg) / 2) * DEG
+  const range = fin ? cfg.finisher.range : cfg.range
   const chestY = p.pos.y + sim.cfg.player.chestHeight
+  const killsBefore = s.run.kills
   for (const kind of KINDS) {
     const n = targetCount(s, kind)
     for (let i = 0; i < n; i++) {
@@ -184,12 +227,16 @@ function swing(s: GameState, sim: Sim, aimYaw: number): void {
       const dx = tgt.x - p.pos.x
       const dz = tgt.z - p.pos.z
       const d = Math.sqrt(dx * dx + dz * dz)
-      if (d > cfg.range + tgt.r) continue
+      if (d > range + tgt.r) continue
       if (tgt.y > p.pos.y + cfg.reachUp || tgt.y < p.pos.y - cfg.reachDown) continue
       if (d > 0.6 && Math.abs(angleDiff(Math.atan2(dx, dz), aimYaw)) > half) continue
       if (!sim.world.lineOfSight(p.pos.x, chestY, p.pos.z, tgt.x, tgt.y, tgt.z)) continue
       damageTarget(s, sim, kind, i, cfg.damage, false)
     }
+  }
+  // a finisher that cut down several: a big shard in front of the player
+  if (fin && s.run.kills - killsBefore >= sim.cfg.shards.finisherKills) {
+    dropShards(s, sim, p.pos.x + Math.sin(aimYaw) * 1.2, p.pos.z + Math.cos(aimYaw) * 1.2, 1, true)
   }
 }
 
@@ -303,6 +350,7 @@ export function fireBolt(s: GameState, sim: Sim, d: DroneState, index: number): 
   const l = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1
   b.active = true
   b.life = cfg.boltLifeSec
+  b.damage = cfg.boltDamage
   b.pos.x = d.pos.x + (tx / l) * 0.5
   b.pos.y = d.pos.y + (ty / l) * 0.5
   b.pos.z = d.pos.z + (tz / l) * 0.5
@@ -338,7 +386,7 @@ export function updateBolts(s: GameState, sim: Sim, dt: number): void {
       if (hx * hx + hy * hy + hz * hz < (pc.radius + 0.15) * (pc.radius + 0.15)) {
         b.active = false
         emit(sim, { type: 'boltHit', x: nx, y: ny, z: nz, player: true })
-        hurtPlayer(s, sim, sim.cfg.drone.boltDamage, b.pos.x - b.vel.x, b.pos.z - b.vel.z)
+        hurtPlayer(s, sim, b.damage, b.pos.x - b.vel.x, b.pos.z - b.vel.z)
         continue
       }
     }

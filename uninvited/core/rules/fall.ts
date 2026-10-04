@@ -1,7 +1,7 @@
 // The void (DESIGN 6): the open city's platforms have edges. Step off one and you drop into the dark; the screen fades
 // out, you are put back on the last safe ground with a damage penalty, and it fades in again (config world.fall).
 // Safe ground: standing on a floor at least fall.safeMargin from the void, so you are never put back on the edge.
-import { CellKind, cellAt, type Grid } from '../grid'
+import { CellKind, cellAt, floorHeightAt, type Grid } from '../grid'
 import type { GameState, Sim } from '../state'
 import { emit } from '../util'
 import { hurtPlayer } from './combat'
@@ -47,7 +47,8 @@ export function updateFall(s: GameState, sim: Sim, dt: number): void {
   }
   if (p.grounded || p.pos.y > p.safe.y - cfg.depth) return
   const i = cellAt(g, p.pos.x, p.pos.z)
-  if (i >= 0 && g.kind[i] !== CellKind.Void) return // over a floor: it will land
+  // over a floor it will land - unless it already dropped below that floor (drifted in from the edge of a higher platform)
+  if (i >= 0 && g.kind[i] !== CellKind.Void && p.pos.y > floorHeightAt(g, p.pos.x, p.pos.z) - cfg.depth) return
   p.fallTime = cfg.fadeSec
   emit(sim, { type: 'fellIntoVoid' })
 }

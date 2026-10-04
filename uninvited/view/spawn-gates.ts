@@ -92,7 +92,7 @@ export function createSpawnGates(scene: Scene, _s: GameState, sim: Sim, mats: Ma
           const d = Math.hypot(shape.mouth.x - p.x, shape.mouth.z - p.z)
           const near = Math.max(0.15, 1 - d / HEAR)
           sound.play('glitch', 0.55 * near)
-          sound.play('drone_alert', 0.45 * near)
+          sound.play('gate_open', 0.6 * near)
         }
         v.wasOpen = isOpen
         const target = isOpen ? 1 : 0

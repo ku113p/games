@@ -4,6 +4,8 @@
 // toasts and hints; start / pause / death / win screens.
 // Every text comes from texts/en.json. Per-frame updates write only when a value changed.
 import texts from '../texts/en.json'
+import type { SettingsHandle } from './settings'
+import { buildSettingsPanel, SETTINGS_CSS } from './settings-ui'
 
 type TextKey = Exclude<keyof typeof texts, 'controls'>
 
@@ -71,6 +73,12 @@ export interface Hud {
   showDead(hasSave: boolean, onLoad: () => void, onRestart: () => void): void
   showWon(stats: string, ending: string, onAgain: () => void): void
   hideScreens(): void
+  /** HUD size in percent (100, 125, 150). */
+  setScale(pct: number): void
+  /** Reduced flashing: no full-screen hit flash (the direction arc stays). */
+  reduceFlash(on: boolean): void
+  /** The first Esc in a hack: tells the player to press it again to abort (cleared by hackEsc(false) or after a while). */
+  hackEsc(on: boolean): void
   /** The element the hack overlay is mounted in. */
   hackRoot: HTMLElement
 }
@@ -112,6 +120,13 @@ const TRACE_CSS = `
 .hud-traced.on { opacity: 1; animation: traceRisk 0.3s steps(2, start) 4; }
 `
 
+/** The "Esc again to abort" line over the hack overlay. */
+const HACK_ESC_CSS = `
+.hack-esc { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); z-index: 60; padding: 8px 20px; letter-spacing: 3px;
+  color: #ffd6a0; background: rgba(20, 8, 0, 0.82); border: 1px solid #ffb03a; box-shadow: 0 0 14px rgba(255, 176, 58, 0.5);
+  pointer-events: none; }
+`
+
 /** The aim crosshair and the hit cues. */
 const AIM_HIT_CSS = `
 .hud-aim { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
@@ -132,9 +147,9 @@ const AIM_HIT_CSS = `
 .hud-bar.hit .hud-bar-fill { background: #fff; box-shadow: 0 0 16px #ff3646; }
 `
 
-export function createHud(root: HTMLElement, toastSec: number, hintSec: number): Hud {
+export function createHud(root: HTMLElement, toastSec: number, hintSec: number, settings?: SettingsHandle): Hud {
   const css = document.createElement('style')
-  css.textContent = TRACE_CSS + AIM_HIT_CSS
+  css.textContent = TRACE_CSS + AIM_HIT_CSS + SETTINGS_CSS + HACK_ESC_CSS
   document.head.appendChild(css)
   const hud = el('div', 'hud', root)
 
@@ -230,6 +245,8 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
   // screens
   const screens = el('div', 'screens', root)
   const hackRoot = el('div', 'hack-root', root)
+  let hackEscEl: HTMLElement | null = null
+  let hackEscTimer: ReturnType<typeof setTimeout> | null = null
 
   let last = {
     hp: -1,
@@ -253,6 +270,23 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
     screens.replaceChildren()
     screens.className = 'screens on'
     return el('div', `screen ${cls}`, screens)
+  }
+
+  /** The settings button of a screen; it swaps the screen for the settings panel, and Back brings the screen back. */
+  function settingsButton(parent: HTMLElement, cls: string, rebuild: () => void): void {
+    if (!settings) return
+    const b = el('button', 'btn', parent, t('settings.open'))
+    b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const s = screen(`${cls} settings-view`)
+      el('h2', '', s, t('settings.title'))
+      buildSettingsPanel(s, settings)
+      const back = el('button', 'btn', s, t('settings.back'))
+      back.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        rebuild()
+      })
+    })
   }
 
   function controlsList(parent: HTMLElement): void {
@@ -422,24 +456,38 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
       hud.style.display = on ? '' : 'none'
     },
     showStart(onStart: () => void): void {
-      const s = screen('start')
-      el('h1', '', s, t('title'))
-      el('p', 'tagline', s, t('start.tagline'))
-      el('div', 'go', s, t('start.click'))
-      controlsList(s)
-      el('p', 'note', s, t('routes'))
-      el('p', 'note', s, t('start.note'))
-      s.addEventListener('click', onStart, { once: true })
+      let started = false
+      const build = (): void => {
+        const s = screen('start')
+        el('h1', '', s, t('title'))
+        el('p', 'tagline', s, t('start.tagline'))
+        el('div', 'go', s, t('start.click'))
+        settingsButton(s, 'start', build)
+        controlsList(s)
+        el('p', 'note', s, t('routes'))
+        el('p', 'note', s, t('start.note'))
+        s.addEventListener('click', (e) => {
+          // the settings button and panel are not "click to start"
+          if (started || (e.target instanceof Element && e.target.closest('.settings, .btn'))) return
+          started = true
+          onStart()
+        })
+      }
+      build()
     },
     showPause(on: boolean): void {
       if (!on) {
         if (screens.querySelector('.pause')) this.hideScreens()
         return
       }
-      const s = screen('pause')
-      el('h2', '', s, t('pause.title'))
-      el('div', 'go', s, t('pause.click'))
-      controlsList(s)
+      const build = (): void => {
+        const s = screen('pause')
+        el('h2', '', s, t('pause.title'))
+        el('div', 'go', s, t('pause.click'))
+        settingsButton(s, 'pause', build)
+        controlsList(s)
+      }
+      build()
     },
     showResume(on: boolean): void {
       if (!on) {
@@ -471,6 +519,26 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
     hideScreens(): void {
       screens.replaceChildren()
       screens.className = 'screens'
+    },
+    setScale(pct: number): void {
+      hud.style.setProperty('zoom', String(pct / 100))
+    },
+    reduceFlash(on: boolean): void {
+      hud.classList.toggle('reduce-fx', on)
+    },
+    hackEsc(on: boolean): void {
+      if (hackEscTimer) clearTimeout(hackEscTimer)
+      hackEscTimer = null
+      if (!on) {
+        hackEscEl?.remove()
+        hackEscEl = null
+        return
+      }
+      if (!hackEscEl) hackEscEl = el('div', 'hack-esc', hackRoot, t('hack.escAgain'))
+      hackEscTimer = setTimeout(() => {
+        hackEscEl?.remove()
+        hackEscEl = null
+      }, 2000)
     },
   }
 }

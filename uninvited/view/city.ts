@@ -1,17 +1,22 @@
-// The open data city (DESIGN 6 and 14, concepts NF6 + NF4): the level grid turned into platforms over a dark void.
-// Blocks ('#', 'H', low cover '~') are matte monoliths whose top edges carry continuous light lines (and a few tall
-// outer corners a vertical one) - clean NF6 slabs, or dressed in NF4's hex modules; platform edges over the void and
-// floor steps are outlined; a one-cell walkway over the void is a light bridge (a thin deck). Floors are matte, with a
-// faint plate grid, a lit foot line along every slab and circuit-like light paths that data packets run along
-// (view/city-life.ts). Roofs (the level's enclosed passages) are slabs overhead with a light strip. The level's hex
-// modules are instanced prisms with thin cyan seams; the server blocks keep their beveled faces and status lights.
-// The sky, the void's data rivers, the far districts and the landmark tower are in view/skyline.ts.
+// The open data city (DESIGN 6 and 14, concepts NF6 + NF4, the matte NN1 look): the level grid turned into platforms
+// over a dark void. Slabs ('#') are matte monoliths in three tones with form: a chamfer round every free top edge with
+// a lit crease, a sloped plinth where a floor meets them, bays and tiers of inset panels, vertical light seams, a few
+// lit data windows high up, a stepped crown on some tall ones. Hex survives only as real geometry: 'H' cells are a
+// terraced base with a honeycomb of prism columns of varied heights, and some low cover is a plate with a small cluster
+// of columns (one instanced draw); the other low cover ('~') is a clean bevelled block with an inset light seam.
+// Platform edges over the void get a curb, a lit lip and a low glowing rail with posts; a one-cell walkway is a light
+// bridge (a thin deck); a narrow void slit between walkable cells is drawn as a recessed lit duct grating. Floors are
+// matte with a faint plate grid and a lit foot line along every slab; the light guides on them run along the streets
+// from the start through the checkpoints to the artifact, with spurs to the terminals (view/city-kit.ts), and data
+// packets run along them (view/city-life.ts). Roofs (the level's enclosed passages) are slabs overhead with a light strip.
+// The sky, the void's data rivers, the far city and the landmark tower are in view/skyline.ts.
 // Everything static is merged per chunk of the plan, so whole chunks are culled off screen. Cold path: built once.
 // Red fans where the security looks (clipped by view/sight.ts); at alarm 3 red waves run out along the lines.
 import {
   BufferGeometry,
   Color,
   DataTexture,
+  DoubleSide,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
@@ -38,6 +43,7 @@ import { GeoBuilder, glowQuad, panel, tube, type Frame3, type P3 } from './geo'
 import { addRim, palette, type Materials } from './look'
 import type { Mirror } from './reflect'
 import { SIGHT_GLSL, type Fan, type Sight } from './sight'
+import { buildGuides, hash, hexLattice, offsetLine, type HexCol } from './city-kit'
 
 const L = cfgAll.view.corridor
 const Y = cfgAll.view.city
@@ -79,19 +85,6 @@ vec3 keyLight(vec3 w, vec3 n) {
   l /= max(d, 1e-4);
   float att = (1.0 - smoothstep(uKeyRange * 0.35, uKeyRange, d)) / (1.0 + d * d * 0.12);
   return uKeyColor * max(dot(n, l), 0.0) * att;
-}`
-
-/** Hex tiling (pointy-top cells, 1 unit across the flats): xy = position in the cell, zw = the cell's id. */
-export const HEX_GLSL = /* glsl */ `
-vec4 hexCell(vec2 p) {
-  const vec2 s = vec2(1.0, 1.7320508);
-  vec4 hc = floor(vec4(p, p - vec2(0.5, 1.0)) / s.xyxy) + 0.5;
-  vec4 h = vec4(p - hc.xy * s, p - (hc.zw + 0.5) * s);
-  return dot(h.xy, h.xy) < dot(h.zw, h.zw) ? vec4(h.xy, hc.xy) : vec4(h.zw, hc.zw + 0.5);
-}
-float hexEdge(vec2 q) {
-  q = abs(q);
-  return 0.5 - max(dot(q, vec2(0.5, 0.8660254)), q.x);
 }`
 
 /**
@@ -155,69 +148,124 @@ void main() {
   #include <fog_vertex>
 }`
 
-/** Slabs, hex blocks, low cover, platform sides, roofs: matte, the hex dressing on 'H' and '~', panels on the rest. */
+/**
+ * Slabs, blocks, low cover, platform sides, roofs: matte, in three tones, with form. vE = (the block's top, the
+ * tone 0..2 + a seed (3 = low cover), the foot, a code: 0.8-1 = a wall's occlusion, 2-3 = a chamfer, 4-5 = a skirt).
+ * Faces carry bays (grooves, a lit seam now and then), tiers of inset panels and a few lit data windows high up.
+ */
 const SOLID_FRAG = /* glsl */ `
-uniform vec3 uBase;
+uniform vec3 uTone[3];
 uniform vec3 uSeam;
+uniform vec3 uWarm;
 uniform float uSheen;
 uniform float uAlbedo;
-uniform float uHexSeam;
-uniform float uFaceLines;
 uniform float uVoidFade;
+uniform vec2 uBay;
+uniform float uTier;
+uniform vec4 uWin;
+uniform float uSeamGlow;
+uniform vec4 uCover;
+uniform vec2 uSkirt;
 varying vec4 vE;
 varying vec3 vNormalW;
 varying vec3 vWorld;
 ${ALARM_GLSL}
 ${LIGHT_GLSL}
-${HEX_GLSL}
 #include <fog_pars_fragment>
+float lineW(float d, float px, float w) {
+  return 1.0 - smoothstep(w, w + px * 1.5, d);
+}
 void main() {
-  // vE: the block's top, 1 = hex dressing, the foot (the floor in front of this face), baked occlusion
   vec3 n = normalize(vNormalW);
   float top = vE.x;
   float foot = vE.z;
-  bool side = abs(n.y) < 0.5;
-  vec2 uv = side ? vec2(abs(n.x) > 0.5 ? vWorld.z : vWorld.x, vWorld.y) : vWorld.xz;
-  vec2 fw = fwidth(uv) + 1e-4;
-  float px = max(fw.x, fw.y);
-  float tone = 1.0;
-  float seam = 0.0;
-  float glint = 0.0;
-  if (vE.y > 0.0) {
-    // NF4: matte black hex modules with thin cyan seams; each a slightly different tone, a few lit from inside
-    vec4 h = hexCell(uv / vE.y);
-    float e = hexEdge(h.xy) * vE.y;
-    float id = hash12(h.zw + floor(top));
-    tone = 0.75 + 0.5 * id;
-    seam = 1.0 - smoothstep(0.012, 0.012 + px * 1.5, e);
-    glint = step(0.97, id) * (0.6 + 0.4 * sin(uTime * 1.3 + id * 40.0)) * 0.12;
+  float code = vE.w;
+  float vid = floor(vE.y + 0.001);
+  float seed = (vE.y - vid) / 0.9;
+  bool cover = vid > 2.5;
+  vec3 albedo = vid < 0.5 ? uTone[0] : (vid < 1.5 ? uTone[1] : uTone[2]);
+  albedo *= 0.85 + 0.3 * seed;
+  bool chamfer = code > 1.5 && code < 3.5;
+  bool skirt = code > 3.5;
+  bool side = abs(n.y) < 0.5 && !chamfer;
+  float shade = 1.0;
+  float ao = side && !skirt ? code : 1.0;
+  vec3 emis = vec3(0.0);
+  float y = vWorld.y - foot;
+  if (chamfer) {
+    shade = 1.55;
+    emis += uSeam * 0.012;
+  } else if (skirt) {
+    // the foot of a slab: a sloped plinth with a faint light along its top
+    shade = 0.8;
+    float p = code - 4.0;
+    emis += uSeam * 0.5 * smoothstep(0.82, 0.95, p) * (1.0 - smoothstep(0.95, 1.0, p));
+    ao = 0.7 + 0.3 * p;
+  } else if (side) {
+    float alongX = abs(n.x) > 0.5 ? 1.0 : 0.0;
+    float u = alongX > 0.5 ? vWorld.z : vWorld.x;
+    vec2 fw = vec2(fwidth(u), fwidth(vWorld.y)) + 1e-4;
+    float px = max(fw.x, fw.y);
+    float height = top - foot;
+    float bw = mix(uBay.x, uBay.y, seed);
+    float bu = u / bw + seed * 13.0;
+    float bay = floor(bu);
+    float bf = fract(bu);
+    float gd = min(bf, 1.0 - bf) * bw;
+    float bh = hash12(vec2(bay, floor(seed * 50.0) + alongX * 7.0));
+    shade *= 0.88 + 0.22 * bh;
+    // tiers from the top down: the panels are inset, with a lit lip under each joint
+    float ty = (top - vWorld.y) / uTier;
+    float tier = floor(ty);
+    float band = fract(ty) * uTier;
+    float td = min(band, uTier - band);
+    float groove = max(lineW(gd, px, 0.02), lineW(td, px, 0.014));
+    float inner = smoothstep(0.1, 0.1 + px * 1.5, gd) * smoothstep(0.1, 0.1 + px * 1.5, td);
+    shade *= mix(1.0, 0.8, inner) * (1.0 - 0.5 * groove);
+    shade += 0.3 * (1.0 - smoothstep(0.0, 0.07 + px, band)) * smoothstep(0.0, 0.5, top - vWorld.y);
+    // vertical light seams on some of the bay joints
+    float joint = floor(bu + 0.5);
+    float jd = abs(bu - joint) * bw;
+    float on = step(1.0 - uWin.z, hash12(vec2(joint, seed * 77.0 + alongX * 3.0)));
+    float span = smoothstep(0.7, 1.5, y) * (1.0 - smoothstep(0.4, 1.1, top - vWorld.y));
+    emis += uSeam * uSeamGlow * lineW(jd, px, 0.016) * on * span * step(3.0, height);
+    // lit data windows: thin strips high up, a few rows in a bay
+    if (height > 3.5 && y > 2.0) {
+      float wh = hash12(vec2(bay + 3.7, seed * 31.3 + alongX * 5.0));
+      float rows = 1.0 + floor(hash12(vec2(bay, seed * 9.1)) * 3.0);
+      float r = (top - 1.0 - vWorld.y) / 0.55;
+      float ri = floor(r);
+      float rowOn = step(ri, rows - 1.0) * step(0.0, ri) * step(0.2, hash12(vec2(bay + ri * 5.0, seed * 17.0)));
+      float across = 1.0 - smoothstep(bw * 0.26, bw * 0.26 + px * 1.5, abs(bf - 0.5) * bw);
+      float strip = lineW(abs(fract(r) - 0.5) * 0.55, px, 0.016);
+      vec3 wc = mix(uSeam, uWarm, step(1.0 - uWin.w, hash12(vec2(bay, seed * 5.3))));
+      emis += wc * uWin.x * step(1.0 - uWin.y, wh) * rowOn * across * strip;
+    }
   } else {
-    // NF6: smooth plates with faint joints, and now and then a thin light line running down a face
-    vec2 q = uv / vec2(4.0, 3.0);
+    // tops: big plates, and on the low cover a lit seam inset from the edge and a faint glow inside it
+    vec2 q = vWorld.xz / 4.0;
     vec2 f = fract(q);
-    float joint = min(min(f.x, 1.0 - f.x) * 4.0, min(f.y, 1.0 - f.y) * 3.0);
-    tone = 0.85 + 0.3 * hash12(floor(q) + floor(top));
-    seam = (1.0 - smoothstep(0.008, 0.008 + px * 1.5, joint)) * 0.35;
-    if (side) {
-      float lane = floor(uv.x / 6.0);
-      float h = hash12(vec2(lane, floor(top * 3.0)));
-      float at = (fract(uv.x / 6.0) - (0.2 + 0.6 * h)) * 6.0;
-      float from = top - (2.0 + 9.0 * hash12(vec2(lane, 7.0)));
-      float on = step(0.72, h) * step(from, uv.y) * step(uv.y, top - 0.3);
-      glint = on * (1.0 - smoothstep(0.015, 0.015 + px * 1.5, abs(at))) * uFaceLines;
+    vec2 fpx = fwidth(vWorld.xz) + 1e-4;
+    float px = max(fpx.x, fpx.y);
+    float joint = min(min(f.x, 1.0 - f.x) * 4.0, min(f.y, 1.0 - f.y) * 4.0);
+    shade = 1.12 * (0.9 + 0.2 * hash12(floor(q) + floor(top)));
+    shade *= 1.0 - 0.35 * lineW(joint, px, 0.01) * (cover ? 0.0 : 1.0);
+    if (cover) {
+      vec2 cp = vWorld.xz - floor(vWorld.xz / uCover.x) * uCover.x;
+      float ed = min(min(cp.x, uCover.x - cp.x), min(cp.y, uCover.x - cp.y));
+      emis += uSeam * uCover.z * lineW(abs(ed - uCover.y), px, 0.012);
+      emis += uSeam * uCover.w * smoothstep(uCover.y, uCover.y + 0.45, ed);
     }
   }
-  // occlusion at the foot, light falling off down the face, and the void swallowing what is below the floors
-  float y = vWorld.y - foot;
-  float ao = vE.w * (side ? (0.45 + 0.55 * smoothstep(0.0, 0.8, y)) : 1.0);
-  float grad = side ? mix(0.75, 1.15, smoothstep(foot, top, vWorld.y)) : 1.1;
+  float grad = side ? mix(0.75, 1.15, smoothstep(foot, top, vWorld.y)) : 1.0;
   float deep = 1.0 - (1.0 - uVoidFade) * smoothstep(0.0, 18.0, uPlane.x - 1.0 - vWorld.y);
-  vec3 c = uBase * tone * grad * ao * deep * (1.0 - 0.5 * seam);
-  c += uAlbedo * tone * keyLight(vWorld, n) * ao;
+  vec3 c = albedo * shade * grad * ao * deep;
+  c += uAlbedo * albedo * 6.0 * keyLight(vWorld, n) * ao;
   vec3 viewDir = normalize(cameraPosition - vWorld);
   float fres = pow(1.0 - max(dot(viewDir, n), 0.0), 4.0);
   c += uSeam * uSheen * fres * ao * deep;
-  c += uSeam * (seam * uHexSeam * step(0.01, vE.y) + glint * 0.6) * deep;
+  c += emis * deep;
+  c += uSeam * 0.035 * smoothstep(6.0, 22.0, uPlane.x - vWorld.y) * deep;
   c += uAlarmColor * uAlarm * 0.04 * alarmWave(vWorld) * exp(-max(y, 0.0) * 0.8);
   gl_FragColor = vec4(c, 1.0);
   #include <fog_fragment>
@@ -353,19 +401,40 @@ void main() {
   #include <fog_fragment>
 }`
 
-/** The level's hex modules: instanced prisms; aH = (around the rim 0..6 / the cap's radius 0..1, up 0..1, 1 = cap). */
+/**
+ * The level's hex modules: instanced hexagonal prisms with a bevelled top. aH = (around the rim 0..6 / the cap's
+ * radius 0..1, 0 base | 1 top rim | 2 inner top, 0 side | 1 chamfer | 2 cap); the bevel is in metres (uBevel).
+ */
 const HEX_VERT = /* glsl */ `
 attribute vec3 aH;
+uniform float uBevel;
 varying vec3 vH;
 varying vec2 vScale;
 varying vec3 vNormalW;
 varying vec3 vWorld;
+varying vec3 vTint;
+varying float vId;
 #include <fog_pars_vertex>
 void main() {
+  float r = length(instanceMatrix[0].xyz);
+  float h = length(instanceMatrix[1].xyz);
+  float bev = min(uBevel, 0.4 * h);
+  vec3 p = position;
+  if (aH.y > 1.5) {
+    p.xz *= 1.0 - bev / (0.8660254 * r);
+    p.y = 1.0;
+  } else if (aH.y > 0.5) {
+    p.y = 1.0 - bev / h;
+  }
   vH = aH;
-  vScale = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));
-  vNormalW = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
-  vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
+  vScale = vec2(r, h);
+  vNormalW = normalize(mat3(modelMatrix) * normal);
+  vTint = vec3(1.0);
+  #ifdef USE_INSTANCING_COLOR
+    vTint = instanceColor;
+  #endif
+  vId = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
+  vec4 w = modelMatrix * instanceMatrix * vec4(p, 1.0);
   vWorld = w.xyz;
   vec4 mvPosition = viewMatrix * w;
   gl_Position = projectionMatrix * mvPosition;
@@ -373,14 +442,18 @@ void main() {
 }`
 
 const HEX_FRAG = /* glsl */ `
-uniform vec3 uBase;
 uniform vec3 uSeam;
 uniform float uAlbedo;
 uniform float uSheen;
+uniform float uBevel;
+uniform float uAccent;
+uniform float uSeamGlow;
 varying vec3 vH;
 varying vec2 vScale;
 varying vec3 vNormalW;
 varying vec3 vWorld;
+varying vec3 vTint;
+varying float vId;
 ${ALARM_GLSL}
 ${LIGHT_GLSL}
 #include <fog_pars_fragment>
@@ -388,32 +461,32 @@ void main() {
   vec3 n = normalize(vNormalW);
   float r = vScale.x;
   float h = vScale.y;
-  float line;
-  float tone;
-  if (vH.z > 0.5) {
-    // the cap: a bright rim just inside the edge, a dim inner hexagon
-    float d = (1.0 - vH.x) * r * 0.866;
+  float accent = step(1.0 - uAccent, vId);
+  float line = 0.0;
+  float shade = 1.0;
+  if (vH.z > 1.5) {
+    // the cap: a lit rim just inside the bevel, a dim inner hexagon
+    float d = (1.0 - vH.x) * (r * 0.8660254 - min(uBevel, 0.4 * h));
     float px = fwidth(d) + 1e-4;
-    line = 1.0 - smoothstep(0.02, 0.02 + px * 1.5, abs(d - 0.04));
-    line += 0.3 * (1.0 - smoothstep(0.012, 0.012 + px * 1.5, abs(d - r * 0.3)));
-    tone = 1.1;
+    line = 1.0 - smoothstep(0.014, 0.014 + px * 1.5, abs(d - 0.035));
+    line += 0.35 * (1.0 - smoothstep(0.01, 0.01 + px * 1.5, abs(d - r * 0.3)));
+    shade = 1.15;
+  } else if (vH.z > 0.5) {
+    shade = 1.7;
   } else {
-    // the sides: seams up every corner, a rim at the top, faint bands
     float a = fract(vH.x) * r;
     float y = vH.y * h;
     vec2 px = vec2(fwidth(a), fwidth(y)) + 1e-4;
-    float corner = 1.0 - smoothstep(0.012, 0.012 + px.x * 1.5, min(a, r - a));
-    float rim = 1.0 - smoothstep(0.016, 0.016 + px.y * 1.5, abs(h - 0.035 - y));
-    float band = 1.0 - smoothstep(0.008, 0.008 + px.y * 1.5, (0.5 - abs(fract(y / 1.2) - 0.5)) * 1.2);
-    line = corner * 0.55 + rim + band * 0.15;
-    tone = 0.75 + 0.25 * smoothstep(0.0, h, y);
+    float corner = 1.0 - smoothstep(0.01, 0.01 + px.x * 1.5, min(a, r - a));
+    line = corner * 0.25 + accent * (1.0 - smoothstep(0.012, 0.012 + px.y * 1.5, abs(h - uBevel - 0.12 - y)));
+    shade = 0.7 + 0.35 * smoothstep(0.0, h, y);
   }
-  vec3 c = uBase * tone;
-  c += uAlbedo * keyLight(vWorld, n);
+  vec3 c = vTint * shade;
+  c += uAlbedo * 6.0 * vTint * keyLight(vWorld, n);
   vec3 viewDir = normalize(cameraPosition - vWorld);
   c += uSeam * uSheen * pow(1.0 - max(dot(viewDir, n), 0.0), 4.0);
   float k = uAlarm * alarmWave(vWorld);
-  c += mix(uSeam * (1.0 - uAlarm * 0.35), uAlarmColor, k) * line * 0.55;
+  c += mix(uSeam * (1.0 - uAlarm * 0.35), uAlarmColor, k) * line * uSeamGlow * (0.3 + 0.9 * accent);
   gl_FragColor = vec4(c, 1.0);
   #include <fog_fragment>
 }`
@@ -431,84 +504,6 @@ function boxDist(x: number, z: number, x0: number, z0: number, x1: number, z1: n
   const dx = Math.max(x0 - x, 0, x - x1)
   const dz = Math.max(z0 - z, 0, z - z1)
   return Math.hypot(dx, dz)
-}
-
-function hash(a: number, b: number): number {
-  const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
-  return v - Math.floor(v)
-}
-
-const DC = [1, 1, 0, -1, -1, -1, 0, 1]
-const DR = [0, 1, 1, 1, 0, -1, -1, -1]
-
-/**
- * The light paths on the floors: random walks over a 1 m lattice of plain floor (straight runs, now and then a
- * 45-degree turn), clear of blocks, the void and each other. Deterministic. Each is a polyline in world metres.
- */
-export function buildPaths(g: Grid): P3[][] {
-  const STEP = 1
-  const nc = Math.floor((g.cols * g.cell) / STEP)
-  const nr = Math.floor((g.rows * g.cell) / STEP)
-  const clearOf = Y.pathClear
-  const plainAt = (x: number, z: number): boolean => {
-    const c = Math.floor(x / g.cell)
-    const r = Math.floor(z / g.cell)
-    if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) return false
-    const i = r * g.cols + c
-    const k = g.kind[i]
-    return (k === CellKind.Floor || k === CellKind.Start || k === CellKind.Checkpoint || k === CellKind.Terminal) && g.rampAxis[i] === RampAxis.None
-  }
-  const ok = (a: number, b: number): boolean => {
-    if (a < 0 || b < 0 || a >= nc || b >= nr) return false
-    const x = (a + 0.5) * STEP
-    const z = (b + 0.5) * STEP
-    for (let k = 0; k < 9; k++) if (!plainAt(x + ((k % 3) - 1) * clearOf, z + (Math.floor(k / 3) - 1) * clearOf)) return false
-    for (const bl of g.blocks) if (x > bl.minX - clearOf && x < bl.maxX + clearOf && z > bl.minZ - clearOf && z < bl.maxZ + clearOf) return false
-    return true
-  }
-  const height = (a: number, b: number): number => g.h0[Math.floor(((b + 0.5) * STEP) / g.cell) * g.cols + Math.floor(((a + 0.5) * STEP) / g.cell)] as number
-  const used = new Uint8Array(nc * nr)
-  const mark = (a: number, b: number): void => {
-    for (let k = 0; k < 9; k++) {
-      const aa = a + (k % 3) - 1
-      const bb = b + Math.floor(k / 3) - 1
-      if (aa >= 0 && bb >= 0 && aa < nc && bb < nr) used[bb * nc + aa] = 1
-    }
-  }
-  const out: P3[][] = []
-  let seed = 1
-  const rnd = (): number => hash(seed++ * 0.731 + 0.17, seed * 1.37)
-  const tries = Math.round((nc * nr) / Y.pathEvery)
-  for (let t = 0; t < tries; t++) {
-    let a = Math.floor(rnd() * nc)
-    let b = Math.floor(rnd() * nr)
-    if (!ok(a, b) || used[b * nc + a]) continue
-    let dir = Math.floor(rnd() * 4) * 2
-    const nodes: [number, number][] = [[a, b]]
-    const [lenMin, lenMax] = Y.pathLen as [number, number]
-    const len = lenMin + Math.floor(rnd() * (lenMax - lenMin))
-    const h = height(a, b)
-    for (let s = 0; s < len; s++) {
-      if (s > 1 && rnd() < 0.22) dir = (dir + (rnd() < 0.5 ? 1 : 7)) % 8
-      const na = a + (DC[dir] as number)
-      const nb = b + (DR[dir] as number)
-      if (!ok(na, nb) || used[nb * nc + na] || height(na, nb) !== h) break
-      a = na
-      b = nb
-      nodes.push([a, b])
-    }
-    if (nodes.length < 4) continue
-    for (const [aa, bb] of nodes) mark(aa, bb)
-    const pts = nodes.map(([aa, bb]) => ({ x: (aa + 0.5) * STEP, y: h + 0.01, z: (bb + 0.5) * STEP }))
-    // keep the corners only
-    out.push(pts.filter((p, k) => {
-      if (k === 0 || k === pts.length - 1) return true
-      const q = pts[k - 1] as P3
-      const r = pts[k + 1] as P3
-      return Math.abs((p.x - q.x) * (r.z - p.z) - (p.z - q.z) * (r.x - p.x)) > 1e-6
-    }))
-  }
-  return out
 }
 
 /** r = distance to the nearest block cell, g = to the nearest server block / hex module. */
@@ -555,34 +550,51 @@ function distanceTexture(g: Grid): DataTexture {
   return tex
 }
 
-/** A hexagonal prism of radius 1 and height 1 standing on y = 0 (corners along x), with the aH attribute. */
+/** A hexagonal prism of radius 1 and height 1 standing on y = 0 (corners along x), with the aH attribute (see HEX_VERT). */
 function hexPrism(): BufferGeometry {
   const pos: number[] = []
   const nor: number[] = []
   const att: number[] = []
   const corner = (k: number): [number, number] => [Math.cos((k * Math.PI) / 3), Math.sin((k * Math.PI) / 3)]
+  const R = Math.SQRT1_2
   for (let k = 0; k < 6; k++) {
     const [ax, az] = corner(k)
     const [bx, bz] = corner(k + 1)
     const nx = (ax + bx) / 2
     const nz = (az + bz) / 2
     const nl = Math.hypot(nx, nz)
-    const quad: [number, number, number, number][] = [
-      [ax, 0, az, k],
-      [bx, 0, bz, k + 0.999],
-      [bx, 1, bz, k + 0.999],
-      [ax, 1, az, k],
+    const ux = nx / nl
+    const uz = nz / nl
+    // the side: from the base to the bevel's foot (y = 1 - bevel, moved in the vertex shader)
+    const quad: [number, number, number, number, number][] = [
+      [ax, 0, az, k, 0],
+      [bx, 0, bz, k + 0.999, 0],
+      [bx, 1, bz, k + 0.999, 1],
+      [ax, 1, az, k, 1],
     ]
     for (const idx of [0, 2, 1, 0, 3, 2]) {
-      const q = quad[idx] as [number, number, number, number]
+      const q = quad[idx] as [number, number, number, number, number]
       pos.push(q[0], q[1], q[2])
-      nor.push(nx / nl, 0, nz / nl)
-      att.push(q[3], q[1], 0)
+      nor.push(ux, 0, uz)
+      att.push(q[3], q[4], 0)
+    }
+    // the bevel: from the rim to the cap's inner ring
+    const bev: [number, number, number, number, number][] = [
+      [ax, 1, az, k, 1],
+      [bx, 1, bz, k + 0.999, 1],
+      [bx, 1, bz, k + 0.999, 2],
+      [ax, 1, az, k, 2],
+    ]
+    for (const idx of [0, 2, 1, 0, 3, 2]) {
+      const q = bev[idx] as [number, number, number, number, number]
+      pos.push(q[0], q[1], q[2])
+      nor.push(ux * R, R, uz * R)
+      att.push(q[3], q[4], 1)
     }
     // the cap: a fan from the centre
     pos.push(0, 1, 0, bx, 1, bz, ax, 1, az)
     nor.push(0, 1, 0, 0, 1, 0, 0, 1, 0)
-    att.push(0, 1, 1, 1, 1, 1, 1, 1, 1)
+    att.push(0, 2, 2, 1, 2, 2, 1, 2, 2)
   }
   const geo = new BufferGeometry()
   geo.setAttribute('position', new Float32BufferAttribute(pos, 3))
@@ -609,6 +621,7 @@ interface Chunk {
   floor: GeoBuilder
   seams: GeoBuilder
   ribs: GeoBuilder
+  rails: GeoBuilder
 }
 
 interface Seg {
@@ -723,7 +736,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
     const k = cz * ccols + cx
     let ch = chunks.get(k)
     if (!ch) {
-      ch = { solid: new GeoBuilder(), floor: new GeoBuilder(), seams: new GeoBuilder(), ribs: new GeoBuilder() }
+      ch = { solid: new GeoBuilder(), floor: new GeoBuilder(), seams: new GeoBuilder(), ribs: new GeoBuilder(), rails: new GeoBuilder() }
       chunks.set(k, ch)
     }
     return ch
@@ -748,71 +761,284 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
   const isBridge = (c: number, r: number): boolean => hasFloor(c, r) && ((isVoid(c - 1, r) && isVoid(c + 1, r)) || (isVoid(c, r - 1) && isVoid(c, r + 1)))
   const bridgeDeck = Y.bridgeDeck
 
-  // a vertical quad on the lattice edge (x0, z0)-(x1, z1) from y0 to y1, facing (nx, nz)
-  const wallQuad = (b: GeoBuilder, x0: number, z0: number, x1: number, z1: number, y0a: number, y0b: number, y1a: number, y1b: number, nx: number, nz: number, top: number, hex: number, foot: number): void => {
-    const v0 = b.vertex(x0, y0a, z0, nx, 0, nz, top, hex, foot, 0.8)
-    const v1 = b.vertex(x1, y0b, z1, nx, 0, nz, top, hex, foot, 0.8)
-    const v2 = b.vertex(x1, y1b, z1, nx, 0, nz, top, hex, foot, 1)
-    const v3 = b.vertex(x0, y1a, z0, nx, 0, nz, top, hex, foot, 1)
+  // ---- narrow void slits between walkable cells: drawn as a recessed lit channel grating (still void for the game)
+  const gridVoid = (c: number, r: number): boolean => inside(c, r) && isVoid(c, r)
+  /** The width (cells) of the void run through (c, r) along one axis, Infinity if it reaches the edge of the plan. */
+  const runWidth = (c: number, r: number, dc: number, dr: number): number => {
+    let w = 1
+    for (const s of [1, -1]) {
+      let k = 1
+      while (gridVoid(c + dc * s * k, r + dr * s * k) && k <= 6) k++
+      if (k > 6 || !inside(c + dc * s * k, r + dr * s * k)) return Infinity
+      w += k - 1
+    }
+    return w
+  }
+  const slitAlongX = new Map<number, boolean>() // cell -> the slit runs along x (narrow in z)
+  for (let r = 0; r < g.rows; r++) {
+    for (let c = 0; c < g.cols; c++) {
+      if (!isVoid(c, r) || !inside(c, r)) continue
+      const wx = runWidth(c, r, 1, 0)
+      const wz = runWidth(c, r, 0, 1)
+      if (Math.min(wx, wz) <= Y.slitMax) slitAlongX.set(r * g.cols + c, wz <= wx)
+    }
+  }
+  const slitY = new Map<number, number>()
+  {
+    const seen = new Set<number>()
+    for (const start of slitAlongX.keys()) {
+      if (seen.has(start)) continue
+      const comp: number[] = []
+      const stack = [start]
+      seen.add(start)
+      let low = Infinity
+      while (stack.length > 0) {
+        const i = stack.pop() as number
+        comp.push(i)
+        const c = i % g.cols
+        const r = Math.floor(i / g.cols)
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const j = (r + dr) * g.cols + c + dc
+          if (!inside(c + dc, r + dr)) continue
+          if (slitAlongX.has(j)) {
+            if (!seen.has(j)) {
+              seen.add(j)
+              stack.push(j)
+            }
+          } else if (hasFloor(c + dc, r + dr)) low = Math.min(low, cornerH(j, false, false), cornerH(j, true, true))
+        }
+      }
+      if (Number.isFinite(low)) for (const i of comp) slitY.set(i, low - Y.slitDepth)
+    }
+  }
+  /** What is at the bottom of the void next to a cell: the grating of a slit, else the far floor. */
+  const voidFloor = (c: number, r: number): number => slitY.get(r * g.cols + c) ?? g.bottom
+
+  // a vertical quad on the lattice edge (x0, z0)-(x1, z1) from y0 to y1, facing (nx, nz); e = the shader's (top, tone, foot, code)
+  const wallQuad = (b: GeoBuilder, x0: number, z0: number, x1: number, z1: number, y0a: number, y0b: number, y1a: number, y1b: number, nx: number, nz: number, top: number, tone: number, foot: number): void => {
+    const v0 = b.vertex(x0, y0a, z0, nx, 0, nz, top, tone, foot, 0.8)
+    const v1 = b.vertex(x1, y0b, z1, nx, 0, nz, top, tone, foot, 0.8)
+    const v2 = b.vertex(x1, y1b, z1, nx, 0, nz, top, tone, foot, 1)
+    const v3 = b.vertex(x0, y1a, z0, nx, 0, nz, top, tone, foot, 1)
     b.triFacing(v0, v1, v2)
     b.triFacing(v0, v2, v3)
   }
 
-  // ---- blocks: tops and the faces above whatever is next to them; the outline of every top
+  // ---- islands: connected slab cells of one height (and kind) share a tone, a seed, a crown and the hex dressing
+  const island = new Int32Array(g.cols * g.rows).fill(-1)
+  const islands: { tone: number; seed: number; cells: number[]; hex: boolean; top: number; crown: number }[] = []
+  for (let i0 = 0; i0 < island.length; i0++) {
+    const c0 = i0 % g.cols
+    const r0 = Math.floor(i0 / g.cols)
+    if (island[i0] !== -1 || kind(c0, r0) !== CellKind.Wall) continue
+    const id = islands.length
+    const top = g.top[i0] as number
+    const hexed = g.hex[i0] === 1
+    const cells: number[] = []
+    const stack = [i0]
+    island[i0] = id
+    while (stack.length > 0) {
+      const i = stack.pop() as number
+      cells.push(i)
+      const c = i % g.cols
+      const r = Math.floor(i / g.cols)
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const j = (r + dr) * g.cols + c + dc
+        if (!inside(c + dc, r + dr) || island[j] !== -1 || kind(c + dc, r + dr) !== CellKind.Wall) continue
+        if (Math.abs((g.top[j] as number) - top) > 0.01 || (g.hex[j] === 1) !== hexed) continue
+        island[j] = id
+        stack.push(j)
+      }
+    }
+    const tone = Math.floor(hash(c0 * 0.37 + 1.1, r0 * 0.53 + 2.3) * 3)
+    const seed = hash(c0 * 1.7 + 5.5, r0 * 2.9 + 0.7)
+    const crown = !hexed && top >= Y.crownMin && hash(c0 + 9.1, r0 * 1.3 + 4.4) < Y.crownShare ? 1 : 0
+    islands.push({ tone, seed, cells, hex: hexed, top, crown })
+  }
+
+  // ---- blocks: bevelled slabs (a chamfer round every free top edge, a plinth where a floor meets them, a stepped
+  // crown on some tall ones), low cover as clean bevelled blocks, hex clusters as real prisms
   const outline: Seg[] = []
   const corners: { x: number; z: number; top: number; low: number }[] = []
+  const hexCols: { x: number; z: number; r: number; y: number; h: number; tint: number }[] = []
+  const NR = Math.SQRT1_2
+  const ADJ_A = [3, 2, 0, 1]
+  const ADJ_B = [2, 3, 1, 0]
+  /** One box: the top inset on its free sides, with a chamfer, the wall below it and an optional skirt. Sides: N, S, W, E. */
+  const bevelBox = (ch: Chunk, x0: number, z0: number, x1: number, z1: number, t: number, ex: boolean[], lows: number[], feet: number[], skirts: boolean[], c: number, tone: number, line: boolean): void => {
+    const b = ch.solid
+    const ins = ex.map((e) => (e ? c : 0))
+    const a = b.vertex(x0 + (ins[2] as number), t, z0 + (ins[0] as number), 0, 1, 0, t, tone, t, 1)
+    const bb = b.vertex(x1 - (ins[3] as number), t, z0 + (ins[0] as number), 0, 1, 0, t, tone, t, 1)
+    const cc = b.vertex(x0 + (ins[2] as number), t, z1 - (ins[1] as number), 0, 1, 0, t, tone, t, 1)
+    const d = b.vertex(x1 - (ins[3] as number), t, z1 - (ins[1] as number), 0, 1, 0, t, tone, t, 1)
+    b.triFacing(a, cc, bb)
+    b.triFacing(bb, cc, d)
+    const edges: [number, number, number, number, number, number][] = [
+      [x1, z0, x0, z0, 0, -1],
+      [x0, z1, x1, z1, 0, 1],
+      [x0, z0, x0, z1, -1, 0],
+      [x1, z1, x1, z0, 1, 0],
+    ]
+    for (let k = 0; k < 4; k++) {
+      if (!ex[k]) continue
+      const [ax, az, bx, bz, nx, nz] = edges[k] as [number, number, number, number, number, number]
+      const len = Math.hypot(bx - ax, bz - az)
+      if (len < 1e-3) continue
+      const ux = (bx - ax) / len
+      const uz = (bz - az) / len
+      const ia = ex[ADJ_A[k] as number] ? c : 0
+      const ib = ex[ADJ_B[k] as number] ? c : 0
+      const low = lows[k] as number
+      const foot = feet[k] as number
+      const sk = skirts[k] ? Y.skirt[0] ?? 0 : 0
+      const out = Y.skirt[1] ?? 0
+      if (t - c > low + sk) wallQuad(b, ax, az, bx, bz, low + sk, low + sk, t - c, t - c, nx, nz, t, tone, foot)
+      // the chamfer
+      const aix = ax - nx * c + ux * ia
+      const aiz = az - nz * c + uz * ia
+      const bix = bx - nx * c - ux * ib
+      const biz = bz - nz * c - uz * ib
+      const q0 = b.vertex(ax, t - c, az, nx * NR, NR, nz * NR, t, tone, t, 2)
+      const q1 = b.vertex(bx, t - c, bz, nx * NR, NR, nz * NR, t, tone, t, 2)
+      const q2 = b.vertex(bix, t, biz, nx * NR, NR, nz * NR, t, tone, t, 3)
+      const q3 = b.vertex(aix, t, aiz, nx * NR, NR, nz * NR, t, tone, t, 3)
+      b.triFacing(q0, q1, q2)
+      b.triFacing(q0, q2, q3)
+      // close the chamfer's open ends where the neighbour side is not free (a notch would show)
+      if (ia === 0) {
+        const f0 = b.vertex(ax, t - c, az, ux, 0, uz, t, tone, t, 2)
+        const f1 = b.vertex(ax, t, az, ux, 0, uz, t, tone, t, 3)
+        const f2 = b.vertex(aix, t, aiz, ux, 0, uz, t, tone, t, 3)
+        b.triFacing(f0, f1, f2)
+      }
+      if (ib === 0) {
+        const f0 = b.vertex(bx, t - c, bz, -ux, 0, -uz, t, tone, t, 2)
+        const f1 = b.vertex(bx, t, bz, -ux, 0, -uz, t, tone, t, 3)
+        const f2 = b.vertex(bix, t, biz, -ux, 0, -uz, t, tone, t, 3)
+        b.triFacing(f0, f1, f2)
+      }
+      if (sk > 0) {
+        const sl = Math.hypot(sk, out)
+        const s0 = b.vertex(ax, low + sk, az, (nx * sk) / sl, out / sl, (nz * sk) / sl, t, tone, low, 5)
+        const s1 = b.vertex(bx, low + sk, bz, (nx * sk) / sl, out / sl, (nz * sk) / sl, t, tone, low, 5)
+        const s2 = b.vertex(bx + nx * out, low, bz + nz * out, (nx * sk) / sl, out / sl, (nz * sk) / sl, t, tone, low, 4)
+        const s3 = b.vertex(ax + nx * out, low, az + nz * out, (nx * sk) / sl, out / sl, (nz * sk) / sl, t, tone, low, 4)
+        b.triFacing(s0, s1, s2)
+        b.triFacing(s0, s2, s3)
+      }
+      if (line) outline.push({ ax: aix, az: aiz, bx: bix, bz: biz, y: t + 0.006 })
+    }
+  }
+
   for (let r = 0; r < g.rows; r++) {
     for (let c = 0; c < g.cols; c++) {
       if (!isSolid(c, r)) continue
       const i = r * g.cols + c
       const cover = g.kind[i] === CellKind.Cover
       const t = g.top[i] as number
-      const hex = cover ? Y.coverHexSize : g.hex[i] === 1 ? Y.hexSize : 0
-      const e = cover ? Y.coverInset : 0
-      const x0 = c * g.cell + e
-      const x1 = (c + 1) * g.cell - e
-      const z0 = r * g.cell + e
-      const z1 = (r + 1) * g.cell - e
-      const ch = chunkAt(x0 + 0.1, z0 + 0.1)
-      const b = ch.solid
       const foot = g.h0[i] as number
-      const a = b.vertex(x0, t, z0, 0, 1, 0, t, hex, t, 1)
-      const bb = b.vertex(x1, t, z0, 0, 1, 0, t, hex, t, 1)
-      const cc = b.vertex(x0, t, z1, 0, 1, 0, t, hex, t, 1)
-      const d = b.vertex(x1, t, z1, 0, 1, 0, t, hex, t, 1)
-      b.triFacing(a, cc, bb)
-      b.triFacing(bb, cc, d)
-      const sides: [number, number, number, number, number, number, number, number][] = [
-        // neighbour dc, dr, edge from (x, z) to (x, z) (solid side on the left when walked), normal
-        [0, -1, x1, z0, x0, z0, 0, -1],
-        [0, 1, x0, z1, x1, z1, 0, 1],
-        [-1, 0, x0, z0, x0, z1, -1, 0],
-        [1, 0, x1, z1, x1, z0, 1, 0],
-      ]
-      const low: number[] = []
-      for (const [dc, dr, ax, az, bx, bz, nx, nz] of sides) {
-        // a low cover box stands free in its cell: all four faces; a block shows a face where its neighbour is lower
-        const nTop = cover ? (g.h0[i] as number) : isSolid(c + dc, r + dr) ? topOf(c + dc, r + dr) : isVoid(c + dc, r + dr) ? g.bottom : Math.min(topOf(c + dc, r + dr), g.h0[(r + dr) * g.cols + c + dc] as number)
-        low.push(nTop)
-        if (nTop >= t - 0.01) continue
-        const ft = cover ? foot : isVoid(c + dc, r + dr) ? g.bottom : nTop
-        wallQuad(b, ax, az, bx, bz, nTop, nTop, t, t, nx, nz, t, hex, ft)
-        outline.push({ ax, az, bx, bz, y: t + 0.006 })
+      const nb: [number, number][] = [[0, -1], [0, 1], [-1, 0], [1, 0]]
+      if (cover) {
+        const e = Y.coverInset
+        const x0 = c * g.cell + e
+        const x1 = (c + 1) * g.cell - e
+        const z0 = r * g.cell + e
+        const z1 = (r + 1) * g.cell - e
+        const ch = chunkAt(x0 + 0.1, z0 + 0.1)
+        const seed = hash(c * 1.9 + 0.3, r * 2.3 + 1.1) * 0.9
+        const cols = hash(c + 3.3, r * 0.7 + 8.1) < Y.coverHexShare
+          ? hexLattice(Y.coverHexRadius, Y.hexGap, x0, x1, z0, z1, (x, z) => x > x0 + 0.1 && x < x1 - 0.1 && z > z0 + 0.1 && z < z1 - 0.1)
+          : []
+        const all = [true, true, true, true]
+        if (cols.length > 0) {
+          // a low plate with a cluster of hex columns standing on it
+          const plate = foot + Y.coverPlate
+          bevelBox(ch, x0, z0, x1, z1, plate, all, [foot, foot, foot, foot], [foot, foot, foot, foot], [false, false, false, false], Y.coverChamfer * 0.6, 3 + seed, false)
+          let best = 0
+          cols.forEach((h, k) => {
+            if (Math.hypot(h.x - (x0 + x1) / 2, h.z - (z0 + z1) / 2) < Math.hypot((cols[best] as HexCol).x - (x0 + x1) / 2, (cols[best] as HexCol).z - (z0 + z1) / 2)) best = k
+          })
+          cols.forEach((h, k) => {
+            const pick = k === best ? 1 : ([0.45, 0.7, 0.85, 1][Math.floor(hash(h.x * 3.1, h.z * 1.7) * 4)] as number)
+            hexCols.push({ x: h.x, z: h.z, r: h.r, y: plate - 0.05, h: (t - plate) * pick + 0.05, tint: Math.floor(hash(h.x, h.z) * 3) })
+          })
+        } else {
+          bevelBox(ch, x0, z0, x1, z1, t, all, [foot, foot, foot, foot], [foot, foot, foot, foot], [false, false, false, false], Y.coverChamfer, 3 + seed, false)
+        }
+        continue
+      }
+      const isl = islands[island[i] as number] as (typeof islands)[number]
+      const tone = isl.tone + isl.seed * 0.9
+      const x0 = c * g.cell
+      const x1 = x0 + g.cell
+      const z0 = r * g.cell
+      const z1 = z0 + g.cell
+      const ch = chunkAt(x0 + 0.1, z0 + 0.1)
+      const tb = isl.hex ? t - Math.min(Y.hexRise, 0.45 * (t - foot)) : t
+      const lows: number[] = []
+      const feet: number[] = []
+      const ex: boolean[] = []
+      const skirts: boolean[] = []
+      for (const [dc, dr] of nb) {
+        const nTop = isSolid(c + dc, r + dr) ? topOf(c + dc, r + dr) : isVoid(c + dc, r + dr) ? voidFloor(c + dc, r + dr) : Math.min(topOf(c + dc, r + dr), g.h0[(r + dr) * g.cols + c + dc] as number)
+        lows.push(nTop)
+        ex.push(nTop < tb - 0.01)
+        feet.push(nTop)
+        skirts.push(hasFloor(c + dc, r + dr) && kind(c + dc, r + dr) !== CellKind.Ramp)
+      }
+      bevelBox(ch, x0, z0, x1, z1, tb, ex, lows, feet, skirts, Y.chamfer, tone, true)
+      if (isl.crown > 0) {
+        // a setback crown: a smaller step on top, flush where the slab goes on
+        const ci = Y.crownInset
+        const ch2 = Y.crownHeight as number[]
+        const hh = (ch2[0] as number) + hash(c * 0.7 + isl.seed * 9, r * 1.1) * ((ch2[1] as number) - (ch2[0] as number))
+        const sx0 = x0 + (ex[2] ? ci : 0)
+        const sx1 = x1 - (ex[3] ? ci : 0)
+        const sz0 = z0 + (ex[0] ? ci : 0)
+        const sz1 = z1 - (ex[1] ? ci : 0)
+        bevelBox(ch, sx0, sz0, sx1, sz1, t + hh, ex, [t, t, t, t], [t, t, t, t], [false, false, false, false], Y.chamfer * 0.7, tone, true)
       }
       // tall outer corners get a vertical light line (some of them: NF6 picks the edges that read)
-      if (!cover) {
-        const pairs: [number, number, number, number][] = [
-          [0, 2, x0, z0],
-          [0, 3, x1, z0],
-          [1, 2, x0, z1],
-          [1, 3, x1, z1],
-        ]
-        for (const [p, q, x, z] of pairs) {
-          const lo = Math.max(low[p] as number, low[q] as number)
-          if (t - lo >= Y.cornerMinDrop && hash(x, z) < Y.cornerShare) corners.push({ x, z, top: t, low: Math.max(lo, t - Y.cornerMaxLen) })
-        }
+      const cp: [number, number, number, number][] = [
+        [0, 2, x0, z0],
+        [0, 3, x1, z0],
+        [1, 2, x0, z1],
+        [1, 3, x1, z1],
+      ]
+      for (const [p, q, x, z] of cp) {
+        if (!ex[p] || !ex[q]) continue
+        const lo = Math.max(lows[p] as number, lows[q] as number)
+        if (tb - lo >= Y.cornerMinDrop && hash(x, z) < Y.cornerShare) corners.push({ x, z, top: tb, low: Math.max(lo, tb - Y.cornerMaxLen) })
       }
     }
+  }
+  // the hex clusters on hex islands: a honeycomb of prisms of varied heights rising out of the terraced base
+  for (const isl of islands) {
+    if (!isl.hex) continue
+    const first = isl.cells[0] as number
+    const foot = g.h0[first] as number
+    const tb = isl.top - Math.min(Y.hexRise, 0.45 * (isl.top - foot))
+    let minX = Infinity
+    let maxX = -Infinity
+    let minZ = Infinity
+    let maxZ = -Infinity
+    for (const i of isl.cells) {
+      minX = Math.min(minX, (i % g.cols) * g.cell)
+      maxX = Math.max(maxX, ((i % g.cols) + 1) * g.cell)
+      minZ = Math.min(minZ, Math.floor(i / g.cols) * g.cell)
+      maxZ = Math.max(maxZ, (Math.floor(i / g.cols) + 1) * g.cell)
+    }
+    const cols = hexLattice(Y.hexRadius, Y.hexGap, minX, maxX, minZ, maxZ, (x, z) => {
+      const cc = Math.floor(x / g.cell)
+      const rr = Math.floor(z / g.cell)
+      return inside(cc, rr) && island[rr * g.cols + cc] === (island[first] as number)
+    })
+    cols.forEach((h) => {
+      const pick = ([0.3, 0.55, 0.8, 1, 1][Math.floor(hash(h.x * 2.3, h.z * 1.9) * 5)] as number)
+      const hh = Math.max(0.3, Math.round(((isl.top - tb) * pick) / 0.25) * 0.25)
+      hexCols.push({ x: h.x, z: h.z, r: h.r, y: tb - 0.05, h: hh + 0.05, tint: Math.floor(hash(h.x, h.z + 4) * 3) })
+    })
   }
   for (const { pts, closed } of chain(outline)) {
     const ch = chunkAt((pts[0] as P3).x, (pts[0] as P3).z)
@@ -820,9 +1046,12 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
   }
   for (const k of corners) tube(chunkAt(k.x, k.z).ribs, [{ x: k.x, y: k.top, z: k.z }, { x: k.x, y: k.low, z: k.z }], Y.edgeRadius * 0.8, false, 4)
 
-  // ---- floors, ramps, steps between floors, platform sides over the void, bridges
+  // ---- floors, ramps, steps between floors, platform sides over the void (a curb, a lit lip and a low rail), bridges
   const lips: P3[][] = []
-  const edges: Seg[] = []
+  const curbEdges: Seg[] = []
+  const plainEdges: Seg[] = []
+  const glow = new GeoBuilder()
+  const [curbW, curbH] = Y.curb as [number, number]
   for (let r = 0; r < g.rows; r++) {
     for (let c = 0; c < g.cols; c++) {
       if (!hasFloor(c, r)) continue
@@ -840,6 +1069,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
       f.tri(a, cc, b)
       f.tri(b, cc, d)
       const bridge = isBridge(c, r)
+      const tone = Math.floor(hash(Math.floor(c / 4) + 0.5, Math.floor(r / 4) + 0.5) * 3) + 0.4
       // the platform's side where the void is next to it: down into the dark, or a thin deck for a bridge
       const sides: [number, number, number, number, number, number, boolean, boolean, boolean, boolean, number, number][] = [
         [0, -1, x1, z0, x0, z0, true, false, false, false, 0, -1],
@@ -851,9 +1081,31 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
         if (!isVoid(c + dc, r + dr)) continue
         const ya = cornerH(i, ea, sa)
         const yb = cornerH(i, eb, sb)
-        const deep = bridge ? bridgeDeck : Math.max(ya, yb) - g.bottom
-        wallQuad(ch.solid, ax, az, bx, bz, ya - deep, yb - deep, ya, yb, nx, nz, Math.max(ya, yb), 0, ya - deep)
-        edges.push({ ax, az, bx, bz, y: (ya + yb) / 2 + 0.01 })
+        const slit = slitY.has((r + dr) * g.cols + c + dc)
+        const y0 = bridge ? Math.min(ya, yb) - bridgeDeck : voidFloor(c + dc, r + dr)
+        const curb = !bridge && !slit
+        const lift = curb ? curbH : 0
+        wallQuad(ch.solid, ax, az, bx, bz, y0, y0, ya + lift, yb + lift, nx, nz, Math.max(ya, yb) + lift, tone, y0)
+        if (curb) {
+          // the curb: a low raised lip along the edge, its inner face and top lit by the seam line
+          const ix = -nx * curbW
+          const iz = -nz * curbW
+          const t0 = ch.solid.vertex(ax, ya + curbH, az, 0, 1, 0, ya + curbH, tone, ya, 1)
+          const t1 = ch.solid.vertex(bx, yb + curbH, bz, 0, 1, 0, yb + curbH, tone, yb, 1)
+          const t2 = ch.solid.vertex(bx + ix, yb + curbH, bz + iz, 0, 1, 0, yb + curbH, tone, yb, 1)
+          const t3 = ch.solid.vertex(ax + ix, ya + curbH, az + iz, 0, 1, 0, ya + curbH, tone, ya, 1)
+          ch.solid.triFacing(t0, t1, t2)
+          ch.solid.triFacing(t0, t2, t3)
+          const n0 = ch.solid.vertex(ax + ix, ya + curbH, az + iz, -nx, 0, -nz, ya + curbH, tone, ya, 1)
+          const n1 = ch.solid.vertex(bx + ix, yb + curbH, bz + iz, -nx, 0, -nz, yb + curbH, tone, yb, 1)
+          const n2 = ch.solid.vertex(bx + ix, yb, bz + iz, -nx, 0, -nz, yb + curbH, tone, yb, 0.9)
+          const n3 = ch.solid.vertex(ax + ix, ya, az + iz, -nx, 0, -nz, ya + curbH, tone, ya, 0.9)
+          ch.solid.triFacing(n0, n1, n2)
+          ch.solid.triFacing(n0, n2, n3)
+          curbEdges.push({ ax, az, bx, bz, y: (ya + yb) / 2 + curbH + 0.006 })
+        } else {
+          plainEdges.push({ ax, az, bx, bz, y: (ya + yb) / 2 + 0.01 })
+        }
       }
       if (bridge) {
         const under = ch.solid
@@ -874,7 +1126,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
         const thS = cornerH(j, false, true)
         if (Math.abs(myN - thN) > 0.01 || Math.abs(myS - thS) > 0.01) {
           const facing = myN > thN ? 1 : -1
-          wallQuad(ch.solid, x1, z0, x1, z1, Math.min(myN, thN), Math.min(myS, thS), Math.max(myN, thN), Math.max(myS, thS), facing, 0, Math.max(myN, thN), 0, Math.min(myN, thN))
+          wallQuad(ch.solid, x1, z0, x1, z1, Math.min(myN, thN), Math.min(myS, thS), Math.max(myN, thN), Math.max(myS, thS), facing, 0, Math.max(myN, thN), tone, Math.min(myN, thN))
           lips.push([
             { x: x1 - facing * 0.02, y: Math.max(myN, thN), z: z0 },
             { x: x1 - facing * 0.02, y: Math.max(myS, thS), z: z1 },
@@ -889,7 +1141,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
         const thE = cornerH(j, true, false)
         if (Math.abs(myW - thW) > 0.01 || Math.abs(myE - thE) > 0.01) {
           const facing = myW > thW ? 1 : -1
-          wallQuad(ch.solid, x0, z1, x1, z1, Math.min(myW, thW), Math.min(myE, thE), Math.max(myW, thW), Math.max(myE, thE), 0, facing, Math.max(myW, thW), 0, Math.min(myW, thW))
+          wallQuad(ch.solid, x0, z1, x1, z1, Math.min(myW, thW), Math.min(myE, thE), Math.max(myW, thW), Math.max(myE, thE), 0, facing, Math.max(myW, thW), tone, Math.min(myW, thW))
           lips.push([
             { x: x0, y: Math.max(myW, thW), z: z1 - facing * 0.02 },
             { x: x1, y: Math.max(myE, thE), z: z1 - facing * 0.02 },
@@ -899,35 +1151,125 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
     }
   }
   for (const lip of lips) tube(chunkAt((lip[0] as P3).x, (lip[0] as P3).z).seams, lip, Y.edgeRadius * 0.9, false, 4)
-  // the platform edges over the void: continuous light lines (brighter on the bridges)
-  for (const { pts, closed } of chain(edges)) tube(chunkAt((pts[0] as P3).x, (pts[0] as P3).z).seams, softCorners(pts, closed, 0.06), Y.edgeRadius, closed, 4)
-
-  // ---- the light paths on the floors: thin traces ending in small rings (vias), half sunk into the floor
-  const paths = buildPaths(g)
-  const pathGeo = new Map<Chunk, GeoBuilder>()
-  for (const path of paths) {
-    const first = path[0] as P3
-    const ch = chunkAt(first.x, first.z)
-    let b = pathGeo.get(ch)
-    if (!b) {
-      b = new GeoBuilder()
-      pathGeo.set(ch, b)
-    }
-    const v = Y.viaRadius
-    const trim = (a: P3, to: P3): P3 => {
-      const l = Math.hypot(to.x - a.x, to.z - a.z) || 1
-      return { x: a.x + ((to.x - a.x) / l) * v, y: a.y, z: a.z + ((to.z - a.z) / l) * v }
-    }
-    const pts = path.slice()
-    pts[0] = trim(path[0] as P3, path[1] as P3)
-    pts[pts.length - 1] = trim(path[path.length - 1] as P3, path[path.length - 2] as P3)
-    tube(b, softCorners(pts, false, 0.3), Y.pathRadius, false, 4)
-    for (const end of [path[0] as P3, path[path.length - 1] as P3]) {
-      const ring: P3[] = []
-      for (let k = 0; k < 10; k++) ring.push({ x: end.x + Math.cos((k / 10) * Math.PI * 2) * v, y: end.y, z: end.z + Math.sin((k / 10) * Math.PI * 2) * v })
-      tube(b, ring, Y.pathRadius, true, 4)
+  // the platform edges over the void: continuous light lines (brighter on the bridges), a low glowing rail along the curbs
+  for (const { pts, closed } of chain(plainEdges)) tube(chunkAt((pts[0] as P3).x, (pts[0] as P3).z).seams, softCorners(pts, closed, 0.06), Y.edgeRadius, closed, 4)
+  for (const { pts, closed } of chain(curbEdges)) {
+    const ch = chunkAt((pts[0] as P3).x, (pts[0] as P3).z)
+    tube(ch.seams, softCorners(offsetLine(pts, closed, curbW / 2), closed, 0.06), Y.edgeRadius, closed, 4)
+    const rail = offsetLine(pts, closed, Y.railInset).map((p) => ({ x: p.x, y: p.y - 0.006 + Y.railHeight, z: p.z }))
+    tube(ch.rails, softCorners(rail, closed, 0.12), Y.railRadius, closed, 4)
+    // posts along it
+    const n = rail.length
+    let walked = 0
+    let nextPost = Y.railPostEvery / 2
+    for (let k = 0; k < (closed ? n : n - 1); k++) {
+      const p = rail[k] as P3
+      const q = rail[(k + 1) % n] as P3
+      const len = Math.hypot(q.x - p.x, q.z - p.z)
+      while (len > 1e-4 && nextPost <= walked + len) {
+        const s = (nextPost - walked) / len
+        const px = p.x + (q.x - p.x) * s
+        const pz = p.z + (q.z - p.z) * s
+        const py = p.y + (q.y - p.y) * s
+        tube(ch.rails, [{ x: px, y: py - Y.railHeight, z: pz }, { x: px, y: py, z: pz }], Y.railRadius * 1.3, false, 4)
+        nextPost += Y.railPostEvery
+      }
+      walked += len
     }
   }
+  // the slits: a recessed grating with a lit duct down its middle and thin bars across
+  const [gr, gg, gb] = [palette.seamDim.r * Y.slitGlow, palette.seamDim.g * Y.slitGlow, palette.seamDim.b * Y.slitGlow]
+  for (const [i, alongX] of slitAlongX) {
+    const y = slitY.get(i)
+    if (y === undefined) continue
+    const c = i % g.cols
+    const r = Math.floor(i / g.cols)
+    const x0 = c * g.cell
+    const z0 = r * g.cell
+    const quad = (xa: number, za: number, xb: number, zb: number, yy: number, cr: number, cg: number, cb: number): void => {
+      glow.quad(
+        glow.vertex(xa, yy, za, 0, 1, 0, cr, cg, cb),
+        glow.vertex(xa, yy, zb, 0, 1, 0, cr, cg, cb),
+        glow.vertex(xb, yy, zb, 0, 1, 0, cr, cg, cb),
+        glow.vertex(xb, yy, za, 0, 1, 0, cr, cg, cb),
+      )
+    }
+    quad(x0, z0, x0 + g.cell, z0 + g.cell, y, 0.004, 0.01, 0.014)
+    const bars = Math.round(g.cell / Y.slitBarEvery)
+    for (let k = 0; k < bars; k++) {
+      const o = (k + 0.5) * Y.slitBarEvery
+      if (alongX) quad(x0 + o - 0.025, z0, x0 + o + 0.025, z0 + g.cell, y + 0.004, gr * 0.5, gg * 0.5, gb * 0.5)
+      else quad(x0, z0 + o - 0.025, x0 + g.cell, z0 + o + 0.025, y + 0.004, gr * 0.5, gg * 0.5, gb * 0.5)
+    }
+    // the duct: a brighter strip along the slit
+    if (alongX) quad(x0, z0 + g.cell / 2 - 0.07, x0 + g.cell, z0 + g.cell / 2 + 0.07, y + 0.008, gr, gg, gb)
+    else quad(x0 + g.cell / 2 - 0.07, z0, x0 + g.cell / 2 + 0.07, z0 + g.cell, y + 0.008, gr, gg, gb)
+  }
+
+  // ---- the light guides on the floors: the street to the goal through the checkpoints, and a spur to every terminal
+  const guides = buildGuides(g)
+  const paths: P3[][] = [...guides.main, ...guides.spurs]
+  const guideGeo = new Map<Chunk, { main: GeoBuilder; spur: GeoBuilder }>()
+  const guideAt = (x: number, z: number): { main: GeoBuilder; spur: GeoBuilder } => {
+    const ch = chunkAt(x, z)
+    let b = guideGeo.get(ch)
+    if (!b) {
+      b = { main: new GeoBuilder(), spur: new GeoBuilder() }
+      guideGeo.set(ch, b)
+    }
+    return b
+  }
+  const lay = (route: P3[], main: boolean): void => {
+    const pts = softCorners(route, false, Y.routeCorner)
+    // pieces of at most routeSplit metres, each in the chunk it starts in (so far stretches are culled)
+    let piece: P3[] = []
+    let len = 0
+    let nextChevron = Y.routeChevronEvery / 2
+    let walked = 0
+    const flush = (): void => {
+      if (piece.length >= 2) {
+        const p0 = piece[0] as P3
+        tube(main ? guideAt(p0.x, p0.z).main : guideAt(p0.x, p0.z).spur, piece, Y.routeRadius, false, 4)
+      }
+    }
+    for (let k = 0; k < pts.length; k++) {
+      const p = pts[k] as P3
+      if (k > 0) {
+        const q = pts[k - 1] as P3
+        const l = Math.hypot(p.x - q.x, p.z - q.z)
+        len += l
+        // chevrons along the main street, pointing the way
+        if (main && l > 1e-4) {
+          const dx = (p.x - q.x) / l
+          const dz = (p.z - q.z) / l
+          while (nextChevron <= walked + l) {
+            const s = nextChevron - walked
+            const cx = q.x + dx * s
+            const cz = q.z + dz * s
+            const cy = q.y + ((p.y - q.y) * s) / l
+            const w = 0.24
+            const back = 0.2
+            tube(guideAt(cx, cz).main, [
+              { x: cx - dx * back - dz * w, y: cy, z: cz - dz * back + dx * w },
+              { x: cx + dx * 0.1, y: cy, z: cz + dz * 0.1 },
+              { x: cx - dx * back + dz * w, y: cy, z: cz - dz * back - dx * w },
+            ], Y.routeRadius * 0.9, false, 4)
+            nextChevron += Y.routeChevronEvery
+          }
+        }
+        walked += l
+      }
+      piece.push(p)
+      if (len >= Y.routeSplit && k < pts.length - 1) {
+        flush()
+        piece = [p]
+        len = 0
+      }
+    }
+    flush()
+  }
+  for (const route of guides.main) lay(route, true)
+  for (const route of guides.spurs) lay(route, false)
 
   // ---- roofs: slabs overhead, lit along their open edges, a light strip down the middle underneath
   for (const roof of g.roofs) {
@@ -936,7 +1278,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
     const y0 = roof.y
     const y1 = roof.y + Y.roofThickness
     const quad = (pts: [number, number, number][], nx: number, ny: number, nz: number): void => {
-      const ids = pts.map(([x, y, z]) => b.vertex(x, y, z, nx, ny, nz, y1, 0, y0, 1))
+      const ids = pts.map(([x, y, z]) => b.vertex(x, y, z, nx, ny, nz, y1, 0.2, y0, 1))
       b.triFacing(ids[0] as number, ids[1] as number, ids[2] as number)
       b.triFacing(ids[0] as number, ids[2] as number, ids[3] as number)
     }
@@ -962,7 +1304,6 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
 
   // ---- the level's server blocks: glossy black monoliths with thin seams and a column of status lights
   const detail = new GeoBuilder()
-  const glow = new GeoBuilder()
   const blockLines = new GeoBuilder()
   const capGeos: BufferGeometry[] = []
   const dim = palette.seamDim
@@ -1048,20 +1389,28 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
     })
   const seamMat = lineMat(Y.edgeIntensity, Y.edgeRadius)
   const ribMat = lineMat(Y.cornerIntensity, Y.edgeRadius * 0.8)
+  const railMat = lineMat(Y.railIntensity, Y.railRadius)
   const blockLineMat = lineMat(L.ribIntensity, L.ribRadius * 0.8)
-  const pathMat = lineMat(Y.pathIntensity, Y.pathRadius)
-  ;(pathMat.uniforms['uColor'] as { value: Color }).value.copy(palette.seamDim).multiplyScalar(Y.pathIntensity)
+  const pathMat = lineMat(Y.routeIntensity, Y.routeRadius)
+  const spurMat = lineMat(Y.spurIntensity, Y.routeRadius)
+  ;(pathMat.uniforms['uColor'] as { value: Color }).value.copy(palette.seamDim).multiplyScalar(Y.routeIntensity)
+  ;(spurMat.uniforms['uColor'] as { value: Color }).value.copy(palette.seamDim).multiplyScalar(Y.spurIntensity)
   const solidMat = new ShaderMaterial({
     uniforms: UniformsUtils.merge([
       UniformsLib.fog,
       {
-        uBase: { value: new Color(Y.slabColor) },
+        uTone: { value: (Y.slabTones as string[]).map((h) => new Color(h)) },
         uSeam: { value: palette.seam.clone() },
+        uWarm: { value: new Color(Y.warmColor[0] ?? 1, Y.warmColor[1] ?? 1, Y.warmColor[2] ?? 1) },
         uSheen: { value: Y.slabSheen },
         uAlbedo: { value: L.wallAlbedo },
-        uHexSeam: { value: Y.hexSeam },
-        uFaceLines: { value: Y.faceLines },
         uVoidFade: { value: Y.voidFade },
+        uBay: { value: new Vector2(Y.bay[0], Y.bay[1]) },
+        uTier: { value: Y.tier },
+        uWin: { value: new Vector4(Y.windowGlow, Y.windowShare, Y.seamShare, Y.windowWarm) },
+        uSeamGlow: { value: Y.seamGlow },
+        uCover: { value: new Vector4(g.cell, Y.coverInset + Y.coverChamfer + Y.coverSeam, Y.coverGlow, Y.coverTop) },
+        uSkirt: { value: new Vector2(Y.skirt[0], Y.skirt[1]) },
       },
       alarmUniforms(),
       lightUniforms(),
@@ -1111,7 +1460,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
   const hexMat = new ShaderMaterial({
     uniforms: UniformsUtils.merge([
       UniformsLib.fog,
-      { uBase: { value: new Color(Y.hexColor) }, uSeam: { value: palette.seam.clone() }, uAlbedo: { value: L.wallAlbedo }, uSheen: { value: Y.slabSheen } },
+      { uSeam: { value: palette.seam.clone() }, uAlbedo: { value: L.wallAlbedo }, uSheen: { value: Y.slabSheen }, uBevel: { value: Y.hexBevel }, uAccent: { value: Y.hexAccent }, uSeamGlow: { value: Y.hexSeam } },
       alarmUniforms(),
       lightUniforms(),
     ]),
@@ -1143,11 +1492,15 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
     }
     if (!ch.seams.empty) root.add(new Mesh(ch.seams.build(null), seamMat))
     if (!ch.ribs.empty) root.add(new Mesh(ch.ribs.build(null), ribMat))
+    if (!ch.rails.empty) root.add(new Mesh(ch.rails.build(null), railMat))
   }
-  for (const b of pathGeo.values()) {
-    const m = new Mesh(b.build(null), pathMat)
-    m.userData['noReflect'] = true
-    root.add(m)
+  for (const b of guideGeo.values()) {
+    for (const [geo, mat] of [[b.main, pathMat], [b.spur, spurMat]] as const) {
+      if (geo.empty) continue
+      const m = new Mesh(geo.build(null), mat)
+      m.userData['noReflect'] = true
+      root.add(m)
+    }
   }
   if (!blockLines.empty) root.add(new Mesh(blockLines.build(null), blockLineMat))
   if (!detail.empty) {
@@ -1156,18 +1509,23 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
     root.add(new Mesh(detail.build('color'), detailMat))
   }
   if (!glow.empty) {
-    const glowMesh = new Mesh(glow.build('color'), new MeshBasicMaterial({ vertexColors: true, toneMapped: false }))
+    const glowMesh = new Mesh(glow.build('color'), new MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: DoubleSide }))
     glowMesh.userData['noReflect'] = true
     root.add(glowMesh)
   }
-  // the hex modules: one instanced draw (each instance can move later - sliding modules)
-  if (hexes.length > 0) {
-    const inst = new InstancedMesh(hexPrism(), hexMat, hexes.length)
+  // the hex prisms (the clusters on hex islands and low cover, and the level's hex modules): one instanced draw
+  const hexTones = (Y.hexTones as string[]).map((h) => new Color(h))
+  const modules: { x: number; z: number; r: number; y: number; h: number; tint: number }[] = hexCols.slice()
+  for (const b of hexes) modules.push({ x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2, r: (b.maxX - b.minX) / 2, y: b.minY, h: b.maxY - b.minY, tint: Math.floor(hash(b.minX, b.minZ) * 3) })
+  if (modules.length > 0) {
+    const inst = new InstancedMesh(hexPrism(), hexMat, modules.length)
     const m = new Matrix4()
-    hexes.forEach((b, k) => {
-      const r = (b.maxX - b.minX) / 2
-      m.makeScale(r, b.maxY - b.minY, r).setPosition((b.minX + b.maxX) / 2, b.minY, (b.minZ + b.maxZ) / 2)
+    const tint = new Color()
+    modules.forEach((h, k) => {
+      m.makeScale(h.r, h.h, h.r).setPosition(h.x, h.y, h.z)
       inst.setMatrixAt(k, m)
+      tint.copy(hexTones[h.tint % hexTones.length] as Color).multiplyScalar(0.85 + 0.3 * hash(h.x * 1.3, h.z * 0.9))
+      inst.setColorAt(k, tint)
     })
     inst.computeBoundingSphere()
     root.add(inst)
@@ -1179,7 +1537,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
   const coneColor = fu['uConeColor']?.value as Vector3[]
   const coneShape = fu['uConeShape']?.value as Vector3[]
   const coneFan = fu['uConeFan']?.value as Vector4[]
-  const alarmMaterials = [seamMat, ribMat, blockLineMat, pathMat, solidMat, floorMat, hexMat]
+  const alarmMaterials = [seamMat, ribMat, railMat, blockLineMat, pathMat, spurMat, solidMat, floorMat, hexMat]
   return {
     root,
     paths,

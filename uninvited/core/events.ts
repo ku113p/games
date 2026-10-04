@@ -12,7 +12,7 @@ export type GameEvent =
   | { type: 'landed'; speed: number }
   | { type: 'dashed' }
   | { type: 'crouchChanged'; crouched: boolean }
-  | { type: 'swordSwing'; yaw: number }
+  | { type: 'swordSwing'; yaw: number; /** 0, 1 = the first two swings, 2 = the wide finisher. */ combo: number }
   | { type: 'rifleShot'; fromX: number; fromY: number; fromZ: number; toX: number; toY: number; toZ: number; hit: boolean }
   | { type: 'rifleEmpty' }
   | { type: 'modeSwitched'; mode: 'sword' | 'rifle' }
@@ -61,11 +61,11 @@ export type GameEvent =
   | { type: 'noise'; x: number; y: number; z: number; radius: number }
   | { type: 'alarmRaised'; stage: number; reason: AlarmReason }
   | { type: 'alarmLowered'; stage: number }
-  | { type: 'waveStarted'; wave: number; count: number; worms: number }
+  | { type: 'waveStarted'; wave: number; count: number; worms: number; wardens: number }
   | { type: 'waveCleared'; wave: number }
   | { type: 'firewallDropped' }
   | { type: 'wallOpened'; index: number }
-  | { type: 'devicePaused'; target: 'laser' | 'drone' | 'warden'; index: number; sec: number }
+  | { type: 'devicePaused'; target: 'laser' | 'drone' | 'warden' | 'camera'; index: number; sec: number }
   | { type: 'scanOn' }
   | { type: 'scanOff' }
   /** @deprecated use scanWarning (emitted together with it) */
@@ -85,4 +85,12 @@ export type GameEvent =
   | { type: 'hackTimedOut'; terminal: number }
   | { type: 'hackCancelled'; terminal: number }
   | { type: 'checkpointReached'; index: number; underAlarm: boolean }
+  /** A killed enemy dropped a signal shard (slot `index`); the view shows it from the state. */
+  | { type: 'shardDropped'; index: number; x: number; y: number; z: number; big: boolean }
+  /** The player took a shard (hp after the heal). */
+  | { type: 'shardTaken'; x: number; y: number; z: number; big: boolean; hp: number }
+  /** A rifle bolt hit a heavy warden's shield (from the front). */
+  | { type: 'shieldBlocked'; index: number; x: number; y: number; z: number }
+  /** A wave warden comes out of spawn gate `gate`. */
+  | { type: 'wardenSpawned'; index: number; gate: number; heavy: boolean }
   | { type: 'artifactTaken' }

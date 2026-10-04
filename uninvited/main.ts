@@ -12,14 +12,15 @@ import { applyLoadedState, parseSave, serializeState } from './core/save'
 import { createSim, createState, type GameState } from './core/state'
 import { bindHackInput } from './input/hack'
 import { bindGameInput } from './input/keyboard-mouse'
-import { slice } from './levels/slice'
+import { levelById } from './levels/index'
 import { createGameView } from './view/game-view'
 import { createHackView, type HackView } from './view/hack/index'
+import { createSettings } from './view/settings'
 import { hackOutcome } from './view/hack/outcome'
 import { t } from './view/hud'
 
 const cfg: GameConfig = cfgJson
-const level = slice
+const level = levelById(new URLSearchParams(location.search).get('level'))
 const SAVE_SLOT = `save.${level.id}`
 
 await initPhysics()
@@ -34,7 +35,8 @@ const store = createLocalStore()
 const canvas = document.getElementById('game') as HTMLCanvasElement
 const ui = document.getElementById('ui') as HTMLElement
 document.getElementById('loading')?.remove()
-const view = createGameView(canvas, ui, state, sim, (ox, oy, oz, dx, dy, dz, max) => physics.raycast(ox, oy, oz, dx, dy, dz, max))
+const settings = createSettings(store)
+const view = createGameView(canvas, ui, state, sim, (ox, oy, oz, dx, dy, dz, max) => physics.raycast(ox, oy, oz, dx, dy, dz, max), settings)
 const input = bindGameInput(canvas)
 const intent = createIntent()
 const aim = { yaw: 0, pitch: 0 }
@@ -51,6 +53,9 @@ let hackShown: HackSession | null = null
 let hackOutro = 0
 let hackOutroSolved = false
 let hackToast = ''
+/** The time of the first Esc in a hack: a second one within hackEscSec aborts, so a player who only wants the mouse back does not lose it. */
+let hackEscAt = -10
+const HACK_ESC_SEC = 2
 /** Headless screenshots cannot lock the pointer: ?nolock plays without it. */
 const noLock = new URLSearchParams(location.search).has('nolock')
 
@@ -73,6 +78,8 @@ function flushEvents(): void {
 }
 
 function closeHackUi(): void {
+  view.hud.hackEsc(false)
+  hackEscAt = -10
   hackView?.hide()
   unbindHack?.()
   unbindHack = null
@@ -125,6 +132,12 @@ function openHackUi(): void {
       flushEvents()
     },
     () => {
+      const now = performance.now() / 1000
+      if (now - hackEscAt > HACK_ESC_SEC) {
+        hackEscAt = now
+        view.hud.hackEsc(true)
+        return
+      }
       cancelHack(state, sim)
       flushEvents()
       closeHackUi()
@@ -148,6 +161,7 @@ function showEnd(): void {
   input.setEnabled(false)
   if (phase(state) === 'dead') {
     mode = 'dead'
+    view.music.sting('death')
     const save = store.read(SAVE_SLOT)
     view.hud.showDead(
       save !== null,
@@ -159,6 +173,7 @@ function showEnd(): void {
     )
   } else {
     mode = 'won'
+    view.music.sting('win')
     const r = runStats(state)
     const m = Math.floor(r.timeSec / 60)
     const sec = Math.floor(r.timeSec % 60)
@@ -177,6 +192,8 @@ input.onUnlock(() => {
   }
 })
 ui.addEventListener('click', (e) => {
+  // the settings panel and its buttons are not "click to resume"
+  if (e.target instanceof Element && e.target.closest('.settings, .btn')) return
   if (mode === 'paused' || mode === 'resume') {
     e.stopPropagation()
     play()
@@ -227,7 +244,7 @@ function frame(now: number): void {
     for (let i = 0; i < pressed.switchMode; i++) switchMode(state, sim)
     if (pressed.interact > 0) interact(state, sim)
     setAim(state, sim, held.aim)
-    if (pressed.attack > 0 || held.attack) attack(state, sim, aim.yaw, aim.pitch)
+    if (pressed.attack > 0 || held.attack) attack(state, sim, aim.yaw, aim.pitch, pressed.attack > 0)
   } else setAim(state, sim, false)
   const active = mode === 'playing' || mode === 'hack' || mode === 'resume'
   intent.moveForward = active && mode === 'playing' ? (held.forward ? 1 : 0) - (held.back ? 1 : 0) : 0
@@ -272,9 +289,20 @@ function frame(now: number): void {
     }
   }
 
-  view.update(mode === 'paused' || mode === 'start' ? 0 : raw, state, sim)
+  const mf = view.music.flags
+  mf.menu = mode === 'start' || mode === 'dead' || mode === 'won'
+  mf.paused = mode === 'paused' || mode === 'resume'
+  mf.hack = mode === 'hack'
+  view.update(mode === 'paused' || mode === 'start' ? 0 : raw, state, sim, raw)
 }
 
+// a hidden tab: the lock is gone with it - pause at once (the pointerlockchange path does the same for Esc)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && mode === 'playing') {
+    mode = 'paused'
+    view.hud.showPause(true)
+  }
+})
 addEventListener('resize', () => view.renderer.resize())
 requestAnimationFrame(frame)
 
@@ -287,6 +315,7 @@ requestAnimationFrame(frame)
   get mode() {
     return mode
   },
+  view,
   get fps() {
     return fps
   },
