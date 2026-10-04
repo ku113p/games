@@ -47,8 +47,7 @@ export const WORLD_FRAG = /* glsl */ `
   uniform vec3 uLamp;
   uniform float uLampLevel;
   uniform vec4 uRain;
-  uniform float uNeonForce;
-  uniform vec4 uNeon;           // x flicker depth, y mask blur lod, z/w mask brightness range
+  uniform vec4 uNeon;           // x breathing depth, y mask blur lod, z/w mask brightness range
   uniform vec4 uScreenFx;
   uniform sampler2D tMaskA;     // R window glass, G tablet, B water bottle
   uniform sampler2D tMaskB;     // R noodles, G VR headset
@@ -180,22 +179,15 @@ export const WORLD_FRAG = /* glsl */ `
     vec3 col = blurTap(t, lod);
 
     if (glass > 0.01) {
-      // neon signs live BEHIND the glass. The mask comes from a heavily blurred sample around the refracted coordinate,
-      // so a whole sign (white-hot core + coloured rim + glow) is one soft blob that dims and brightens evenly;
-      // the flicker band also follows the refracted coordinate and has soft edges. Drop highlights go on afterwards.
-      vec2 qr = vec2(t.x, 1.0 - t.y);
+      // neon signs live BEHIND the glass: a slow, gentle breathing of their glow, no flicker events (on a blurred
+      // background a flicker reads as a broken picture). The mask comes from a heavily blurred sample around the refracted
+      // coordinate, so a whole sign (core + rim + glow) breathes as one soft blob.
       vec3 hb = textureLod(tPlate, t, uNeon.y).rgb;
       float hbMax = max(hb.r, max(hb.g, hb.b));
       float hbSat = hbMax - min(hb.r, min(hb.g, hb.b));
       float neonMask = S(uNeon.z, uNeon.w, hbMax) * S(0.04, 0.16, hbSat);
-      float f = qr.x * 9.0 + qr.y * 4.0;
-      float band = floor(f);
-      float soft = S(0.0, 0.3, fract(f)) * S(1.0, 0.7, fract(f));
-      float event = step(0.93, hash1(band * 7.13 + floor(uTime * 2.5)));
-      float stutter = step(0.45, hash1(band + floor(uTime * 26.0)));
-      float buzz = 0.96 + 0.04 * sin(uTime * 100.0 + band);
-      float on = max(event * stutter, uNeonForce);  // uNeonForce: test hook, every sign mid-flicker
-      col *= mix(1.0, buzz * (1.0 - on * soft * uNeon.x), neonMask * glass);
+      float phase = (t.x * 3.1 + t.y * 1.7) * 6.2832;
+      col *= 1.0 + uNeon.x * sin(uTime * 0.9 + phase) * neonMask * glass;
       col += dropMask * vec3(0.05, 0.05, 0.07);
     }
 

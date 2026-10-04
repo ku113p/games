@@ -3,7 +3,7 @@
 //   - rack focus: depth of field driven by the depth map, focus eases to the hovered prop
 //   - click a prop: push-in, cut to its close-up (Ken Burns drift), action sound; click / Esc / right-click goes back
 //   - hover: glow + rim from the SAM prop masks; hit-testing uses the same masks
-//   - living plate: rain on the window glass (mask only), flickering neon, alive screens, dust in the lamp light, lamp flicker
+//   - living plate: rain on the window glass (mask only), gently breathing neon, alive screens, dust in the lamp light, lamp flicker
 //   - look out of the window: push-in to the street close-up, the rain gets louder
 //   - jack in: VR headset close-up -> confirm -> push into the centre screen, glitch, white flash -> the network
 // Throwaway test code, not the game architecture. Every tuning number lives in config.json.
@@ -148,8 +148,7 @@ const worldMat = new ShaderMaterial({
     uLamp: { value: lampUniform },
     uLampLevel: lampLevel,
     uRain: { value: new Vector4(cfg.rain.scale, cfg.rain.speed, cfg.rain.refraction, cfg.rain.fogLod) },
-    uNeonForce: { value: 0 },
-    uNeon: { value: new Vector4(cfg.rain.neonFlicker, cfg.rain.neonMaskLod, cfg.rain.neonMaskRange[0]!, cfg.rain.neonMaskRange[1]!) },
+    uNeon: { value: new Vector4(cfg.rain.neonBreath, cfg.rain.neonMaskLod, cfg.rain.neonMaskRange[0]!, cfg.rain.neonMaskRange[1]!) },
     uScreenFx: { value: new Vector4(cfg.screensFx.scanline, cfg.screensFx.band, cfg.screensFx.flicker, cfg.screensFx.bandSpeed) },
     uHoverRect: { value: hoverRect },
     uHover: { value: 0 },
@@ -292,6 +291,8 @@ interface Hotspot {
   volume: number
   pushZoom: number
   pan: Vector2
+  center: Vector2 // close-up framing
+  zoom: number
   duck: number
   rain: number
 }
@@ -317,6 +318,8 @@ const hotspots: Hotspot[] = cfg.hotspots.map((h, i) => {
     volume: h.volume,
     pushZoom: h.pushZoom,
     pan: v2(h.pan),
+    center: v2(h.center),
+    zoom: h.zoom,
     duck: h.duck,
     rain: h.rain,
   }
@@ -448,6 +451,8 @@ const lamp = { next: 3, left: 0 }
 function setState(s: State): void {
   state = s
   stateT = 0
+  canvas.classList.toggle('back', s === 'closeup')
+  if (s !== 'closeup') setOverHeadset(false)
   hintEl.textContent =
     s === 'room' ? 'click a prop · move the mouse to look' : s === 'closeup' ? 'click · Esc · right-click to go back' : ''
 }
@@ -579,6 +584,53 @@ function updateVrView(): void {
   vrDark = v.edgeDark * e
 }
 
+// ------------------------------------------------------------------------------------------------ headset click mask
+// White = the headset and the hands holding it, in close-up image space. Read once on the CPU at load (cold path).
+let vrMask = new Uint8Array(0)
+let vrMaskW = 1
+let vrMaskH = 1
+tex(art(cfg.vr.clickMask), false, (t) => {
+  const px = pixels(t)
+  vrMaskW = px.w
+  vrMaskH = px.h
+  vrMask = new Uint8Array(px.w * px.h)
+  for (let i = 0; i < vrMask.length; i++) vrMask[i] = px.data[i * 4]! > 127 ? 1 : 0
+}).dispose()
+
+/** Is this screen point on the headset, through the current close-up (Ken Burns / lowering) view? */
+function onHeadset(sx: number, sy: number): boolean {
+  if (vrMask.length === 0) return true // mask not read yet: behave like before
+  const px = imageView.x + (sx / innerWidth - 0.5) * (imageFit.x / imageView.z)
+  const py = imageView.y + (sy / innerHeight - 0.5) * (imageFit.y / imageView.z)
+  if (px < 0 || px >= 1 || py < 0 || py >= 1) return false
+  return vrMask[Math.floor(py * vrMaskH) * vrMaskW + Math.floor(px * vrMaskW)] === 1
+}
+
+let overHeadset = false
+function setOverHeadset(on: boolean): void {
+  if (on === overHeadset) return
+  overHeadset = on
+  canvas.classList.toggle('pointer', on)
+  canvas.classList.toggle('back', !on && state === 'closeup')
+  labelEl.textContent = on ? cfg.vr.label : ''
+  labelW = labelEl.offsetWidth
+  labelEl.classList.toggle('on', on)
+  if (on) sound.play('ui_hover', cfg.audio.hover)
+}
+function vrPointer(sx: number, sy: number): void {
+  if (confirmEl.matches(':hover')) return setOverHeadset(false)
+  setOverHeadset(onHeadset(sx, sy))
+  if (overHeadset) placeLabel(sx, sy)
+}
+
+/** Keep the close-up view inside its picture (no black edges). */
+function clampImageView(): void {
+  const hx = imageFit.x / imageView.z / 2
+  const hy = imageFit.y / imageView.z / 2
+  imageView.x = hx >= 0.5 ? 0.5 : Math.min(Math.max(imageView.x, hx), 1 - hx)
+  imageView.y = hy >= 0.5 ? 0.5 : Math.min(Math.max(imageView.y, hy), 1 - hy)
+}
+
 function enterNet(): void {
   setState('net')
   worldU['tImage']!.value = netTex
@@ -624,14 +676,16 @@ window.addEventListener('pointermove', (e) => {
   mouse.px = e.clientX
   mouse.py = e.clientY
   if (state === 'room') setHover(pick(e.clientX, e.clientY))
-  if (hovered) placeLabel(e.clientX, e.clientY)
+  if (hovered || overHeadset) placeLabel(e.clientX, e.clientY)
+  if (state === 'closeup' && active?.name === cfg.jackConfirm.hotspot) vrPointer(e.clientX, e.clientY)
 })
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
   if (state === 'room' && hovered) act(hovered)
   else if (state === 'closeup' && active?.name === cfg.jackConfirm.hotspot) {
-    // the headset: clicking again puts it on (once it is on its way to the face)
-    if (stateT >= cfg.vr.clickArmAt) confirmJack()
+    // on the headset (mask): put it on, once it is on its way to the face; anywhere else: back
+    if (!onHeadset(e.clientX, e.clientY)) back()
+    else if (stateT >= cfg.vr.clickArmAt) confirmJack()
   } else if (state === 'closeup') back()
 })
 window.addEventListener('contextmenu', (e) => {
@@ -766,10 +820,15 @@ function updateState(dt: number): void {
       const settle = easeOutCubic(clamp01(stateT / c.settle))
       const drift = easeInOutSine(clamp01((stateT - c.settle) / c.driftTime))
       const dz = active.name === cfg.tablet.hotspot ? cfg.tablet.driftZoom : c.driftZoom
-      imageView.z = c.startZoom + (c.zoom - c.startZoom) * settle + dz * drift
-      imageView.x = 0.5 + active.pan.x * drift + head.x * cfg.head.closeupLookPan[0]! / imageView.z
-      imageView.y = 0.5 + active.pan.y * drift + head.y * cfg.head.closeupLookPan[1]! / imageView.z
-      if (active.name === cfg.jackConfirm.hotspot) updateVrView()
+      const z0 = c.startZoom * (active.zoom / c.zoom) // the push-in lands a bit closer, then settles out
+      imageView.z = z0 + (active.zoom - z0) * settle + dz * drift
+      imageView.x = active.center.x + active.pan.x * drift + head.x * cfg.head.closeupLookPan[0]! / imageView.z
+      imageView.y = active.center.y + active.pan.y * drift + head.y * cfg.head.closeupLookPan[1]! / imageView.z
+      if (active.name === cfg.jackConfirm.hotspot) {
+        updateVrView()
+        vrPointer(mouse.px, mouse.py) // the headset moves under a still mouse: keep the cursor honest
+      }
+      clampImageView()
       if (active.name === cfg.tablet.hotspot) {
         if (!newsShown && stateT >= cfg.tablet.delay) {
           newsShown = true
@@ -965,9 +1024,6 @@ function hoverByName(name: string | null): void {
   },
   setTime: (t: number) => {
     time.value = t
-  },
-  neonFlicker: (on: number) => {
-    worldU['uNeonForce']!.value = on
   },
   mouse: (x: number, y: number) => {
     mouse.x = x

@@ -124,6 +124,13 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
 - The designer chose H10 (hooded coat) and liked that the sword and the gun are one weapon - the design now has one energy gunblade with two modes.
 - NN1b corridor (Gemini after MAI's filter blocked it), KA3 key art and K3 cover (MAI-2.6-flash), refs H10 + the NN1/KA2 look. KA2 and K2 were deleted.
 
+### Round 10 (2026-10-04): smaller VR, a livelier window
+
+- The VR close-up was too big: CU4f (Gemini recompose of CU4e - held at ~40 cm, half the frame) and CU4g (an edit removing a second headset
+  left on the desk). `CU4g-vr-inside-mask.png` (SlimSAM): the headset with the hands, so only a click on it jacks in.
+- The window showed too little: CU5c (Gemini edit of CU5b) - wider, trashier, full of life. CU4e and CU5b were deleted.
+- The window neon no longer flickers (it read as a broken picture); it only breathes slowly.
+
 ### D. Not now
 
 - Seamless textures for a 3D room/office - not needed: the real world is 2.5D (generated plates, see `DESIGN.md` section 5).

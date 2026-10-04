@@ -9,6 +9,8 @@
         font: 14px/1.4 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; user-select: none; }
       canvas { display: block; width: 100vw; height: 100vh; }
       canvas.pointer { cursor: pointer; }
+      /* close-ups: anywhere that is not the thing goes back - a small "back" arrow cursor */
+      canvas.back { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='12' fill='rgba(0,0,0,0.55)' stroke='%23cfefff' stroke-width='1.5'/%3E%3Cpath d='M17 8 L10 14 L17 20' fill='none' stroke='%23cfefff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 14 14, w-resize; }
 
       #stats { position: fixed; right: 10px; top: 10px; padding: 6px 9px; background: rgba(0, 0, 0, 0.55);
         font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #8fe8ff; white-space: pre; pointer-events: none; }
@@ -94,7 +96,7 @@
       <div class="q">Jack in?</div>
       <button class="btn primary" id="yes">Confirm</button>
       <button class="btn ghost" id="no">Cancel</button>
-      <small>or click again to put it on · Esc cancels</small>
+      <small>click the headset to put it on · click elsewhere to go back</small>
     </div>
     <button class="btn" id="jackout">Jack out</button>
     <div id="hint"></div>

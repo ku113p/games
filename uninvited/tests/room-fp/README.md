@@ -49,21 +49,24 @@ Props: water bottle (drink), noodle shelf (eat), tablet (news), VR headset on th
 - **Noodles** - GPU-animated steam sprites over the cup.
 - **Rain** - drops and trails sliding down the glass with refraction, fogged glass blur except where drops clear it,
   only where the window-glass mask is (feathered inward by sampling a coarser mip), kept subtle (`rain.dropAmount`):
-  the plate already has painted drops. The neon behind flickers now and then. Its mask comes from a heavily blurred
-  sample (`rain.neonMaskLod`) around the refracted coordinate, so a whole sign (white core, coloured rim, glow) dims as one
-  soft blob - no dark outline around a white centre. The flicker band also follows the refracted coordinate and has soft
-  edges, and the drop highlights go on after the flicker, so it stays behind the glass.
+  the plate already has painted drops. The neon behind only breathes slowly (`rain.neonBreath`) - a flicker on the
+  blurred background read as a broken picture, so there are no flicker events. Its mask comes from a heavily blurred sample
+  (`rain.neonMaskLod`) around the refracted coordinate, so a whole sign breathes as one soft blob behind the glass.
 - **Look outside** - the window glass is a hotspot: push-in (the radial blur streams from the window, since the view
-  is clamped to the picture), `CU5b-window.jpg` with a slow drift, the rain loop gets louder.
+  is clamped to the picture), `CU5c-window.jpg` framed a bit high (each hotspot's `center`/`zoom`) so the street, not the
+  control panel at the bottom edge, is the focus, with a slow drift; the rain loop gets louder.
 - **Screens** - scanlines, a scrolling glow line, a small flicker, only on their glowing pixels.
 - **Lamp** - warm pixels follow the lamp level; every few seconds the contact fails for a moment. Dust motes drift in its light
   (GPU-animated points, depth-blurred like the rest).
 - **Post** - vignette, film grain, chromatic aberration at the edges; glitch (row shifts, jumping blocks, RGB split,
   a rolling scanline tear), white flash and black fade for the transitions.
-- **Putting on the VR headset** - click the headset on the desk -> push-in -> `CU4e-vr-inside.jpg` (the inside of the
-  headset) animated as being lowered onto the face: it starts lower and smaller (black around it), rises and grows toward
-  the eyes with a small settle, and the edges darken (`vr.*`). A small "Jack in?" panel sits below the lenses.
-  Confirm with the button, Enter, or by clicking the image again; Cancel / Esc / right-click goes back.
+- **Putting on the VR headset** - click the headset on the desk -> push-in -> `CU4g-vr-inside.jpg` (the headset held in
+  both hands, lenses toward the eyes, the room around it), animated as being raised to the face: it starts at the
+  picture's framing, rises and grows a little with a small settle, and the edges darken (`vr.*`). A small "Jack in?" panel
+  sits below the lenses. A click **on the headset** (incl. the hands; `CU4g-vr-inside-mask.png`, read once on the CPU and
+  mapped through the current close-up view) puts it on, as do the Confirm button and Enter; a click **anywhere else**
+  (the room, the nose gap), Cancel, Esc or right-click goes back. The cursor is a pointer with a "Put it on" label over
+  the headset and a back arrow elsewhere (all close-ups show the back arrow).
 - **Jack in** - on confirm: exponential push into the left lens glow (`vr.lensTarget`, `vr.pushZoom`) with rising glitch, timed so
   the white flash lands on the slam of `jack_in.mp3` (1.565 s) -> the network fades in from white with a glitch settle and a drift.
   Jack out: `jack_out.mp3` glitch burst while the network falls away, black, and on its thump (1.40 s) back in the room.
@@ -87,5 +90,4 @@ transform string, and only when it changes.
 ## Test hooks
 
 `window.__test`: `start()`, `hover(name | null)`, `click(name)`, `confirm()` / `jackIn()`, `back()`, `state()`,
-`timeScale(k)` (0 freezes the animation for screenshots), `setTime(t)`, `neonFlicker(0|1)` (forces every neon sign
-mid-flicker), `mouse(x, y)` (-1..1).
+`timeScale(k)` (0 freezes the animation for screenshots), `setTime(t)`, `mouse(x, y)` (-1..1).

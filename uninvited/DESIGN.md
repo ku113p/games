@@ -100,11 +100,11 @@ The color is the visible hint of the ending counter and has no rules of its own:
 
 ## 5. The real world
 
-Made in **2.5D**, **well**: a generated picture of the scene + shader effects (rain, flickering neon and screens) + clickable props on top. There is no animated character.
+Made in **2.5D**, **well**: a generated picture of the scene + shader effects (rain, slowly breathing neon behind the window, living screens) + clickable props on top. There is no animated character.
 Engine test: this is both realistic and fast (`tests/engine-room/`). Two scenes:
 - **The office (prologue)** - a middle manager's cubicle; reference: the Corpo start of **Cyberpunk 2077**. Done **very well**: it opens the game.
   The office is **enclosed** (a small room, no huge open space) so it does not overload the engine.
-- **The junkyard room** - one ugly little room, truly awful, obviously made of sticks and junk. Futuristic: cables, wiring. Done **fairly well**.
+- **The junkyard room** - one ugly little room, truly awful, obviously made of sticks and junk. Futuristic: electrics, power cords (a wireless era, section 14). Done **fairly well**.
 
 **The real world is seen in first person**: the player looks through Johnny's eyes (in the room and in the office). Johnny himself is drawn minimally or not at all.
 The real world exists so the player identifies with the hero; almost no actions are expected from him here.
@@ -114,10 +114,10 @@ No walking. An action is a click on an object; the response is scripted, with no
 Plus something special between levels: after level 1 - eat from the delivery; after the middle level - news of mass layoffs; in the finale - the parcel (section 4).
 
 **Going into the network** - from the computer: click the wireless VR headset that lies on the desk by the computer, + confirm. No wired headphones.
-The headset is shown not from outside but from inside - as if you are already putting it on. Confirm with a button or by clicking again.
+The headset is shown not from outside but from inside - as if you are already putting it on. You hold the headset in your hands (not filling the screen). Confirm with a button or by clicking the headset itself; a click anywhere else goes back to the room.
 
 **Props in close-up** are the same as in the room (the same bottle, cup, tablet); a prop you pick up is gone from its old place.
-**The view from the window:** near - ruin, poverty and sadness; far away up high, beyond the walls - the rich city's great neon.
+**The view from the window:** near - ruin, poverty and sadness, but a living street too (people, food, couriers, junk); far away up high, beyond the walls - the rich city's great neon.
 
 Why the room: Johnny periodically disconnects from the network and returns to reality - the player must feel that reality is different.
 It is a pause between games: life is bad, but there is some life. Mood: "yes, in the gutter, but really not that bad";
@@ -240,10 +240,10 @@ The hero's look: the designer likes H3 (coat) and H6 (asymmetric), but in the ga
 | What | File | How to read it |
 | --- | --- | --- |
 | Network | `art/generated/NN1-net-corridor.jpg` | a **narrow enclosed corridor**; the designer loves the **matte saturation, slightly cartoony**: cyan lines along the edges, red security - a laser grid, a drone's camera cone, a hack terminal in the wall |
-| Hero in the network | - | `hero-1` is too direct a copy of the Tron suit, rejected. The hero must be **between Tron, Ghostrunner and Cyberpunk**: armor and gear, only some seams glow (white - the color follows the counter, section 4), the helmet hides the face |
+| Hero in the network | `art/generated/H10-hero-hood.jpg` | simple, Tron-like: a form-fitting suit with white neon lines (the color follows the counter, section 4), a hooded coat whose hem breaks into glowing filaments, only the visor glows; an energy gunblade; a holographic wrist display. `hero-1` (a Tron copy) is rejected |
 | Security | `enemy-1.jpg` | glossy black drones with a red ring and a single red eye |
 | Office (prologue) | `art/generated/O3`, `O4`, `OP2`-`OP5` | the new enclosed office - liked; the boss as in `office-1.jpg` |
-| Room | `room-2.jpg`, **but without the garbage** | not a dump but poor: everything cheap, "fourth-rate", home-made; cables, metal, a window with rain and neon |
+| Room | `art/generated/FP4-room-fp.jpg` (first person) | not a dump but poor: everything cheap, "fourth-rate", home-made; power cords only, metal, a window with rain and neon |
 
 ## 15. References
 
