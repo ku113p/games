@@ -56,14 +56,14 @@ Mostly a crowd of weak ones that overwhelm by mass. About 10 % attack from range
 ## 6. Levels
 
 - **Levels: L1, L2 and the roof** (the designer, 2026-10-05), 3-5 minutes each. Floors differ by **how the monsters come**, not by a separate style.
-- **Every level brings an enemy not seen before.** ❓ Which where (the agent's proposal: L1 - rats, zombies, bats, witches; L2 - + spiders, skeletons, ghosts, gremlins; the roof - + beetles and tanks).
+- **Every level brings an enemy not seen before:** L1 - rats, zombies, bats, witches; L2 - + spiders, skeletons, ghosts, gremlins; the roof - + beetles and tanks.
 - **L1 - the hall.** A wide hall: the tutorial, then the first raids; it slowly prepares you to leave into the corridor. The end of L1: leave the hall through a corridor up to the second floor; the corridor is harder, faster reactions.
 - **L2 - the second floor.** Corridors, real small rooms, the library. The key moment: a corridor so packed you cannot just walk through - you must **cut your way forward with the sword** while a hard-to-kill wave pushes from behind; you keep going deeper.
 - **If there is time - an L3 before the finale:** the hero falls down into the cellar (below ground), and there it is total hell too.
 - **The finale - the roof.** Hold out: monsters climb from everywhere, the spawn points multiply, you fall back to the centre. At first the helicopter is **gone** - someone already flew off in it. Then the helicopter sound slowly approaches ("is someone really coming for me?"). It saves you when there is no time left at all. Reference: the last mission of Warcraft III - at first you are in control, by the end it is total hell, and only the timer saves you.
   - **The timer is hidden.** On death only a percentage shows: "you got 80 % of the way".
 - Broken doors the monsters come through are impassable (burning, collapsed, webs, roots). Windows are visible. Fun antourage: hunter portraits, trophies, weapons on the walls.
-- **The L1 layout - option A "Long Hall"** (the designer, 2026-10-05; sketch `art/halloween/L1-A-long-hall.jpg`). A 28 x 52 m hall on one axis. The letter draws the player to the front door, the horde enters there; the retreat goes through **clear fallback lines** (fallen chandelier -> overturned table -> dais), a medkit behind each. On the dais - the **portcullis crank** under pressure. Then the hunters' gallery narrows to 4 m (a pinch: front and back). ~~The tank breaks the wall out of the burning kitchen~~ - no tank in L1 (the designer, 2026-10-05); ❓ what replaces this moment before the stairs. Up the stairs -> L2. About 4:20. Stages (restart points): start, C1, C2, C3.
+- **The L1 layout - option A "Long Hall"** (the designer, 2026-10-05; sketch `art/halloween/L1-A-long-hall.jpg`). A 28 x 52 m hall on one axis. The letter draws the player to the front door, the horde enters there; the retreat goes through **clear fallback lines** (fallen chandelier -> overturned table -> dais), a medkit behind each. On the dais - the **portcullis crank** under pressure. Then the hunters' gallery narrows to 4 m (a pinch: front and back). Before the stairs **a zombie horde breaks the wall out of the burning kitchen** - a pinch from two sides (no tank in L1). Up the stairs -> L2. About 4:20. Stages (restart points): start, C1, C2, C3.
 - **Who is in L1:** rats, zombies, bats, **about 4 ranged** (witches; gremlins allowed too) - not bosses, they just shoot now and then and get in the way - no tank. Spiders, beetles, skeletons, ghosts and gremlins are not cut: they come on later floors (or in L1 if the designer says so).
 - **The portcullis crank** (the designer set the goal, the agent the details): crank it and the portcullis rises; at an unpredictable moment a wave comes - it must be sudden and stressful. The agent's proposal: the crank has ratchet stops (every ~25 %); let go between stops and the portcullis slowly slides back to the previous stop. The player chooses when to drop the crank and fight and when to reach the next stop. The wave comes at a random moment within a segment, from different sides.
 
@@ -98,7 +98,5 @@ WASD move, mouse camera, LMB sword (shot while aiming), RMB (hold) aim, R reload
 
 ## 12. Open questions
 
-1. Which new enemy on which level (section 6).
-2. Music - pick the style from samples (section 10).
-3. What replaces the tank at the end of L1 (was: breaks the wall out of the kitchen) - section 6.
+1. Music - pick the style from samples (section 10).
 
