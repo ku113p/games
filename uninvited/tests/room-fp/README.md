@@ -7,7 +7,7 @@ Throwaway test for DESIGN.md section 5: the junkyard room seen through Johnny's 
 
 ```sh
 cd uninvited
-bun --port 3325 tests/room-fp/index.html     # then open http://localhost:3325/
+bun run test:room     # then open http://localhost:3325/ (production mode: no Bun error overlay)
 bunx tsc --noEmit -p .                       # type-check
 ```
 

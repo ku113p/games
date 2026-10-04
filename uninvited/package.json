@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "spike": "bun --port 3320 spike/index.html",
-    "spike:build": "bun build spike/index.html --outdir dist/spike --minify"
+    "spike:build": "bun build spike/index.html --outdir dist/spike --minify",
+    "test:room": "bun tools/serve.ts 3325 tests/room-fp/index.html",
+    "test:engine-room": "bun tools/serve.ts 3323 tests/engine-room/index.html"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",
