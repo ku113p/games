@@ -48,8 +48,26 @@
       "sensitivity": 0.0022, "minPitch": -0.45, "maxPitch": 1.15, "startPitch": 0.22,
       "followLerp": 16, "collisionPad": 0.25, "minDistance": 0.7, "aimRange": 60
     },
-    "bloom": { "strength": 0.7, "radius": 0.25, "threshold": 0.82 },
-    "fog": { "color": "#010409", "density": 0.04 },
+    "bloom": { "strength": 0.8, "radius": 0, "threshold": 0.7, "factors": [1.0, 0.5, 0.22, 0.08, 0.03], "scale": 1 },
+    "fog": { "color": "#000204", "density": 0.03 },
+    "post": {
+      "exposure": 1.0, "blackPoint": 0.0015, "shoulder": 0.7, "saturation": 1.15, "vignette": 0.55, "chroma": 0.0012,
+      "alarmEdge": 0.25, "alarmHz": 1.1, "edgeRed": [0.9, 0.02, 0.03],
+      "scanTint": [0.55, 1.0, 1.2], "scanLift": 0.01, "scanLines": 0.1
+    },
+    "light": { "hemi": 0.3, "envStrips": 0.8 },
+    "corridor": {
+      "seamRadius": 0.028, "ribRadius": 0.022, "seamIntensity": 1.0, "ribIntensity": 0.75,
+      "wallSpill": 0.004, "wallSheen": 0.012, "floorNear": 0.004, "floorGrid": 0.0,
+      "reflect": 0.8, "reflectScale": 0.5, "reflectBlur": 0.004,
+      "alarmWaveLen": 9, "alarmWaveSpeed": 9, "alarmWall": 0.02, "alarmLow": 0.15, "alarmDim": 0.35
+    },
+    "cones": {
+      "rays": 48, "updateHz": 20, "marginDeg": 10, "moveSnap": 0.3,
+      "floorFill": 0.025, "floorRays": 0.22, "floorRim": 0.45, "floorRings": 0.08,
+      "lineWidth": 0.018, "raysPerRadian": 14, "ringGap": 2.4, "ringSpeed": 1.2,
+      "volumeFill": 0.004, "volumeEdge": 0.03, "volumeNear": [1.0, 5.0]
+    },
     "colors": {
       "wall": "#03060a", "floor": "#020408",
       "seam": [0.25, 1.9, 2.4], "seamDim": [0.07, 0.5, 0.65],

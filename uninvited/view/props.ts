@@ -44,6 +44,7 @@ import {
 } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
 import { palette, type Materials } from './look'
+import { fanSpread, type Sight } from './sight'
 
 const DEG = Math.PI / 180
 const VC = cfgAll.videoCamera
@@ -52,6 +53,13 @@ const MS = cfgAll.motionSensor
 const LZ = cfgAll.laser
 
 const tmpColor = new Color()
+const CAM_SPREAD = fanSpread(VC.halfAngleDeg * DEG, VC.pitchDeg * DEG)
+
+/** Flat floor decals would only double themselves in the floor mirror. */
+function noReflect(m: Mesh): Mesh {
+  m.userData['noReflect'] = true
+  return m
+}
 
 function screenTexture(lines: number, seed: number, tint: string): CanvasTexture {
   const c = document.createElement('canvas')
@@ -168,7 +176,7 @@ export interface Props {
   reset(s: GameState): void
 }
 
-export function buildProps(s: GameState, sim: Sim, mats: Materials): Props {
+export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight): Props {
   const root = new Group()
   const ceiling = levelCeiling(sim)
 
@@ -200,7 +208,7 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials): Props {
     const band = new Mesh(new TorusGeometry(0.27, 0.015, 6, 32), lens)
     band.rotation.x = Math.PI / 2
     pivot.add(body, ring, core, band)
-    const cone = createCone(VC.range, VC.halfAngleDeg * DEG)
+    const cone = createCone(VC.range, VC.halfAngleDeg * DEG, sight.texture)
     cone.mesh.position.z = 0.32
     pivot.add(cone.mesh)
     g.add(pivot)
@@ -233,12 +241,12 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials): Props {
     const floorRing = new Mesh(new RingGeometry(SC.radius - 0.06, SC.radius, 96), floorMat)
     floorRing.rotation.x = -Math.PI / 2
     floorRing.position.set(c.pos.x, floorY, c.pos.z)
-    root.add(floorRing)
+    root.add(noReflect(floorRing))
     const pulseMat = floorMat.clone()
     const pulse = new Mesh(new RingGeometry(0.92, 1, 64), pulseMat)
     pulse.rotation.x = -Math.PI / 2
     pulse.position.set(c.pos.x, floorY + 0.01, c.pos.z)
-    root.add(pulse)
+    root.add(noReflect(pulse))
     return { root: g, rings, ringMat, floorRing, floorMat, pulse, pulseMat }
   })
 
@@ -255,7 +263,7 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials): Props {
     const ring = new Mesh(new RingGeometry(MS.radius - 0.05, MS.radius, 64), ringMat)
     ring.rotation.x = -Math.PI / 2
     ring.position.y = 0.04
-    g.add(puck, light, ring)
+    g.add(puck, light, noReflect(ring))
     root.add(g)
     return { root: g, light, lightMat, ring, ringMat }
   })
@@ -386,7 +394,7 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials): Props {
     const pillarMat = columnMaterial(palette.checkpoint.clone().multiplyScalar(0.2))
     const pillar = new Mesh(new CylinderGeometry(1.5, 1.5, 2.2, 40, 1, true), pillarMat)
     pillar.position.y = 1.1
-    g.add(ring, inner, pillar)
+    g.add(noReflect(ring), noReflect(inner), pillar)
     root.add(g)
     return { root: g, ringMat, pillarMat, flash: 0 }
   })
@@ -445,14 +453,15 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials): Props {
       if (!c.alive) continue
       v.pivot.rotation.y = c.yaw
       v.pivot.rotation.x = VC.pitchDeg * DEG
+      const fan = sight.fan(i, c.pos.x, c.pos.z, c.yaw, CAM_SPREAD, VC.range)
       if (c.pausedTime > 0) {
         tmpColor.copy(palette.paused)
-        v.cone.set(tmpColor, 0.25, time)
+        v.cone.set(tmpColor, 0.25, time, fan)
       } else {
         tmpColor.copy(palette.security).lerp(palette.suspicious, Math.min(1, c.suspicion * 1.5) * (c.suspicion < 1 ? 1 : 0))
         if (c.suspicion >= 1) tmpColor.copy(palette.security)
         const flash = c.sees && c.suspicion >= 1 ? 0.5 + 0.5 * Math.sin(time * 30) : 0
-        v.cone.set(tmpColor, 0.8 + c.suspicion * 1.4 + flash, time)
+        v.cone.set(tmpColor, 0.8 + c.suspicion * 1.4 + flash, time, fan)
       }
       v.lens.color.copy(c.pausedTime > 0 ? palette.paused : palette.security)
     }

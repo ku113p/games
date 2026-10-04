@@ -80,7 +80,7 @@ All balance numbers live in `config.json`.
 core/       pure, deterministic rules: state, commands (return events), queries, rules/*, level + grid, save, tests
 core/hack/  the hacking mini-game core
 adapters/   Rapier physics (the core's World port) and localStorage saves
-view/       Three.js scene, HUD, audio, the placeholder hero (view/hero.ts)
+view/       Three.js scene, HUD, audio, the hero (view/hero.ts, model assets/models/hero.glb built by tools/hero/build.py)
 input/      keyboard + mouse
 levels/     level data
 texts/      UI strings (en.json)

@@ -6,9 +6,11 @@ import type { GameState } from '../core/state'
 import { drones, gameTime } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
 import { palette, type Materials } from './look'
+import { DRONE_KEY, fanSpread, type Sight } from './sight'
 
 const D = cfgAll.drone
 const DEG = Math.PI / 180
+const SPREAD = fanSpread(D.halfAngleDeg * DEG, D.pitchDeg * DEG)
 
 interface DroneView {
   root: Group
@@ -31,7 +33,7 @@ export interface DroneViews {
   update(s: GameState, dt: number, camera: Camera): void
 }
 
-export function buildDrones(s: GameState, mats: Materials): DroneViews {
+export function buildDrones(s: GameState, mats: Materials, sight: Sight): DroneViews {
   const root = new Group()
   const bodyGeo = new SphereGeometry(0.42, 24, 18)
   const discGeo = new TorusGeometry(0.66, 0.08, 10, 40)
@@ -67,7 +69,7 @@ export function buildDrones(s: GameState, mats: Materials): DroneViews {
     const dot = new Mesh(dotGeo, eyeMat)
     dot.position.y = -0.64
     body.add(shell, ring, band, eyeRing, eye, tip, dot)
-    const cone = createCone(D.range, D.halfAngleDeg * DEG)
+    const cone = createCone(D.range, D.halfAngleDeg * DEG, sight.texture)
     cone.mesh.rotation.x = D.pitchDeg * DEG
     cone.mesh.position.z = 0.42
     body.add(cone.mesh)
@@ -75,6 +77,7 @@ export function buildDrones(s: GameState, mats: Materials): DroneViews {
     const sus = new Mesh(arcs[0], susMat)
     sus.position.y = 1.0
     sus.renderOrder = 20
+    sus.userData['noReflect'] = true
     g.add(body, sus)
     g.visible = false
     root.add(g)
@@ -112,7 +115,7 @@ export function buildDrones(s: GameState, mats: Materials): DroneViews {
         v.bandMat.color.copy(paused ? palette.paused : palette.security).multiplyScalar(alert ? 0.9 + 0.5 * Math.sin(time * 12) : 0.7)
         v.ring.rotation.z += dt * (alert ? 8 : 1.5)
         v.cone.mesh.visible = !paused && !spawning
-        v.cone.set(tmp, alert ? 1.6 : 0.7 + d.suspicion * 1.2, time)
+        v.cone.set(tmp, alert ? 1.6 : 0.7 + d.suspicion * 1.2, time, sight.fan(DRONE_KEY + i, d.pos.x, d.pos.z, d.yaw, SPREAD, D.range))
         // suspicion arc above it, facing the camera
         const showSus = !alert && !paused && d.suspicion > 0.02
         v.sus.visible = showSus

@@ -29,11 +29,10 @@ export const palette = {
   fog: new Color(cfgAll.view.fog.color),
 }
 
-/** Shared materials (one instance each, recolored in place when needed). */
+/** Shared materials (one instance each, recolored in place when needed). The corridor lines have their own shader
+ * materials in view/corridors.ts (the alarm waves run along them). */
 export function createMaterials(): Materials {
   return {
-    seam: new MeshBasicMaterial({ color: palette.seam, toneMapped: false }),
-    seamDim: new MeshBasicMaterial({ color: palette.seamDim, toneMapped: false }),
     glossBlack: new MeshStandardMaterial({ color: 0x05070a, metalness: 0.85, roughness: 0.22, envMapIntensity: 1.2 }),
     matteBlack: new MeshStandardMaterial({ color: 0x07090d, metalness: 0.4, roughness: 0.55 }),
     security: new MeshBasicMaterial({ color: palette.security, toneMapped: false }),
@@ -44,8 +43,6 @@ export function createMaterials(): Materials {
 }
 
 export interface Materials {
-  seam: MeshBasicMaterial
-  seamDim: MeshBasicMaterial
   glossBlack: MeshStandardMaterial
   matteBlack: MeshStandardMaterial
   security: MeshBasicMaterial

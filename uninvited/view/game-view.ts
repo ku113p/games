@@ -1,6 +1,6 @@
 // The game view: builds the scene for a level and, every frame, reads the state through queries and reacts to the
 // core's events with animation, sound, shake, hit-stop, sparks, glitches and HUD messages (rule 2).
-import { Color, PointLight, Vector3 } from 'three'
+import { Color, MeshStandardMaterial, PointLight, Vector3, type Mesh, type Object3D } from 'three'
 import cfgAll from '../config.json'
 import type { GameEvent } from '../core/events'
 import {
@@ -36,6 +36,7 @@ import {
   weaponMode,
   type Rgb,
 } from '../core/queries'
+import { floorHeightAt } from '../core/grid'
 import type { GameState, Sim } from '../core/state'
 import { Sound } from './audio'
 import { createCameraRig, type CameraRig, type RayFn } from './camera'
@@ -46,7 +47,9 @@ import { createHero, type HeroView } from './hero'
 import { createHud, t, type Hud, type HudState } from './hud'
 import { createMaterials, palette } from './look'
 import { buildProps, type Props } from './props'
+import { REFLECT_LAYER } from './reflect'
 import { createRenderer, type Renderer } from './renderer'
+import { createSight, DRONE_KEY, fanSpread, type Sight } from './sight'
 
 const V = cfgAll.view
 const J = V.juice
@@ -77,18 +80,44 @@ const coneColor = new Color()
 const sparkWhite = new Color(2.5, 2.6, 2.8)
 const sparkCyan = palette.seam
 const sparkRed = palette.security
+const DEG = Math.PI / 180
+const CAM_SPREAD = fanSpread(cfgAll.videoCamera.halfAngleDeg * DEG, cfgAll.videoCamera.pitchDeg * DEG)
+const DRONE_SPREAD = fanSpread(cfgAll.drone.halfAngleDeg * DEG, cfgAll.drone.pitchDeg * DEG)
+
+/** What glows (and the corridor walls that hide it) shows up in the floor mirror; lit black bodies, tiny bits and
+ * flat floor decals stay out of it - they would only cost draw calls there. Cold path. */
+function markReflective(root: Object3D): void {
+  root.traverse((o) => {
+    if (o.userData['noReflect'] === true) return
+    const mesh = o as Mesh
+    if (mesh.material instanceof MeshStandardMaterial) return
+    // tiny bits (emitter dots, eye cores) are not worth a draw call in a blurred reflection
+    const geo = mesh.geometry
+    if (geo) {
+      if (!geo.boundingSphere) geo.computeBoundingSphere()
+      if ((geo.boundingSphere?.radius ?? 1) * o.scale.x < 0.12) return
+    }
+    o.layers.enable(REFLECT_LAYER)
+  })
+}
 
 export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s: GameState, sim: Sim, ray: RayFn): GameView {
   const r = createRenderer(canvas)
   const mats = createMaterials()
-  const corridors: Corridors = buildCorridors(levelGrid(sim), mats)
+  const grid = levelGrid(sim)
+  const sight: Sight = createSight(grid)
+  const corridors: Corridors = buildCorridors(grid, mats, sight, r.mirror)
   r.scene.add(corridors.root)
-  const props: Props = buildProps(s, sim, mats)
+  const props: Props = buildProps(s, sim, mats, sight)
   r.scene.add(props.root)
-  const droneViews: DroneViews = buildDrones(s, mats)
+  const droneViews: DroneViews = buildDrones(s, mats, sight)
   r.scene.add(droneViews.root)
   const hero: HeroView = createHero()
   r.scene.add(hero.root)
+  markReflective(corridors.root)
+  markReflective(props.root)
+  markReflective(droneViews.root)
+  markReflective(hero.root)
   // a soft key light that travels with the hero so the black suit, drones and cover read against the dark
   const keyLight = new PointLight(0x9fdcff, V.heroLight.intensity, V.heroLight.distance, 1.6)
   r.scene.add(keyLight)
@@ -376,25 +405,32 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const cp = Math.cos((vc.pitchDeg * Math.PI) / 180)
       const sp = Math.sin((vc.pitchDeg * Math.PI) / 180)
       const camCos = Math.cos((vc.halfAngleDeg * Math.PI) / 180)
-      for (const c of videoCameras(st)) {
-        if (!c.alive || c.pausedTime > 0) continue
+      const cams = videoCameras(st)
+      for (let i = 0; i < cams.length; i++) {
+        const c = cams[i]
+        if (!c || !c.alive || c.pausedTime > 0 || nc >= MAX_CONES) continue
         coneColor.copy(palette.security).lerp(palette.suspicious, c.suspicion < 1 ? Math.min(1, c.suspicion * 1.5) : 0)
-        corridors.setCone(nc++, c.pos.x, c.pos.y, c.pos.z, Math.sin(c.yaw) * cp, -sp, Math.cos(c.yaw) * cp, camCos, vc.range, coneColor, 0.9 + c.suspicion)
+        const fan = sight.fan(i, c.pos.x, c.pos.z, c.yaw, CAM_SPREAD, vc.range)
+        corridors.setCone(nc++, c.pos.x, c.pos.y, c.pos.z, Math.sin(c.yaw) * cp, -sp, Math.cos(c.yaw) * cp, camCos, vc.range, coneColor, 0.9 + c.suspicion, fan)
       }
       const dc = cfgAll.drone
       const dp = Math.cos((dc.pitchDeg * Math.PI) / 180)
       const dsp = Math.sin((dc.pitchDeg * Math.PI) / 180)
       const droneCos = Math.cos((dc.halfAngleDeg * Math.PI) / 180)
-      for (const d of drones(st)) {
+      const ds = drones(st)
+      for (let i = 0; i < ds.length; i++) {
+        const d = ds[i]
         if (nc >= MAX_CONES) break
-        if (!d.active || !d.alive || d.pausedTime > 0 || d.spawnTime > 0) continue
+        if (!d || !d.active || !d.alive || d.pausedTime > 0 || d.spawnTime > 0) continue
         coneColor.copy(palette.security).lerp(palette.suspicious, d.mode === 'alert' ? 0 : Math.min(1, d.suspicion * 1.6))
-        corridors.setCone(nc++, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * dp, -dsp, Math.cos(d.yaw) * dp, droneCos, dc.range, coneColor, d.mode === 'alert' ? 1.6 : 0.8 + d.suspicion)
+        const fan = sight.fan(DRONE_KEY + i, d.pos.x, d.pos.z, d.yaw, DRONE_SPREAD, dc.range)
+        corridors.setCone(nc++, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * dp, -dsp, Math.cos(d.yaw) * dp, droneCos, dc.range, coneColor, d.mode === 'alert' ? 1.6 : 0.8 + d.suspicion, fan)
       }
       corridors.setConeCount(nc)
 
       props.update(st, sm, dt)
       droneViews.update(st, dt, r.camera)
+      sight.flush(dt)
       fx.update(dt, st)
 
       // loops by distance to the nearest drone / camera, alarm 3 siren
@@ -420,8 +456,9 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       r.fx.hurt = Math.max(hurt, hpFraction(st, sm) < 0.3 ? 0.25 + 0.1 * Math.sin(time * 6) : 0)
       r.fx.glitch = Math.min(1, glitch)
       r.fx.scan += ((scanActive(st) ? 1 : 0) - r.fx.scan) * Math.min(1, dt * 10)
-      r.fx.alarm = stage >= 3 ? 1 : stage * 0.2
-      corridors.setAlarm(stage >= 3 ? 1 : stage * 0.25, time)
+      r.fx.alarm = stage >= 3 ? 1 : 0
+      corridors.setAlarm(stage >= 3 ? 1 : stage * V.corridor.alarmLow, time, p.x, p.z)
+      r.fx.reflectY = floorHeightAt(grid, p.x, p.z)
 
       // HUD
       const h = hudState

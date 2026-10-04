@@ -2,6 +2,9 @@
 // the outline of the walkable area is traced, its corners are rounded, and a rounded wall profile (floor fillet,
 // wall, ceiling fillet) is swept along it, with continuous light seams along both fillets. Straight corridors get
 // rounded light frames every few metres; height steps get a lit lip. Cold path: built once per level.
+// The look (NN1b): glossy black walls with only a thin glow at the seams, a black floor that mirrors the lines
+// (view/reflect.ts), red fans where the security looks (clipped by view/sight.ts), and at alarm 3 red waves running
+// out along the seams from the hero.
 import {
   BufferAttribute,
   BufferGeometry,
@@ -19,17 +22,61 @@ import {
   UniformsUtils,
   UnsignedByteType,
   Vector2,
+  Vector4,
 } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import cfgAll from '../config.json'
 import { CellKind, floorHeightAt, RampAxis, type Grid } from '../core/grid'
 import { palette, type Materials } from './look'
+import type { Mirror } from './reflect'
+import { SIGHT_GLSL, type Fan, type Sight } from './sight'
+
+const L = cfgAll.view.corridor
+const K = cfgAll.view.cones
 
 const FLOOR_FILLET = 0.32
 const CEIL_FILLET = 0.8
-const SEAM_RADIUS = 0.035
-const RIB_RADIUS = 0.03
+const SEAM_RADIUS = L.seamRadius
+const RIB_RADIUS = L.ribRadius
 const RIB_EVERY = 3
 const STEP = 0.5
+
+/** Red waves running out from the hero along every line at alarm 3: 0..1 at a world point. */
+const ALARM_GLSL = /* glsl */ `
+uniform vec3 uAlarmColor;
+uniform float uAlarm;
+uniform float uTime;
+uniform vec2 uCenter;
+uniform float uWaveLen;
+uniform float uWaveSpeed;
+float alarmWave(vec3 w) {
+  float y = fract((uTime * uWaveSpeed - length(w.xz - uCenter)) / uWaveLen);
+  return smoothstep(0.0, 0.03, y) * (1.0 - smoothstep(0.03, 0.55, y));
+}`
+
+const LINE_VERT = /* glsl */ `
+varying vec3 vWorld;
+#include <fog_pars_vertex>
+void main() {
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vWorld = w.xyz;
+  vec4 mvPosition = viewMatrix * w;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`
+
+const LINE_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform float uAlarmDim;
+varying vec3 vWorld;
+${ALARM_GLSL}
+#include <fog_pars_fragment>
+void main() {
+  // under alarm the cyan steps back a little so the red waves read
+  float k = uAlarm * alarmWave(vWorld);
+  gl_FragColor = vec4(mix(uColor * (1.0 - uAlarm * uAlarmDim), uAlarmColor, k), 1.0);
+  #include <fog_fragment>
+}`
 
 const WALL_VERT = /* glsl */ `
 attribute vec2 aH;
@@ -50,25 +97,24 @@ void main() {
 const WALL_FRAG = /* glsl */ `
 uniform vec3 uBase;
 uniform vec3 uSeam;
-uniform vec3 uAlarmColor;
-uniform float uAlarm;
-uniform float uTime;
+uniform float uSpill;
+uniform float uSheen;
+uniform float uAlarmWall;
 varying vec2 vH;
 varying vec3 vNormalW;
 varying vec3 vWorld;
+${ALARM_GLSL}
 #include <fog_pars_fragment>
 void main() {
-  // glow spilling from the seams onto the glossy wall, a little sheen in between
-  float bottom = exp(-vH.x * 3.2);
-  float top = exp(-vH.y * 2.6);
+  // glossy black: a thin glow right at the seams, a faint cold sheen at grazing angles, darkness in between
+  float bottom = exp(-vH.x * 9.0);
+  float top = exp(-vH.y * 6.0);
   vec3 viewDir = normalize(cameraPosition - vWorld);
-  float fres = pow(1.0 - max(dot(viewDir, normalize(vNormalW)), 0.0), 3.0);
-  float streak = 0.5 + 0.5 * sin(vWorld.y * 1.3 + (vWorld.x + vWorld.z) * 0.15);
-  vec3 c = uBase * (0.8 + 0.4 * streak);
-  c += uSeam * (bottom * 0.035 + top * 0.018);
-  c += uSeam * fres * 0.01;
-  float pulse = 0.65 + 0.35 * sin(uTime * 5.0 - vWorld.y * 0.8);
-  c += uAlarmColor * uAlarm * (0.05 + 0.1 * bottom + 0.04 * fres) * pulse;
+  float fres = pow(1.0 - max(dot(viewDir, normalize(vNormalW)), 0.0), 5.0);
+  vec3 c = uBase;
+  c += uSeam * uSpill * (bottom + 0.5 * top);
+  c += uSeam * uSheen * fres;
+  c += uAlarmColor * uAlarm * uAlarmWall * alarmWave(vWorld) * (bottom + top);
   gl_FragColor = vec4(c, 1.0);
   #include <fog_fragment>
 }`
@@ -89,16 +135,26 @@ uniform sampler2D uWalls;
 uniform vec2 uSize;
 uniform vec3 uBase;
 uniform vec3 uSeam;
-uniform vec3 uAlarmColor;
-uniform float uAlarm;
-uniform float uTime;
 uniform float uCell;
+uniform float uNear;
+uniform float uGrid;
+uniform sampler2D uReflect;
+uniform mat4 uReflectMatrix;
+uniform vec2 uReflectPlane;
+uniform float uReflectAmt;
+uniform float uReflectBlur;
+uniform sampler2D uFans;
 uniform int uConeCount;
 uniform vec3 uConePos[MAX_CONES];
 uniform vec3 uConeDir[MAX_CONES];
 uniform vec3 uConeColor[MAX_CONES];
-uniform vec2 uConeShape[MAX_CONES];
+uniform vec3 uConeShape[MAX_CONES];
+uniform vec4 uConeFan[MAX_CONES];
+uniform vec4 uFanLook;
+uniform vec4 uFanLines;
 varying vec3 vWorld;
+${ALARM_GLSL}
+${SIGHT_GLSL}
 #include <fog_pars_fragment>
 float gridLine(vec2 p, float width) {
   vec2 g = abs(fract(p - 0.5) - 0.5) / fwidth(p);
@@ -107,14 +163,27 @@ float gridLine(vec2 p, float width) {
 void main() {
   vec2 uv = vWorld.xz / uSize;
   float wall = texture2D(uWalls, uv).r;
-  // reflection of the wall seams on the glossy floor, strongest right at the wall
-  float near = smoothstep(0.08, 0.55, wall);
-  float lines = gridLine(vWorld.xz / uCell, 0.9);
+  float near = smoothstep(0.3, 0.46, wall);
   vec3 c = uBase;
-  c += uSeam * near * 0.025;
-  c += uSeam * lines * 0.008 * (1.0 - near);
-  c += uAlarmColor * uAlarm * (0.012 + near * 0.04) * (0.7 + 0.3 * sin(uTime * 5.0));
-  // where the security looks: a red fan on the floor (NN1b)
+  c += uSeam * near * uNear;
+  c += uSeam * gridLine(vWorld.xz / uCell, 0.9) * uGrid * (1.0 - near);
+  // the glossy floor mirrors the lines: a streaky blur along the screen's vertical, stronger at grazing angles
+  float onPlane = uReflectPlane.y * (1.0 - smoothstep(0.03, 0.12, abs(vWorld.y - uReflectPlane.x)));
+  if (onPlane > 0.0) {
+    vec4 pc = uReflectMatrix * vec4(vWorld, 1.0);
+    vec2 ruv = pc.xy / pc.w;
+    vec2 o = vec2(0.0, uReflectBlur);
+    vec3 r = texture2D(uReflect, ruv).rgb * 0.3;
+    r += (texture2D(uReflect, ruv + o).rgb + texture2D(uReflect, ruv - o).rgb) * 0.2;
+    r += (texture2D(uReflect, ruv + o * 2.5).rgb + texture2D(uReflect, ruv - o * 2.5).rgb) * 0.15;
+    vec3 viewDir = normalize(cameraPosition - vWorld);
+    float fres = 0.25 + 0.75 * pow(1.0 - max(viewDir.y, 0.0), 4.0);
+    c += r * uReflectAmt * fres * onPlane;
+  }
+  // where the security looks: a red fan on the floor (NN1b), cut off where a wall is in the way. Its lines (rays,
+  // rim, travelling rings) keep a constant width in metres, antialiased by the pixel footprint.
+  float px = length(fwidth(vWorld.xz)) * 0.7 + 1e-4;
+  float lw = uFanLines.x;
   for (int i = 0; i < MAX_CONES; i++) {
     if (i >= uConeCount) break;
     vec3 d = vWorld - uConePos[i];
@@ -124,15 +193,29 @@ void main() {
     if (l > range) continue;
     float cs = dot(d / l, uConeDir[i]);
     if (cs < cosHalf) continue;
-    float inside = smoothstep(cosHalf, cosHalf + 0.015, cs);
-    float fade = pow(1.0 - l / range, 0.7);
+    float vis = 1.0;
+    float fv = uConeShape[i].z;
+    if (fv >= 0.0) {
+      vec2 dd = vWorld.xz - uConeFan[i].xy;
+      float seen = sightAt(uFans, uConeFan[i], fv, dd);
+      vis = 1.0 - smoothstep(seen - 0.012, seen + 0.004, length(dd) / range);
+      if (vis <= 0.0) continue;
+    }
+    float hl = length(d.xz);
+    float fade = pow(1.0 - l / range, 0.6);
     vec2 h = normalize(uConeDir[i].xz + vec2(1e-4));
-    vec2 q = normalize(d.xz + vec2(1e-4));
+    vec2 q = d.xz / max(hl, 1e-4);
     float ang = atan(h.x * q.y - h.y * q.x, dot(h, q));
-    float rays = smoothstep(0.82, 0.95, abs(sin(ang * 30.0)));
-    float rings = smoothstep(0.9, 1.0, sin(l * 3.0 - uTime * 3.0));
-    c += uConeColor[i] * inside * fade * (0.05 + 0.10 * rays + 0.05 * rings);
+    float f = ang * uFanLines.y;
+    float rays = 1.0 - smoothstep(lw, lw + px, abs(fract(f) - 0.5) / uFanLines.y * hl);
+    float rimM = (cs - cosHalf) / sqrt(max(1.0 - cosHalf * cosHalf, 1e-4)) * l;
+    float rim = 1.0 - smoothstep(lw * 1.5, lw * 1.5 + px, rimM);
+    float rp = fract((l - uTime * uFanLines.w) / uFanLines.z) * uFanLines.z;
+    float rings = 1.0 - smoothstep(lw, lw + px, min(rp, uFanLines.z - rp));
+    float inside = smoothstep(0.0, px, rimM);
+    c += uConeColor[i] * vis * fade * (inside * (uFanLook.x + uFanLook.y * rays + uFanLook.w * rings) + uFanLook.z * rim);
   }
+  c += uAlarmColor * uAlarm * near * uNear * 4.0 * alarmWave(vWorld);
   gl_FragColor = vec4(c, 1.0);
   #include <fog_fragment>
 }`
@@ -345,13 +428,14 @@ function coneArr<T>(make: () => T): T[] {
 
 export interface Corridors {
   root: Group
-  setAlarm(level: number, time: number): void
-  /** Floor fans of the view cones: fill slot i, then set the count. */
-  setCone(i: number, px: number, py: number, pz: number, dx: number, dy: number, dz: number, cosHalf: number, range: number, color: Color, strength: number): void
+  /** Once a frame: alarm 0..1 (the red waves along the lines), the time, where the waves start (xz). */
+  setAlarm(level: number, time: number, cx: number, cz: number): void
+  /** Floor fans of the view cones: fill slot i (with the device's sight fan), then set the count. */
+  setCone(i: number, px: number, py: number, pz: number, dx: number, dy: number, dz: number, cosHalf: number, range: number, color: Color, strength: number, fan: Fan): void
   setConeCount(n: number): void
 }
 
-export function buildCorridors(g: Grid, mats: Materials): Corridors {
+export function buildCorridors(g: Grid, mats: Materials, sight: Sight, mirror: Mirror): Corridors {
   const root = new Group()
   const C = g.ceiling
   const walls = new GeoBuilder()
@@ -597,16 +681,34 @@ export function buildCorridors(g: Grid, mats: Materials): Corridors {
     }
   }
   // materials
+  const alarmUniforms = (): Record<string, { value: unknown }> => ({
+    uAlarmColor: { value: palette.security.clone() },
+    uAlarm: { value: 0 },
+    uTime: { value: 0 },
+    uCenter: { value: new Vector2() },
+    uWaveLen: { value: L.alarmWaveLen },
+    uWaveSpeed: { value: L.alarmWaveSpeed },
+  })
+  const lineMat = (intensity: number): ShaderMaterial =>
+    new ShaderMaterial({
+      uniforms: UniformsUtils.merge([UniformsLib.fog, { uColor: { value: palette.seam.clone().multiplyScalar(intensity) }, uAlarmDim: { value: L.alarmDim } }, alarmUniforms()]),
+      vertexShader: LINE_VERT,
+      fragmentShader: LINE_FRAG,
+      fog: true,
+    })
+  const seamMat = lineMat(L.seamIntensity)
+  const ribMat = lineMat(L.ribIntensity)
   const wallMat = new ShaderMaterial({
     uniforms: UniformsUtils.merge([
       UniformsLib.fog,
       {
         uBase: { value: new Color().copy(palette.wall) },
         uSeam: { value: palette.seam.clone() },
-        uAlarmColor: { value: palette.security.clone() },
-        uAlarm: { value: 0 },
-        uTime: { value: 0 },
+        uSpill: { value: L.wallSpill },
+        uSheen: { value: L.wallSheen },
+        uAlarmWall: { value: L.alarmWall },
       },
+      alarmUniforms(),
     ]),
     vertexShader: WALL_VERT,
     fragmentShader: WALL_FRAG,
@@ -626,58 +728,79 @@ export function buildCorridors(g: Grid, mats: Materials): Corridors {
         uSize: { value: new Vector2(g.cols * g.cell, g.rows * g.cell) },
         uBase: { value: new Color().copy(palette.floor) },
         uSeam: { value: palette.seam.clone() },
-        uAlarmColor: { value: palette.security.clone() },
-        uAlarm: { value: 0 },
-        uTime: { value: 0 },
         uCell: { value: g.cell },
+        uNear: { value: L.floorNear },
+        uGrid: { value: L.floorGrid },
+        uReflect: { value: null },
+        uReflectMatrix: { value: null },
+        uReflectPlane: { value: null },
+        uReflectAmt: { value: L.reflect },
+        uReflectBlur: { value: L.reflectBlur },
+        uFans: { value: null },
         uConeCount: { value: 0 },
         uConePos: { value: coneArr(() => new Vector3()) },
         uConeDir: { value: coneArr(() => new Vector3()) },
         uConeColor: { value: coneArr(() => new Vector3()) },
-        uConeShape: { value: coneArr(() => new Vector2()) },
+        uConeShape: { value: coneArr(() => new Vector3()) },
+        uConeFan: { value: coneArr(() => new Vector4()) },
+        uFanLook: { value: new Vector4(K.floorFill, K.floorRays, K.floorRim, K.floorRings) },
+        uFanLines: { value: new Vector4(K.lineWidth, K.raysPerRadian, K.ringGap, K.ringSpeed) },
       },
+      alarmUniforms(),
     ]),
     defines: { MAX_CONES },
     vertexShader: FLOOR_VERT,
     fragmentShader: FLOOR_FRAG,
     fog: true,
   })
+  // textures and the mirror matrix are shared by reference (UniformsUtils.merge would clone them)
   ;(floorMat.uniforms['uWalls'] as { value: unknown }).value = tex
+  ;(floorMat.uniforms['uReflect'] as { value: unknown }).value = mirror.texture
+  ;(floorMat.uniforms['uReflectMatrix'] as { value: unknown }).value = mirror.matrix
+  ;(floorMat.uniforms['uFans'] as { value: unknown }).value = sight.texture
+  ;(floorMat.uniforms['uReflectPlane'] as { value: unknown }).value = mirror.plane
 
   root.add(new Mesh(walls.build(true), wallMat))
-  root.add(new Mesh(floor.build(false), floorMat))
-  root.add(new Mesh(seams.build(false), mats.seam))
-  root.add(new Mesh(ribs.build(false), mats.seamDim))
+  const floorMesh = new Mesh(floor.build(false), floorMat)
+  floorMesh.userData['noReflect'] = true
+  root.add(floorMesh)
+  root.add(new Mesh(seams.build(false), seamMat))
+  root.add(new Mesh(ribs.build(false), ribMat))
 
   // the ceiling
   const ceil = new Mesh(new PlaneGeometry(g.cols * g.cell, g.rows * g.cell), new MeshBasicMaterial({ color: 0x010306 }))
   ceil.rotation.x = Math.PI / 2
   ceil.position.set((g.cols * g.cell) / 2, C, (g.rows * g.cell) / 2)
+  ceil.userData['noReflect'] = true
   root.add(ceil)
-
 
   const fu = floorMat.uniforms as Record<string, { value: unknown }>
   const conePos = fu['uConePos']?.value as Vector3[]
   const coneDir = fu['uConeDir']?.value as Vector3[]
   const coneColor = fu['uConeColor']?.value as Vector3[]
-  const coneShape = fu['uConeShape']?.value as Vector2[]
+  const coneShape = fu['uConeShape']?.value as Vector3[]
+  const coneFan = fu['uConeFan']?.value as Vector4[]
+  const alarmMats = [seamMat, ribMat, wallMat, floorMat]
   return {
     root,
-    setCone(i, px, py, pz, dx, dy, dz, cosHalf, range, color, strength): void {
+    setCone(i, px, py, pz, dx, dy, dz, cosHalf, range, color, strength, fan): void {
       if (i >= MAX_CONES) return
       ;(conePos[i] as Vector3).set(px, py, pz)
       ;(coneDir[i] as Vector3).set(dx, dy, dz)
       ;(coneColor[i] as Vector3).set(color.r * strength, color.g * strength, color.b * strength)
-      ;(coneShape[i] as Vector2).set(cosHalf, range)
+      ;(coneShape[i] as Vector3).set(cosHalf, range, fan.v)
+      ;(coneFan[i] as Vector4).set(fan.ox, fan.oz, fan.yaw, fan.spread)
     },
     setConeCount(n: number): void {
       ;(fu['uConeCount'] as { value: number }).value = Math.min(MAX_CONES, n)
     },
-    setAlarm(level: number, time: number): void {
-      ;(wallMat.uniforms['uAlarm'] as { value: number }).value = level
-      ;(wallMat.uniforms['uTime'] as { value: number }).value = time
-      ;(floorMat.uniforms['uAlarm'] as { value: number }).value = level
-      ;(floorMat.uniforms['uTime'] as { value: number }).value = time
+    setAlarm(level: number, time: number, cx: number, cz: number): void {
+      for (let k = 0; k < alarmMats.length; k++) {
+        const m = alarmMats[k] as ShaderMaterial
+        ;(m.uniforms['uAlarm'] as { value: number }).value = level
+        ;(m.uniforms['uTime'] as { value: number }).value = time
+        ;(m.uniforms['uCenter']?.value as Vector2).set(cx, cz)
+      }
     },
   }
 }
