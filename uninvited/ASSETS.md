@@ -144,6 +144,13 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
   NF4's hex modules are the cover and detail kit everywhere; accents - L2 NF2's neuromorphic growths, L3 NF3's quantum core as the
   landmark and NF7's vault for the finale. Kept: NF2, NF3, NF4, NF6, NF7; NF1 and NF5 were deleted.
 
+### Round 13 (2026-10-04): enemies
+
+- The designer: drones only watch (and shoot very weakly), wardens watch and attack, worms crush by mass, turrets hold points; the
+  in-game wardens looked like "square logs". EM1-3 drones, EW1-3 wardens, ET1-3 turrets (Gemini, ref NN1b for the look, a three-view
+  sheet each). **Chosen (the agent's recommendation, accepted):** EM1 lens drone, EW1 slender sentinel (EW2 enforcer as the heavy
+  warden in waves), ET1 hex pylon turret. Kept: EM1, EW1, EW2, ET1; the rest were deleted.
+
 ### D. Not now
 
 - Seamless textures for a 3D room/office - not needed: the real world is 2.5D (generated plates, see `DESIGN.md` section 5).

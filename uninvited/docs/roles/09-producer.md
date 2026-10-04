@@ -1,0 +1,189 @@
+# Producer guide - Uninvited
+
+The producer (jam strategist, with a technical director's eye) owns **whether the game ships, whole, on time, and loads on a
+judge's machine**. That covers the day plan, the cut order and the feature freeze, the risk list, the performance budget, the
+itch build and page, credits and licences, and how the humans and agents split the work. Files touched: `PLAN.md` (the day
+plan and cut order), `CREDITS.md`, `package.json` scripts (build, check, a future `scripts/build-itch.ts`), the
+`view.*` performance numbers in `config.json` (`pixelRatioMax`, `bloom`), `view/perf.ts` (the F3 overlay),
+`core/save.ts` (save versioning), and `dist/uninvited/`. Deadline: **2026-10-12 21:00 UTC**; we submit the morning of 10-12.
+
+## Principles
+
+- **Score on the categories that are judged.** GameDev.tv Halloween Jam 2026 rates 1-5 on Fun, Theme, Aesthetics, Music,
+  Sound, Mechanics, Story (past jams added Overall). Three of seven (Music, Sound, Story) are content, not gameplay: a finished
+  story with music outweighs more polished combat. Using the theme in the design "boosts your score". Fixes after the deadline
+  are allowed if the original stays visible and marked. -
+  [GameDev.tv Halloween Jam 2026](https://itch.io/jam/gamedevtv-halloween-jam-2026),
+  [GameDev.tv Jam 2025 rate page](https://itch.io/jam/gamedevtv-jam-2025/rate/3570307)
+- **The theme is judged, not the genre.** The theme is "Uninvited". It has to read in the first minutes: on the itch page,
+  in the prologue and in May's first line, not only at the end. - same jam page
+- **Draw calls are the first budget in three.js.** Aim for ~100 per frame; above ~200 optimise. Instancing or batching cuts
+  90%+; small textures (KTX2); trim post effects on weak devices; dispose what you drop. -
+  [100 Three.js Tips That Actually Improve Performance (2026)](https://www.utsubo.com/blog/threejs-best-practices-100-tips),
+  [How do you optimize three.js performance for mobile devices](https://digitalstrategyforce.com/journal/how-do-you-optimize-threejs-performance-for-mobile-devices/)
+- **itch HTML5 rules.** A zip with `index.html` at the root (a nested one will not load), relative paths, the viewport size
+  set on the page, the Fullscreen button ticked. - [itch.io HTML5 docs](https://itch.io/docs/creators/html5),
+  [Publishing on itch](https://abratabia.com/publishing-web-games/publishing-on-itch.php)
+- **Pointer lock and fullscreen depend on the parent iframe.** Handle a refusal gracefully. -
+  [Iframe embedding games](https://app.cinevva.com/tutorials/iframe-embedding-games)
+- **Cut early, timebox every feature.** Sort into must / should / could / won't; give each feature a time limit. -
+  [The Best Workflow for Cutting Game Features](https://www.wayline.io/blog/best-workflow-cutting-game-features),
+  [Solving scope creep in your first game jam](https://www.wayline.io/blog/solving-scope-creep-first-game-jam)
+- **Playtest early and often**, even five minutes. -
+  [Indie Dev Stories: Focused Scope](https://www.wayline.io/blog/indie-dev-stories-focused-scope),
+  [Post Mortem for Spooky 2D Jam '21](https://loonworks.itch.io/this-old-haunt/devlog/307875/post-mortem-for-spooky-2d-jam-21)
+- **Reviewer's experience (no source):** always keep an end-to-end playable build; freeze features 2-3 days before
+  submission; judges play 5-15 minutes, so the first 2 minutes and the ending decide the score; it must load fast.
+
+## Decisions for Uninvited
+
+DESIGN.md is the source of truth. Where the 2026-10-04 review disagrees with it, DESIGN.md wins and this guide follows it.
+
+- **Length: a ~20-minute game** - about 5 minutes per level and about 5 minutes for all real-world scenes together; L1 is
+  cut down to fit (DESIGN 6, "Length changed"). This replaces PLAN's 8-15 minute levels and the review's "L2/L3 short".
+- **Theme without Halloween dressing** - no pumpkins, ghosts or Halloween palette; the story carries "Uninvited" (DESIGN 14).
+  The review agreed.
+- **May's tree is small** - 2 actives (pause a camera, a distraction signal) and 3 passives (shield/regen, more charges, more
+  hack time), each costing points; "take over a sentry" and the helper turret are **cut** (DESIGN 10). The review asked for
+  "2 skills only"; the designer kept 2 + 3 passives.
+- **Waves stay big (4-15+)** - the designer's requirement (DESIGN 8, 9). The review's cut "4-15 -> 4-8" is **overruled**; the
+  pressure is made fair with attack tokens instead (`config.tokens`: bite 3, melee 1, ranged 2). If FPS fails, lower the
+  concurrent caps (`worm.max` 24, `drone.maxExtra` 10), not the design.
+- **Turrets** - one type, ET1, sparingly: L1's core arena and the L3 finale (DESIGN 8).
+- **Endings** - an explicit choice in L3, quiet endings; the counter is pressure, not the verdict, and no longer cascades
+  (DESIGN 4). Already in `core/rules/progress.ts`.
+- **Non-lethal takedown** from behind a warden with E (DESIGN 8) - decided, not built yet.
+- **Music** - Ghostrunner-like darksynth, generated (DESIGN 13). The music system already layers stems in one tempo and key
+  (`tools/music/build.ts`: 120 BPM, D minor; placeholders `net_calm`, `net_tension`, `net_combat`).
+- **Build** - `bun run build` -> `dist/uninvited/`, zipped for itch with `index.html` at the root; never through the
+  GitHub Pages workflow (that one serves `first-games/`).
+- **Budget** - OpenRouter $10, key expires **2026-10-11**: every generated asset must be in the repo before then (PLAN 5).
+
+## Rules of thumb and metrics
+
+### The day plan, 10-05 .. 10-12 (for the ~20-minute game)
+
+The evening question every day: **can someone play it from the menu to an ending right now?** If not, that is the next task.
+
+| Day | Goal | Done when |
+| --- | --- | --- |
+| Sun 10-05 | The **skeleton flow** with stubs: menu -> prologue stub -> room stub -> L1 -> room -> L2 stub -> L3 stub -> choice -> ending. Cut L1 to ~5 min. Combat feel timeboxed to the afternoon. Draft all story text (~1200 words) into `texts/en.json`. Generate the music. | A stub run reaches an ending; the designer has the text to edit. |
+| Mon 10-06 | Prologue (office 2.5D) and the room ported from `tests/room-fp/`; May's dialogue box; the upgrade screen (2 actives + 3 passives with costs); the takedown. **First itch draft** (restricted). Quality preset Low/High; draw-call count in F3. | Draft opens on itch with pointer lock, sound after the first click and fullscreen working. |
+| Tue 10-07 | L2 and L3 in parallel (two coding agents), ~5 min each, 1-2 arenas; layouts approved by the designer in the morning. L3 holds the explicit choice and the ET1 finale. | Both levels pass with the bot, quiet and loud. |
+| Wed 10-08 | The rooms between levels (delivery, layoff news, parcel), the Jim encounter screen, both quiet endings. **Feature freeze in the evening**; new ideas go to `IDEAS.md`. | The whole game plays start to finish in ~20 min. |
+| Thu 10-09 | The designer plays **cold** once, timed, screen recorded. Bot runs on every level (time, deaths, FPS). Chrome, Firefox, Edge; a weak laptop or integrated GPU. Draft in the jam community tab / GameDev.tv Discord. Bug list P0/P1/P2. Save format and config keys frozen from now on. | A ranked bug list exists. |
+| Fri 10-10 | P0/P1 only; balance of the first 2 minutes; juice (hit-stop, sounds); the itch page (cover K3, 4-5 screenshots, a GIF, text, controls, credits). | Page complete in draft. |
+| Sat 10-11 | Release candidate in the morning; a second full run; the checklist below; afterwards only blockers. Evening: freeze, archive the zip, tag in git. The OpenRouter key dies today. | RC zip archived and tagged. |
+| Sun 10-12 | Upload in the morning, check in a private window, **submit by 12:00 UTC** (9 h buffer). After that only marked bug fixes. | The game shows in the jam's entries. |
+
+Time budget for a first-time player: prologue ~1.5 min, room visits ~0.5 min each (4 visits), Jim encounter + ending ~1 min;
+L1, L2, L3 ~5 min each. If a level runs over 7 min in the cold playtest, it shrinks.
+
+### Cut order (if we are late)
+
+In this order: sound cameras -> turrets down to the L3 finale only -> the second music track per level -> real voices
+(keep the beep voice) -> L2 down to one arena -> L3 down to its finale arena + the Top's letters. Already cut by the designer:
+take over a sentry, the helper turret, Halloween dressing.
+**Never cut:** the prologue, the room, the explicit choice and both endings, the hacking mini-game, music for the four main
+states (menu/room, calm network, combat, hacking).
+
+### Performance budget
+
+| Item | Target |
+| --- | --- |
+| Draw calls, average gameplay frame | **< 150** (reference ~100; > 200 is a bug). Measured 250-500 at review time. |
+| Frame rate | 60 fps on a mid GPU; stable **>= 30 fps** on integrated graphics with the Low preset |
+| Pixel ratio | `view.pixelRatioMax` 1.5 (High); 1.0 or 0.75 (Low) |
+| Low preset | no bloom, no floor reflection, lower pixel ratio, shorter far view; auto-drop to Low when F3 shows < 30 fps for ~3 s |
+| Static geometry | instanced or merged (slabs, hex columns, cover); no one-mesh-per-cell |
+| Hot path | no allocations, no async in the frame loop (PLAN 1) |
+| Enemies at once | caps in config (`worm.max` 24, `drone.maxExtra` 10); audio voice limit and a limiter on the master bus |
+| Download | ~15-20 MB total; compress glb (meshopt/Draco), music as low-bitrate mp3; a loading screen with progress |
+| Time to play | < 10 s from page open to the menu on an average connection |
+
+Measure with F3 and `renderer.info` before and after every optimisation; never optimise by eye.
+
+### Working rules
+
+- Every feature gets a timebox in the morning; when it runs out, ship what is there or cut it.
+- A save has a version (`core/save.ts` already rejects other versions); wrap storage in try/catch; a "reset save" button.
+- A `webglcontextlost` handler with a friendly message.
+- CREDITS.md gets a row the moment an asset or AI tool is used.
+
+## How we work
+
+- **The designer decides.** Every design question goes to the designer; the agent proposes and marks open points with ❓
+  in DESIGN.md. The designer plays every task on a real GPU and says what feels wrong.
+- **Opus agents plan and analyse**: designs, level layouts, reviews, cut and risk calls, plans for coding tasks.
+- **Sonnet agents code and review**: implement from a plan, run `bun run check` green, review each other's diffs.
+- **DESIGN.md is the source of truth** for the code. The designer edits `DESIGN.ru.md`; the agent carries every change into
+  `DESIGN.md` the same day and keeps it in sync with what is built ("as built" notes).
+- **Language:** everything in the repository is English (code, comments, commits, docs); chat with the designer is in Russian.
+- **Commits** only when the designer asks.
+
+## Review 2026-10-04
+
+### Strengths
+
+- A strong narrative frame (office, room, two endings), 111 SFX, key art and the cover already exist: Story, Sound and
+  Aesthetics have a base.
+- Discipline: a pure-TS core with tests, `bun run check`, a headless bot (`tools/slice-bot.ts`, routes per level), the F3
+  overlay, `?nolock`. This keeps agent work at night from breaking things.
+- PLAN already has a cut order and a "never cut" list; the designer plays and gives precise feedback.
+- A coherent art target (NN1, NF6, H10).
+
+### Problems, ranked by impact
+
+| # | Problem | Status |
+| --- | --- | --- |
+| 1 | No end-to-end run (menu -> prologue -> room -> L1-L3 -> ending); only L1 and the slice exist, ~2 days behind PLAN | **open** - top priority 10-05..10-08 |
+| 2 | Performance on weak GPUs: 250-500 draw calls, bloom, reflections | **in progress** - pixel ratio capped at 1.5, F3 overlay, instancing in the city; no Low preset or auto-drop yet |
+| 3 | Endless L1 polish (enemies look bad, waves weak) | **decided otherwise** - L1 cut to ~5 min; enemy looks chosen (EM1, EW1, EW2, ET1); waves kept big with attack tokens (done in config) |
+| 4 | Pointer lock / fullscreen inside the itch iframe | **open** - test on a draft on 10-06 |
+| 5 | WebGL context loss and browser differences | **open** |
+| 6 | Download size 15 MB; a stale `index-*.js` sits next to the fresh one in `dist/uninvited/` | **open** - clean `dist` before each build; compress glb; loader with progress |
+| 7 | Save corruption between builds | **in progress** - versioned saves done; reset button and freeze of the format pending |
+| 8 | No outside testers | **open** - cold run 10-09, bot, Discord/community |
+| 9 | Music not generated; key expires 10-11 | **in progress** - music system and placeholder stems built; real tracks pending |
+| 10 | No itch zip script (`scripts/build-itch.ts` from PLAN is missing) | **open** |
+| 11 | Licences and AI disclosure | **in progress** - CREDITS.md kept current |
+| - | Wave size cut 4-15 -> 4-8 | **decided otherwise** (DESIGN 8: 4-15+) |
+| - | May with 2 skills only | **decided otherwise** (2 actives + 3 passives, DESIGN 10) |
+
+### Top-5 recommendations (updated)
+
+1. **(L) End-to-end playable by the evening of 10-08**, even with rough L2/L3 and stub text. Combat and enemy polish outside
+   that is timeboxed. Now sized for ~20 minutes, which makes it reachable.
+2. **(M) Performance before the freeze:** merge/instance the static city, a Low/High preset with auto-drop from the F3
+   metric, switchable bloom, pixel ratio <= 1.5. Target < 150 draw calls; 60 fps mid GPU, >= 30 on integrated.
+3. **(S) An itch draft on 10-06:** iframe, pointer lock, fullscreen, loading, sound after the first click, size.
+4. **(M) Music and sound first among content** (3 of 7 categories): one strong track per main state beats one more enemy.
+   Generate everything before the key expires on 10-11 - in practice by 10-07.
+5. **(S) Robustness:** save reset button, try/catch around storage, a WebGL context-lost handler.
+
+## Release checklist
+
+1. Fresh build from an emptied `dist/uninvited/` (no stale `index-*.js`); `bun run check` green.
+2. Zip with `index.html` at the root and relative paths; unzipped into a clean folder and run through a plain http server.
+3. itch: kind "HTML", "played in the browser", viewport 1280x720, Fullscreen button on.
+4. Played on the itch draft page in Chrome, Firefox and Edge (Safari if possible) with no console errors.
+5. Pointer lock works in the iframe; "Click to play" prompt; a sane fallback when the lock is refused.
+6. Sound starts after the first click; music and SFX volume sliders work.
+7. Loading screen with progress; total size ~15-20 MB; menu within 10 s on an average connection.
+8. Low preset reachable from the menu; the page text says "enable hardware acceleration" for laptops.
+9. Page: cover K3 (630x500), 4-5 screenshots, a GIF, the pitch from DESIGN 1, controls, the theme "Uninvited" named.
+10. Credits and licences from CREDITS.md on the page (Quaternius CC0, AI images and music, fonts); AI content disclosed.
+11. Submitted to the jam, project public, link checked in a private window, the game appears in the entries list.
+12. Zip archived and the commit tagged.
+
+## Don'ts
+
+- No Halloween dressing; the theme comes from the story and the pitch.
+- No new levels or mechanics after the freeze on the evening of 10-08; ideas go to `IDEAS.md`.
+- No remodelling enemies because they "look bad" late on: recolour or change the silhouette.
+- No changes to the save format, config keys or level structure after 10-09.
+- Do not touch the GitHub Pages workflow for itch; zip by hand or with a separate script.
+- Do not optimise by eye: measure F3 and draw calls before and after.
+- Do not leave the draft upload or the cold playtest for 10-11.
+- Do not shrink the waves to save time - that is the designer's call; tune tokens and caps instead.
+- Do not spend OpenRouter credit on rerolls before the music is done.

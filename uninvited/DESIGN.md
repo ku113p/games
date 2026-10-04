@@ -60,6 +60,7 @@ assistant, and now it gives superpowers. The wall opens. Then basic stealth and 
 At the end Johnny finds **Jim's notes with the plan for framing him** (leaking the smear campaign) - the evidence that makes Johnny think
 Jim did it himself, out of spite.
 **The layout is approved** (2026-10-04): start ledge over the void + T0 (meeting May) + bridge to red wall D1 -> arena 1 "the plaza" (a camera, cover, the first warden) -> passage P1 (C1, a motion sensor) -> arena 2 "the river" (a void river, a drone along it, T1 pauses the laser and the drone, a low bridge with a laser and a high bridge, a warden on the far bank) -> passage P2 (C2, a sound camera) -> arena 3 "the core" (C3 on the entry terrace; the landmark tower with Jim's file behind D2; T2 pauses the tower cameras and drone, T3 behind a posted warden on the east terrace opens D2). ~4.4 slices, 8-10 min.
+As built (`levels/l1.ts`, the default level; `?level=slice` for the old test): A1 got a second, roofed exit from the plaza's north-west corner into P1 (away from warden 1's street); T1 sits on the south bank by the ramp (from the balcony its 30 s pause ran out before the low bridge); in A3 the order is T3 (opens D2) first, then T2 (pauses the tower cameras and drone - terminals can now pause cameras) right before the vault; one drone per arena as a high spotter; wardens: 1 in A1, 1 in A2, 2 in A3 (more blocked the quiet path - to revisit with the new roles); bridges are one cell wide light bridges.
 
 **The room.** A food delivery. A pause between levels.
 
@@ -93,6 +94,8 @@ Out of 9 checkpoints (3 levels x 3), **4 or more** gives the sad ending; fewer g
   In the room: an exit button appears, and if you wait a minute or two - a knock, "a parcel for you", full of money.
 - **Sad** (broke everything): in a fit of rage Johnny does something bad to Jim (through the cameras / internet of things).
   In the room: "a parcel for you" - a grenade, an explosion, everyone dies.
+
+**Changed after the reviews (the designer, 2026-10-04):** the ending is an **explicit choice in L3** (send Jim the letter, or strike at him through the cameras); the counter and the hero's colour become pressure along the way (May comments on it), not the verdict. The endings are **quiet**: peaceful - the letter, later a small parcel (food, a little money), no triumph; sad - a knock, "a parcel for you", black screen, then the empty desk (S6). Revenge changes nothing. The counter no longer cascades: a checkpoint counts red only if an alarm-3 wave fight happened since the previous one.
 
 **The hero's color.** At the start the neon lines on the hero's suit are **white**. Over the game, depending on decisions, they shift more and more
 toward **red** (the evil path) or **blue** (the good path). The player sees which ending they are heading for.
@@ -151,7 +154,8 @@ the player should think "everything around is shit, and yet this thing still wor
   - Varied shapes and height: tiered halls, a bridge over a void, an atrium, an archive maze, a service passage; other parts of the level are visible across the void.
   - Metrics: streets and passages 3-6 m, arenas 20x30 - 40x40 m, district towers 4-12 m, passage ceilings 3-5 m.
   - As built (the slice converted): slabs with light lines on their top edges, hex-dressed blocks and hex cover, towers rising out of the void, low parapets where you look out, roofs only over the passages, light bridges over the void, far districts and data rivers below, a landmark tower with a light beam. Falling into the void fades out and puts you back on the last safe ground for 20 HP. Spawn gates sit in slab sides, floor hatches, roof hatches or sky portals.
-  - Size: L1 (tutorial) ~4-5 slices, 8-10 min, 3 arenas; L2 and L3 ~8-10 slices, 12-15 min, 4 arenas each (jam judges usually give a game 10-20 min).
+  - **Length changed (the designer, 2026-10-04, after the reviews): about 5 minutes per level and about 5 minutes for all the real-world story scenes together - a ~20-minute game.** L1 is cut down to fit.
+  - Size (before): L1 (tutorial) ~4-5 slices, 8-10 min, 3 arenas; L2 and L3 ~8-10 slices, 12-15 min, 4 arenas each (jam judges usually give a game 10-20 min).
 
 ## 7. Two paths
 
@@ -170,11 +174,14 @@ There are **two** paths - stealth and hacking are merged, otherwise too many mec
 - Hacking keeps your stance: start a hack crouched behind cover and you stay crouched (and hidden) through it and after it.
 - **Motion sensors:** the sensor itself is a small blinking dot on a wall, noticeable up close if you look; its **zone** shows only in network vision (a translucent red volume). It trips on **sprint, dash and jump** inside the zone; walking and crouching pass.
   A careless, running player always trips them.
+- **Enemy roles** (the designer, 2026-10-04, after playing): **drones watch** - they spot you and call the others, and shoot only very weakly, and die from 1-2 rifle shots; **wardens watch and attack** - the main guards and fighters, there are more of them; **worms crush by mass**; **turrets** hold fixed key points. Waves are big, zombie-like: at least 4-15 enemies per wave. Wardens are active: they shoot from range and switch to melee up close.
+  Looks (chosen 2026-10-04, `art/generated/`): drone **EM1** (a lens orb with orbiting light rings), warden **EW1** (a slender sentinel with an energy halberd; not "square logs"), heavy warden in waves **EW2** (an enforcer with a hex energy shield), turret **ET1** (a hex pylon with a floating rotating head).
 - **Varied guards - sentries separate from drones** (the designer's decision, 2026-10-04):
   - **Wardens** - walking guard programs: stand at a post or walk their beat, turn their heads, go to check a noise and come back. A forward cone + hearing; they turn slowly, so you can sneak up from behind.
   - **Drones** - patrol large spaces along long smooth routes up high; at an alarm they fly out of the spawn gates.
   - Wardens as built: an angular armored figure with a hex "lantern" helmet and red-orange lines. On the beat they stand, check racks, glance aside, with varied pauses; suspicious - stop, turn to the cue, "?"; investigate - walk to the cue, search ~4.5 s, return; at alarm 1-3 they search the alarm area. Cone 10 m, follows the head; they hear noise; turn slowly (you can come up behind). Up close (1.6 m in front) a warden notices you even crouched - the designer confirms. Fight: a telegraphed melee strike (a dash dodges it) or a slow aimed arm shot from range; the sword takes 3 hits, the rifle 8. A terminal can pause a warden; May's "take over" ability has a hook.
-- **Turret robots:** shoot, and can spot you.
+- **Turret robots:** shoot, and can spot you. One type (ET1), placed sparingly: the core arena of L1 and the L3 finale.
+- **Non-lethal takedown** (the designer asked for a non-lethal Hacker tool, 2026-10-04): sneak up behind a warden and press E - an override powers it down for a while (no noise, no kill; it reboots later, or wakes at an alarm). It does not count as a kill for the story.
 - Almost all electronics can be hacked (except cameras). Several nearby sensors can be disabled at once with an ability.
 - **Network vision** is the scanning mode, the Hacker's main tool. It shows: which terminal controls what (lines from a terminal to its wall / laser / drone), drone patrol routes, camera cones through walls, sensor zones, the radius of your noise. It has a **cooldown, but a short one**. Held too long, it calls the security.
   This must be **clear in advance**: while scanning an overheat meter is visible; near the limit a warning (a sound, the meter pulsing red, a label); when the security is called - a clear message "scan traced - security called", and you see where the drones come from.
@@ -231,6 +238,7 @@ Aim as built: RMB draws the rifle (the sword comes back on release), walk speed 
 - The **Hacker** branch - actives: pause a camera for a while; take over a sentry (a warden or a patrol drone); a distraction signal.
   Passives (no key): longer network vision; more time before a camera notices you; more time in the hacking mini-game.
 - Active abilities go on keys **1-4** in the order you get them. If there are more than four actives, at a checkpoint you pick which four to carry.
+- **Simplified (the designer, 2026-10-04, after the reviews):** 2 actives - pause a camera, a distraction signal; passives - shield/regeneration, more charges, more hack time; each upgrade costs points so you cannot buy everything; "take over a sentry" and the helper turret are cut. Not upgrading is a visible rule (shorter hack and pause), not hidden enemy scaling.
 - Everything must work **in synergy** and be well balanced: pausing one camera does not free the map to the end.
 
 
@@ -268,12 +276,13 @@ Aim as built: RMB draws the rifle (the sword comes back on release), walk speed 
 | double tap W/A/S/D | dash that way (like the dodge in Cyberpunk 2077) |
 | C | crouch - **toggle** (press to crouch, press again to stand) |
 | Ctrl (hold) | crouch while held |
-| LMB | attack with the current weapon |
+| LMB | attack with the current weapon; the sword is a 3-swing combo (the third a wider finisher); a click up to 0.12 s early is kept; a dash cancels a swing |
 | RMB (hold) | aim like third-person shooters: a small zoom (not first person), the hero a bit left of center, a crosshair; the weapon is the rifle while aiming |
 | Q / mouse wheel | switch the weapon mode (sword <-> rifle); the usual convention in third-person shooters |
 | 1-4 | May's abilities |
 | E | interact / hack |
 | Tab | network vision (scanning) |
+| F3 | frame-rate overlay (to report performance) |
 
 - The movement in the spike is too simple, too fast, "not human" - it must be more realistic. Tuned during the game build.
 
@@ -285,6 +294,7 @@ Aim as built: RMB draws the rifle (the sword comes back on release), walk speed 
 - Sounds for actions are mandatory.
 - **Voices** for now are a technical sound instead of speech (a beep voice, as in Final Fantasy Tactics and other Final Fantasies), with subtitles.
   If it works out, real voices are generated later.
+- **Where sound comes from:** music - Lyria 3 on OpenRouter (three versions of a level track crossfaded, plus hack, room, office, menu, endings); sound effects - our synth tool (`tools/sfx`) plus CC0 libraries (e.g. Kenney). The designer (2026-10-04): the footsteps are bad, part of the sounds are good (the hack ones are fine) - weak ones get replaced first.
 
 ## 14. Art
 
@@ -295,6 +305,7 @@ Aim as built: RMB draws the rifle (the sword comes back on release), walk speed 
 - Everything runs on a JS engine in the browser (Three.js). The real world is **2.5D** (section 5): realistic and fast; full 3D and pixelation are not needed.
 
 - The agent generates concept images in sets to choose from; the designer says what fits.
+- **No Halloween dressing at all** (the designer, 2026-10-04): the jam's theme is "Uninvited", and the story carries it; no pumpkins, ghosts or Halloween palette.
 
 The hero's look: the designer likes H3 (coat) and H6 (asymmetric), but in the game the hero is **simpler** - close to Tron in simplicity: a form-fitting suit with neon lines, plus the coat nuances. Energy weapons. A little hacker flavor (e.g. a holographic wrist display).
 **H10 is chosen** (`art/generated/H10-hero-hood.jpg`): a hooded coat, only the visor glows from inside the hood, the coat hem breaks into glowing filaments.
@@ -305,7 +316,7 @@ The in-game hero is built on the Quaternius **Universal Base Characters** male b
 | --- | --- | --- |
 | Network | `art/generated/NF6-data-metropolis.jpg` + `NF4-nano-hex.jpg` (accents NF2, NF3, NF7) | the open data metropolis (section 6); the matte, slightly cartoony saturation of `NN1-net-corridor.jpg`, which the designer loves: cyan lines along the edges, red security |
 | Hero in the network | `art/generated/H10-hero-hood.jpg` | simple, Tron-like: a form-fitting suit with white neon lines (the color follows the counter, section 4), a hooded coat whose hem breaks into glowing filaments, only the visor glows; an energy gunblade; a holographic wrist display. `hero-1` (a Tron copy) is rejected |
-| Security | `enemy-1.jpg` | glossy black drones with a red ring and a single red eye |
+| Security | `art/generated/EM1-drone-lens.jpg`, `EW1-warden-sentinel.jpg`, `EW2-warden-enforcer.jpg`, `ET1-turret-pylon.jpg` | the drone is a lens orb with orbiting light rings; the warden a slender sentinel with an energy halberd (EW2 the heavy with a shield); the turret a hex pylon with a floating head (section 8). `enemy-1.jpg` is superseded |
 | Office (prologue) | `art/generated/O3`, `O4`, `OP2`-`OP5` | the new enclosed office - liked; the boss as in `office-1.jpg` |
 | Room | `art/generated/FP4-room-fp.jpg` (first person) | not a dump but poor: everything cheap, "fourth-rate", home-made; power cords only, metal, a window with rain and neon |
 

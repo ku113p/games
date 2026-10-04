@@ -18,6 +18,7 @@ The jam requires listing every asset we did not create. Add a row the moment an 
 | H1-H4, H6-H10 | Microsoft MAI-Image-2.6-flash via OpenRouter | 2026-10-04 |
 | H5 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
 | NF2, NF3, NF4, NF6, NF7 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
+| EM1, EW1, EW2, ET1 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
 | FP4-room-fp-depth | Depth Anything V2 Small (Apache-2.0) through transformers.js, run locally | 2026-10-04 |
 | FP4-room-fp-masks-a/b, CU4g-vr-inside-mask | SlimSAM (Segment Anything, Apache-2.0) through transformers.js, run locally | 2026-10-04 |
 

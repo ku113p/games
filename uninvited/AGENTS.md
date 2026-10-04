@@ -29,6 +29,7 @@ uninvited/
   DESIGN.md      the design: plain text = decided, lines with ❓ = open (collected in its last section) - no game code before it
   DESIGN.ru.md   the Russian working copy the designer edits; carry every change over to DESIGN.md
   PLAN.md        the day-by-day jam plan, designer and agent tracks
+  docs/roles/    one guide per role (level, game, combat, camera, art, audio, UX, narrative, producer) - read the one for your area
   spike/         throwaway feel/look prototype - NOT the game architecture, do not grow it into the game
   core/ view/ input/ main.ts config.json   - the game itself, created once DESIGN.md exists
 ```
