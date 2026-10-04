@@ -509,7 +509,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const killStop = J.killHitStopSec + J.killHitStopStepSec * Math.max(0, kills - 1)
       for (const e of events) {
         tipEvent(e)
-        if (e.type.startsWith('warden') || e.type === 'shieldBlocked') wardenViews.event(e, st)
+        if (e.type.startsWith('warden') || e.type === 'shieldBlocked' || (e.type === 'targetHit' && e.target === 'warden')) wardenViews.event(e, st)
         switch (e.type) {
           case 'jumped':
             sound.play('jump', 0.7)

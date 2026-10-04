@@ -214,7 +214,7 @@ are unclear ("you just want to dash along the map edge").
 
 **Status of earlier items.**
 - P3 (hex as wallpaper): fixed.
-- P5 (enemy shapes): fixed. EW1, EW2 and EM1 read at play distance after the rim/aura pass (`view.enemyLook`). The
+- P5 (enemy shapes): fixed, then the warden look was replaced (2026-10-05, the designer: EW1/EW2 "not digital enough") by **EW3g, the particle swarm** (`view/swarm.ts`, DESIGN 8): a dot-shader body plus one Points draw for shed particles, `view.wardenLook: "holo"` (EW3c) is the fallback. EM1 reads at play distance after the rim/aura pass (`view.enemyLook`). Open: the swarm at 30-40 m in a busy red scene is a small red glow, check it on a real GPU. The
   colour part is only partly done: amber is still on the sound camera, and amber is now also the accent of the UI cards
   and prompts.
 - P1 (the open world): partly done. The far towers and the landmark beam work. The near city still reads as outlined

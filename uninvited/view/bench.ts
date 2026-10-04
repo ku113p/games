@@ -300,6 +300,7 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
   // (found by the level's data, so a reshaped plan keeps working)
   const route: { ax: number; az: number; bx: number; bz: number } = { ax: 0, az: 0, bx: 0, bz: 0 }
   let leg = 0 // 0: towards b, 1: back to a
+  const start = { x: 0, y: 0, z: 0, yaw: 0 }
   function findRoute(): void {
     const g = levelGrid(ctx.sim)
     const cs = g.cell
@@ -347,21 +348,36 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
     const p = s.player.pos
     if (f === 0) {
       findRoute()
-      p.x = route.ax
-      p.z = route.az
-      p.y = floorHeightAt(levelGrid(ctx.sim), p.x, p.z)
-      ctx.view.rig.yaw = Math.atan2(route.bx - route.ax, route.bz - route.az)
-      // `&at=col,row` and `&yaw=deg` put the hero elsewhere (the still-image scripts)
-      const at = params.get('at')?.split(',').map(Number)
+      // `&at=col,row` (or `route<N>`: the first waypoint of drone route N), `&yaw=deg` and `&pitch=deg` put the hero elsewhere (the still-image scripts)
+      const g = levelGrid(ctx.sim)
+      const routeAt = /^route(\d+)$/.exec(params.get('at') ?? '')
+      const wp = routeAt ? s.routes[Number(routeAt[1])]?.[0] : undefined
+      const at = wp ? [Math.floor(wp.x / g.cell), Math.floor(wp.z / g.cell) + 1] : params.get('at')?.split(',').map(Number)
+      start.yaw = Math.atan2(route.bx - route.ax, route.bz - route.az)
+      start.x = route.ax
+      start.z = route.az
       if (at && at.length === 2 && Number.isFinite(at[0]) && Number.isFinite(at[1])) {
-        const cs = levelGrid(ctx.sim).cell
-        p.x = ((at[0] as number) + 0.5) * cs
-        p.z = ((at[1] as number) + 0.5) * cs
-        p.y = floorHeightAt(levelGrid(ctx.sim), p.x, p.z)
+        start.x = ((at[0] as number) + 0.5) * g.cell
+        start.z = ((at[1] as number) + 0.5) * g.cell
       }
-      if (params.has('yaw')) ctx.view.rig.yaw = (Number(params.get('yaw')) * Math.PI) / 180
+      start.y = floorHeightAt(g, start.x, start.z)
+      if (params.has('yaw')) start.yaw = (Number(params.get('yaw')) * Math.PI) / 180
+    }
+    if (f < 30) {
+      // the game may still load its checkpoint over the first frames: keep putting the hero on the spot until it stays
+      p.x = start.x
+      p.y = start.y
+      p.z = start.z
+      s.player.vel.x = s.player.vel.y = s.player.vel.z = 0
+      ctx.view.rig.yaw = start.yaw
+      if (params.has('pitch')) ctx.view.rig.pitch = (Number(params.get('pitch')) * Math.PI) / 180
     }
     s.player.hp = 9999
+    // the devices never notice the hero: the scenario measures the drawing of network vision, not a chase (and stays the same every run)
+    s.alarm.stage = 0
+    for (const d of s.drones) d.suspicion = 0
+    for (const w of s.wardens) w.suspicion = 0
+    for (const c of s.cameras) c.suspicion = 0
     for (const l of s.lasers) l.pausedTime = 1e9 // T1 solved: the laser is down
     s.scan.held = 0 // never overheats (that would raise the alarm)
     const h = ctx.input.held
@@ -371,8 +387,8 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
     if (Math.hypot(tx - p.x, tz - p.z) < 1.2) leg = 1 - leg
     let da = Math.atan2(tx - p.x, tz - p.z) - ctx.view.rig.yaw
     da = Math.atan2(Math.sin(da), Math.cos(da))
-    ctx.view.rig.yaw += Math.max(-0.12, Math.min(0.12, da))
-    h['forward'] = m.move !== 'none'
+    if (m.move !== 'none') ctx.view.rig.yaw += Math.max(-0.12, Math.min(0.12, da))
+    h['forward'] = m.move !== 'none' && Math.abs(da) < 0.6 // turn on the spot at the ends
     h['run'] = m.move === 'run'
   }
 
@@ -605,6 +621,8 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
       if (r.info.render.calls > callsMax) callsMax = r.info.render.calls
       lastCpu = cpu
       if (ctx.view.hitStop > 0) hitStopFrames++
+      // the first network vision unlocks May's actives and her upgrade screen opens at the checkpoint; it stops the simulation: continue (E)
+      if (sc?.scan && (window as unknown as { __game?: { mode: string } }).__game?.mode === 'card') document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', bubbles: true }))
       for (const e of ctx.sim.events) {
         if (e.type in happened) happened[e.type] = (happened[e.type] ?? 0) + 1
         if (e.type === 'targetHit' && e.killed) happened['kills'] = (happened['kills'] ?? 0) + 1

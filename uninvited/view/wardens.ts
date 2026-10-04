@@ -1,8 +1,15 @@
 // Wardens (core/rules/wardens.ts): walking sentinel programs. Two models built by tools/warden/build.py:
-// assets/models/warden.glb - EW1, the slender sentinel (a narrow helmet with one vertical visor slit, long hanging plates,
-// light along the armor seams, an energy halberd whose blade tip fires the bolts), and warden-heavy.glb - EW2, the
-// enforcer for waves (broad armor, a horizontal visor band, a hex energy shield on the left forearm, a short energy
-// blade). A warden state's `heavy` picks the model; each slot builds the rig it needs on demand (one per frame at most).
+// assets/models/warden.glb - EW1, the slender sentinel (a narrow helmet with one vertical visor slit, an energy halberd
+// whose blade tip fires the bolts), and warden-heavy.glb - EW2, the enforcer for waves (a horizontal visor band, a hex
+// energy shield on the left forearm, a short energy blade). A warden state's `heavy` picks the model; each slot builds the
+// rig it needs on demand (two per frame at most).
+//
+// The look is EW3g, the particle swarm (view/swarm.ts, DESIGN 8): the skinned body is drawn as glowing dots by one shader
+// (the armor shells, coat plates and seam lines of the build are dropped at load), a bright solid visor shows the facing,
+// and ONE Points draw for all wardens carries the shed particles. `view.wardenLook: "holo"` is the fallback of the same
+// shader (scanlines and glitch slices, a projector disc on the floor). The states: hit = the dots scatter and re-form,
+// takedown = the swarm pours into a low glowing heap and re-forms on reboot, death = it dissolves into particles, spawn =
+// it assembles from particles.
 //
 // Reading a warden without network vision: the visor and a short look beam show where it looks (the head turns on top
 // of the clips, so the visor follows the cone), the lines go amber and a "?" floats over it while it checks something,
@@ -24,12 +31,12 @@ import {
   CanvasTexture,
   Color,
   CylinderGeometry,
+  RingGeometry,
   DoubleSide,
   Group,
   LoopRepeat,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   PointLight,
   Quaternion,
@@ -37,7 +44,6 @@ import {
   Sprite,
   SpriteMaterial,
   Vector3,
-  type Material,
 } from 'three'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
@@ -51,14 +57,16 @@ import type { GameState, Sim } from '../core/state'
 import type { Sound } from './audio'
 import { createCone, type ViewCone } from './cone'
 import { inView } from './cull'
-import { addRim, palette } from './look'
+import { palette } from './look'
 import { fanSpread, NO_FAN, type Sight } from './sight'
-import { wardenBark, wardenCharge, wardenQuery, wardenServo, wardenStep, wardenSwing } from './warden-sound'
+import { createParticles, createSwarmMaterial, HOLO, swarmUniforms, type Particles } from './swarm'
+import { wardenBark, wardenCharge, wardenPowerDown, wardenQuery, wardenServo, wardenStep, wardenSwing } from './warden-sound'
 
 const W = cfgAll.warden
 const LOOK = cfgAll.view.cones.lookBeam
 const E = cfgAll.view.enemyLook
 const N = cfgAll.view.netVision
+const SW = cfgAll.view.swarm
 const HEAR = cfgAll.audio.hearDist
 const DEG = Math.PI / 180
 const SPREAD = fanSpread(W.halfAngleDeg * DEG, W.pitchDeg * DEG)
@@ -93,13 +101,11 @@ const RUN_FULL = 4.2 // ... and would be full here (alert speed 3.3 is a fast st
 const STRIKE_HIT = 0.5 // share of the slash clip where the blow lands (windup before, follow-through after)
 const SHOT_FIRE = 0.45 // share of the two-handed aim clip where the halberd is level
 const SHOT_TAIL = 0.6 // s of follow-through after a shot
-/** A downed warden holds the death clip's early pose (a slump to its knees), this far into the clip. */
+/** A downed warden holds the death clip's early pose (a slump to its knees), this far into the clip, then pours down. */
 const DOWN_POSE = 0.3
 const FADE = 7
 const FADE_FAST = 20
-// a red-orange fresnel rim on the armor (the silhouette against the dark), brighter light lines and visor
-const RIM_UNDER = E.wardenRimUnder
-const RIM_ARMOR = E.wardenRimArmor
+// brighter light lines (the halberd shaft) and visor
 const LINES_CALM = 0.7 * E.wardenLines
 // the lantern: a warm light from the visor that lights the floor and walls around it (it reads from far away)
 const LANTERN = 2.2
@@ -107,6 +113,11 @@ const LANTERN_RANGE = 4.5
 const VISOR_K = E.wardenVisor
 const MARK_Y = 2.55
 const ALERT_MARK_SEC = 2
+
+/** Meshes of the build that the swarm look does not use: the armor shells and plates, the coat, the seam lines. */
+const DROP = new Set(['Armor', 'ArmorLines', 'Coat', 'CoatLines', 'Collar', 'SuitLines', 'HalberdLights', 'ShieldPosts'])
+/** Where the shed particles come from (a bone listed twice is picked twice as often: the head and torso shed most). */
+const EMIT_BONES = ['Head', 'Head', 'spine_03', 'spine_03', 'spine_01', 'pelvis', 'upperarm_l', 'upperarm_r', 'hand_l', 'hand_r', 'calf_l', 'calf_r', 'foot_l', 'foot_r']
 
 const smooth = (cur: number, to: number, rate: number, dt: number): number => cur + (to - cur) * Math.min(1, dt * rate)
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
@@ -160,9 +171,21 @@ interface WardenView {
   cur: number
   scale: number
   blade: MeshBasicMaterial
-  shield: MeshBasicMaterial
-  coat: MeshStandardMaterial
+  /** The swarm materials: the body (and helmet), the heavy's shield plane and its hex outline. */
+  body: ShaderMaterial
+  shieldFill: ShaderMaterial
+  shieldLines: ShaderMaterial
+  /** Holo fallback only: the projector disc on the floor. */
+  disc: Mesh | null
   shieldT: number
+  /** Swarm state timers: hit scatter and flash (1 -> 0), assemble (1 -> 0), the swirl's smoothed alert, last frame's dead flag. */
+  scatterT: number
+  flashT: number
+  asmT: number
+  swirlK: number
+  wasDead: boolean
+  /** True while this slot's particles are alive (so a far or idle warden costs nothing). */
+  pLive: boolean
   spawnT: number
   weight: Float32Array
   target: Float32Array
@@ -171,10 +194,9 @@ interface WardenView {
   neck: Object3D | null
   /** The halberd's tip / the blade's tip: where the shot telegraph starts. */
   muzzle: Object3D | null
+  weapon: Object3D[]
   lines: MeshBasicMaterial
   visor: MeshBasicMaterial
-  under: MeshStandardMaterial
-  armor: MeshStandardMaterial
   eyes: Group
   lantern: PointLight
   aura: SpriteMaterial
@@ -201,6 +223,10 @@ interface Rig {
   head: Object3D | null
   neck: Object3D | null
   muzzle: Object3D | null
+  /** Bones the shed particles are emitted from. */
+  bones: Object3D[]
+  /** The weapon's parts (they vanish when the swarm pours down or dissolves). */
+  weapon: Object3D[]
 }
 
 export interface WardenViews {
@@ -239,6 +265,7 @@ function markTexture(ch: string, color: Color): CanvasTexture {
 
 // frame temporaries
 const tmp = new Color()
+const bodyC = new Color()
 const tA = new Vector3()
 const tB = new Vector3()
 const qP = new Quaternion()
@@ -275,6 +302,11 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
   const bang = markTexture('!', palette.security)
   const beamGeo = new CylinderGeometry(1, 1, 1, 6, 1, true)
   beamGeo.translate(0, 0.5, 0)
+  const discGeo = new RingGeometry(0.45, 0.9, 40)
+  // the shed particles of all wardens: one Points draw
+  const particles: Particles = createParticles(MAX_WARDENS)
+  particles.setViewHeight(Math.round(innerHeight * Math.min(devicePixelRatio || 1, cfgAll.view.pixelRatioMax)))
+  root.add(particles.points)
 
   const views: WardenView[] = list.slice(0, MAX_WARDENS).map((w): WardenView => {
     const g = new Group()
@@ -312,14 +344,18 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     root.add(g, beam) // the beam lives in world space
     g.position.set(w.pos.x, w.pos.y, w.pos.z)
     g.rotation.y = w.yaw
-    const under = new MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.55, metalness: 0.4 })
-    const armor = new MeshStandardMaterial({ color: 0x15161a, roughness: 0.28, metalness: 0.8 })
-    const coat = new MeshStandardMaterial({ color: 0x131419, roughness: 0.4, metalness: 0.6, side: DoubleSide })
-    addRim(under, RIM_UNDER, E.wardenRim, E.rimPower)
-    addRim(armor, RIM_ARMOR, E.wardenRim, E.rimPower)
-    addRim(coat, RIM_ARMOR, E.wardenRim, E.rimPower)
     const blade = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide })
-    const shield = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false })
+    const body = createSwarmMaterial({ cell: SW.cell, cover: SW.cover, dens: SW.dens[0] as number, limb: SW.dens[1] as number })
+    const shieldFill = createSwarmMaterial({ cell: SW.shieldCell, cover: SW.shieldCover, dens: 0.9, limb: 0.9 })
+    const shieldLines = createSwarmMaterial({ cell: SW.shieldCell, cover: 0.55, dens: 1, limb: 1 })
+    let disc: Mesh | null = null
+    if (HOLO) {
+      disc = new Mesh(discGeo, new MeshBasicMaterial({ color: base.clone(), toneMapped: false, transparent: true, opacity: 0.8, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }))
+      disc.rotation.x = -Math.PI / 2
+      disc.position.y = 0.04
+      disc.userData['noReflect'] = true
+      g.add(disc)
+    }
     return {
       root: g,
       noBodyT: 0,
@@ -331,9 +367,17 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       cur: -1,
       scale: SCALE,
       blade,
-      shield,
-      coat,
+      body,
+      shieldFill,
+      shieldLines,
+      disc,
       shieldT: 0,
+      scatterT: 0,
+      flashT: 0,
+      asmT: 0,
+      swirlK: 0,
+      wasDead: false,
+      pLive: false,
       spawnT: 0,
       weight: new Float32Array(CLIPS.length),
       target: new Float32Array(CLIPS.length),
@@ -341,10 +385,9 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       head: null,
       neck: null,
       muzzle: null,
+      weapon: [],
       lines: new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide }),
       visor: new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide }),
-      under,
-      armor,
       eyes,
       lantern,
       aura,
@@ -453,16 +496,45 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     const clips = clipSets[k]
     if (!gltf || !clips) return null
     const model = cloneSkinned(gltf.scene)
-    const byName: Record<string, Material> = { Under: v.under, Armor: v.armor, Coat: v.coat, Lines: v.lines, Visor: v.visor, Blade: v.blade, Shield: v.shield }
+    // the build's armor look is dropped here: the suit body and the helmet become the swarm, the weapons become light shapes
+    const drop: Object3D[] = []
+    const weapon: Object3D[] = []
     model.traverse((o) => {
       o.layers.mask = v.root.layers.mask // the game view marks the root for the floor reflection before we load
       const m = o as Mesh
       if (!m.isMesh) return
       m.frustumCulled = false
-      const old = m.material as Material
-      m.material = byName[old.name] ?? v.under
-      if (old.name === 'Shield') m.renderOrder = 7
+      if (DROP.has(m.name)) {
+        drop.push(m)
+        return
+      }
+      switch (m.name) {
+        case 'Body':
+        case 'Helmet':
+          m.material = v.body
+          break
+        case 'ShieldFill':
+          m.material = v.shieldFill
+          m.renderOrder = 7
+          break
+        case 'ShieldLines':
+          m.material = v.shieldLines
+          m.renderOrder = 7
+          break
+        case 'HalberdBlade':
+        case 'BladeEnergy':
+          m.material = v.blade
+          weapon.push(m)
+          break
+        case 'Visor':
+          m.material = v.visor
+          break
+        default:
+          m.material = v.lines // the halberd's shaft and spine, the blade hilt: thin rods of light
+          weapon.push(m)
+      }
     })
+    for (const o of drop) o.removeFromParent()
     model.scale.setScalar(k === 1 ? SCALE_HEAVY : SCALE)
     model.visible = false
     v.root.add(model)
@@ -478,7 +550,12 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       a.play()
       actions.push(a)
     }
-    return { model, mixer: mx, actions, head: model.getObjectByName('Head') ?? null, neck: model.getObjectByName('neck_01') ?? null, muzzle: model.getObjectByName('Muzzle') ?? null }
+    const bones: Object3D[] = []
+    for (const n of EMIT_BONES) {
+      const b = model.getObjectByName(n)
+      if (b) bones.push(b)
+    }
+    return { model, mixer: mx, actions, head: model.getObjectByName('Head') ?? null, neck: model.getObjectByName('neck_01') ?? null, muzzle: model.getObjectByName('Muzzle') ?? null, bones, weapon }
   }
 
   let built = 0 // rigs built this frame; update() resets it (it once never reset: the third rig ever never got built, so most wardens had no body)
@@ -505,6 +582,13 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     v.head = rig.head
     v.neck = rig.neck
     v.muzzle = rig.muzzle
+    v.weapon = rig.weapon
+    const pi = views.indexOf(v)
+    if (pi >= 0) (particles.state[pi] as { bones: Object3D[] }).bones = rig.bones
+    const u = swarmUniforms(v.body)
+    u.uCell.value = k === 1 ? SW.heavyCell : SW.cell
+    u.uCover.value = k === 1 ? SW.heavyCover : SW.cover
+    u.uInflate.value = k === 1 ? SW.heavyInflate : 0
     v.weight[IDLE] = 1
   }
 
@@ -605,9 +689,18 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
           sound.play('drone_shot', 0.8 * vol, 0.75)
           v.shotT = 0
           break
+        case 'targetHit':
+          // the swarm scatters and re-forms with a flash; a burst of particles flies off the hit
+          if (e.target !== 'warden') break
+          v.scatterT = 1
+          v.flashT = 1
+          particles.burst(e.index, e.killed ? 0 : SW.burstHit, e.x, e.y, e.z, 2.4, 0.7)
+          break
         case 'wardenSpawned':
-          // it walks out of a spawn gate: its lights flare and fade, a glitch sting
+          // it walks out of a spawn gate: it assembles from particles, its lights flare and fade, a glitch sting
           v.spawnT = 1
+          v.asmT = 1
+          particles.scatterAround(e.index, w.pos.x, w.pos.y, w.pos.z, 1.8)
           sound.playAt('glitch', w.pos.x, w.pos.z, 0.5 * Math.max(0.4, vol))
           break
         case 'shieldBlocked':
@@ -616,8 +709,8 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
           sound.playAt('bullet_impact', w.pos.x, w.pos.z, 0.7 * Math.max(0.5, vol), 1.7)
           break
         case 'wardenDowned':
-          // powering down: servos winding down, no bark, no alarm
-          wardenServo(sound, 0.45 * Math.max(0.3, vol), 0.6, w.pos.x, w.pos.z)
+          // powering down: the swarm loses cohesion and pours into a heap; a falling glitch, no bark, no alarm
+          wardenPowerDown(sound, 0.6 * Math.max(0.3, vol), w.pos.x, w.pos.z)
           break
         case 'wardenRebooted':
           sound.playAt('glitch', w.pos.x, w.pos.z, 0.35 * Math.max(0.3, vol))
@@ -634,6 +727,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       const ws = wardens(st)
       const p = playerPos(st)
       built = 0
+      let anyP = false
       for (let i = 0; i < views.length; i++) {
         const v = views[i] as WardenView
         const w = ws[i]
@@ -647,10 +741,13 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         v.alertT = Math.max(0, v.alertT - dt)
         const dead = !w.alive
         if (w.alive || w.pos.y > -500) ensureRig(v, w.heavy)
+        // a dead warden's body dissolves into particles and is then hidden; a respawned one shows again
+        if (v.model) v.model.visible = !dead || v.deathT < SW.dissolveSec + 0.1
         v.spawnT = Math.max(0, v.spawnT - dt * 1.2)
         v.shieldT = Math.max(0, v.shieldT - dt * 3)
         // no body yet (the model is still loading, or the build budget of this frame is spent): none of its lights show either
-        const body = v.model !== null && v.model.visible
+        // (the lantern light stays on the scene while the body is only hidden after its dissolve: a changing light count recompiles every lit program)
+        const body = v.model !== null
         v.eyes.visible = body
         v.aura.visible = body
         if (body) v.noBodyT = 0
@@ -669,11 +766,16 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         const checking = !dead && !paused && !down && (w.mode === 'suspicious' || w.mode === 'investigate')
 
         // colors: calm red-orange, amber while it checks something, bright pulsing red in a fight, blue when paused
+        const reboot = down && w.down < W.takedown.rebootSec
         if (dead) tmp.setRGB(0, 0, 0)
         else if (paused) tmp.copy(palette.paused).multiplyScalar(0.5)
         else if (alert) tmp.copy(palette.security).multiplyScalar(0.85 + 0.35 * Math.sin(time * 10))
         else if (checking) tmp.copy(base).lerp(palette.suspicious, 0.6).multiplyScalar(0.75 + 0.2 * Math.sin(time * 6))
         else tmp.copy(base).multiplyScalar(LINES_CALM + Math.min(0.4, w.suspicion))
+        // the swarm keeps glowing dimly in its heap; the eye and the lights go out
+        const bodyK = down ? (0.3 + 0.7 * (1 - prog)) * (reboot && Math.sin(time * 50) < 0 ? 0.5 : 1) : 1
+        if (dead) bodyC.copy(base).multiplyScalar(SW.gain * 1.6 * (1 - clamp01(v.deathT / SW.dissolveSec) * 0.5))
+        else bodyC.copy(tmp).multiplyScalar(bodyK * SW.gain)
         tmp.multiplyScalar(lights)
         v.lines.color.copy(tmp)
         const charge = anim === 'strike' || anim === 'aim' ? prog : 0
@@ -681,11 +783,36 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         v.lines.color.multiplyScalar(flare)
         v.visor.color.copy(tmp).multiplyScalar(dead ? 0 : VISOR_K * (1 + charge * 1.5) * flare)
         // the blade: dim in a calm round, flares when it charges (the strike windup, the shot's aim) and at the shot
-        v.blade.color.copy(tmp).multiplyScalar(dead ? 0 : E.wardenBlade * (0.9 + charge * 2.2 + (v.shotT < 0.15 ? 3 : 0)) * flare)
-        v.shield.color.copy(tmp).multiplyScalar(dead ? 0 : 0.7 + v.shieldT * 4)
-        v.shield.opacity = dead ? 0 : 0.3 + v.shieldT * 0.6
+        v.blade.color.copy(tmp).multiplyScalar(dead ? 0 : (1 - (down ? prog : 0)) * E.wardenBlade * (0.9 + charge * 2.2 + (v.shotT < 0.15 ? 3 : 0)) * flare)
+        // the swarm: uniforms of the body and the heavy's shield (the hex of dots flares when it stops a bolt)
+        v.scatterT = Math.max(0, v.scatterT - dt / SW.scatterSec)
+        v.flashT = Math.max(0, v.flashT - dt / SW.flashSec)
+        v.asmT = Math.max(0, v.asmT - dt / SW.assembleSec)
+        v.swirlK = smooth(v.swirlK, alert ? 1 : 0, 4, dt)
+        const dissolve = dead ? clamp01(v.deathT / SW.dissolveSec) : v.asmT
+        const scatter = Math.max(SW.scatterAmount * Math.sin(Math.PI * Math.pow(1 - v.scatterT, 0.45)) * (v.scatterT > 0 ? 1 : 0), dissolve * 0.9)
+        const pourK = down ? prog : 0
+        const armed = !dead && pourK < 0.6
+        for (const o of v.weapon) o.visible = armed
+        for (const mat of [v.body, v.shieldFill, v.shieldLines]) {
+          const u = swarmUniforms(mat)
+          u.uTime.value = time
+          u.uDissolve.value = dissolve
+          u.uScatter.value = scatter
+          u.uFlash.value = v.flashT
+          u.uAlert.value = alert ? 1 : 0
+          u.uPour.value = pourK
+        }
+        swarmUniforms(v.body).uColor.value.copy(bodyC)
+        swarmUniforms(v.shieldFill).uColor.value.copy(bodyC).multiplyScalar((SW.shieldGain / SW.gain) * (1 + v.shieldT * 3))
+        swarmUniforms(v.shieldFill).uCover.value = SW.shieldCover + v.shieldT * 0.35
+        swarmUniforms(v.shieldLines).uColor.value.copy(bodyC).multiplyScalar((SW.shieldLineGain / SW.gain) * (1 + v.shieldT * 2))
+        if (v.disc) {
+          v.disc.visible = body && !dead && !down
+          ;(v.disc.material as MeshBasicMaterial).color.copy(bodyC).multiplyScalar(0.5)
+        }
         const m = Math.max(tmp.r, tmp.g, tmp.b, 1e-3)
-        v.aura.color.copy(tmp).multiplyScalar(dead ? 0 : 1)
+        v.aura.color.copy(tmp).multiplyScalar(dead ? 0 : 1 - 0.7 * pourK)
         v.lantern.color.setRGB(tmp.r / m, tmp.g / m, tmp.b / m)
         v.lantern.intensity = dead ? 0 : lights * LANTERN * (paused ? 0.4 : alert ? 1.4 : 1) * (1 + charge)
 
@@ -732,6 +859,27 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         }
         v.lastHead = w.head
         v.lastYaw = w.yaw
+
+        // the shed particles (one Points draw for all wardens)
+        const ps = particles.state[i]
+        if (ps) {
+          const near = (w.pos.x - p.x) * (w.pos.x - p.x) + (w.pos.z - p.z) * (w.pos.z - p.z) < SW.cullDist * SW.cullDist
+          if (dead && !v.wasDead && near) particles.burst(i, SW.burstDeath, w.pos.x, w.pos.y + 1, w.pos.z, 2.6, 1.3)
+          ps.active = body && !dead && near && !paused
+          ps.x = w.pos.x
+          ps.y = w.pos.y
+          ps.z = w.pos.z
+          ps.speed = w.speed
+          ps.alert = v.swirlK
+          ps.pour = down && !reboot ? prog : 0
+          ps.gather = reboot ? 1 : v.asmT
+          ps.r = bodyC.r
+          ps.g = bodyC.g
+          ps.b = bodyC.b
+          if (ps.active || v.pLive) v.pLive = particles.step(i, dt, time)
+          anyP = anyP || v.pLive
+        }
+        v.wasDead = dead
 
         // animation
         const mx = v.mixer
@@ -799,6 +947,8 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         }
         v.prev = anim
       }
+
+      particles.commit(anyP)
 
       // the rounds in network vision
       routeMesh.visible = scanFade > 0

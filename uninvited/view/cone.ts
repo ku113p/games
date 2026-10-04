@@ -6,6 +6,7 @@
 // Color, strength and the fan are set every frame.
 import { AdditiveBlending, Color, ConeGeometry, DoubleSide, Mesh, ShaderMaterial, Vector2, Vector4, type Texture } from 'three'
 import cfgAll from '../config.json'
+import { CLIP_GLSL, type ClipUniforms } from './lightclip'
 import { SIGHT_GLSL, type Fan } from './sight'
 
 const K = cfgAll.view.cones
@@ -46,12 +47,13 @@ varying vec3 vN;
 varying vec3 vView;
 varying vec3 vWorld;
 ${SIGHT_GLSL}
+${CLIP_GLSL}
 void main() {
-  float vis = 1.0;
+  float vis = clipVis(vWorld.xz);
   if (uFanV >= 0.0) {
     vec2 d = vWorld.xz - uFan.xy;
     float wall = sightAt(uFans, uFan, uFanV, d).a;
-    vis = 1.0 - smoothstep(wall - 0.015, wall + 0.005, length(d) / uRange);
+    vis *= 1.0 - smoothstep(wall - 0.015, wall + 0.005, length(d) / uRange);
   }
   if (vis <= 0.0) discard;
   float edge = 1.0 - abs(dot(normalize(vN), vView));
@@ -97,6 +99,8 @@ export interface ConeOptions {
   scanOnly?: boolean
   /** Fades out between these distances (m) in front of the eye, so standing inside it does not fill the screen. */
   nearFade?: readonly number[]
+  /** A drone's light clip (view/lightclip.ts): the cone is cut where the drone's light is stopped by a wall, slab or rail. */
+  clip?: ClipUniforms
 }
 
 export function createCone(range: number, halfAngleRad: number, fans: Texture, opts: ConeOptions = {}): ViewCone {
@@ -118,6 +122,9 @@ export function createCone(range: number, halfAngleRad: number, fans: Texture, o
       uFanV: { value: -1 },
       uNearFade: { value: new Vector2(near[0] ?? 1, near[1] ?? 5) },
       uScan: onlyInScan ? scanFade : { value: 1 },
+      uClip: opts.clip?.table ?? { value: new Float32Array(64).fill(99) },
+      uClipO: opts.clip?.origin ?? { value: new Vector2() },
+      uClipOn: opts.clip?.on ?? { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,

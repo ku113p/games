@@ -25,13 +25,13 @@ The scene is saved ("Continue" on the title). `?scene=<id>` jumps to a scene (`t
 
 ### Benchmark (`?bench=`)
 
-Open `http://localhost:3330/?bench=all` (or `idle`, `wave`, `fx`, `fx-sword|shots|worm|drone|warden|hurt|audio|hud`, `soak`),
+Open `http://localhost:3330/?bench=all` (or `idle`, `scan`, `scan-walk`, `scan-still`, `scan-off`, `wave`, `fx`, `fx-sword|shots|worm|drone|warden|hurt|audio|hud`, `soak`),
 add `&level=slice` for the other level and `&sec=N` to change the length. Click the button (it unlocks audio), keep the tab in
 front, and a panel with frame-time percentiles, slow-frame counts, draw calls, JS time, growth verdicts and a spike-cause guess
 appears at the end (the JSON is copied; "Download JSON" saves it). `?bench=all` reloads between scenarios; `soak` (5 min) is
 not part of it. Headless: `bun tools/bench.ts [scenario] [--level l1|slice] [--url http://localhost:3330] [--compare]`
 (JSON in `bench/results/`, gitignored; headless Chrome is software GL, so read counts and trends only - the real numbers are
-the ones from the browser on a real GPU). Without `?bench` none of it is loaded. Thresholds: `docs/roles/09-producer.md`.
+the ones from the browser on a real GPU). The `scan*` scenarios put the hero on arena 2's bridge (found by the laser in the level data), hold Tab and run / walk / stand there with the drone and warden active (`scan-off` is the same run without Tab; `&hold=0|1`, `&at=col,row|route<N>`, `&yaw=`, `&pitch=` for the still-image scripts). `--profile` (CPU) and `--alloc` (heap sampling) on `tools/bench.ts` list the hot functions and allocation sites. Without `?bench` none of it is loaded. Thresholds: `docs/roles/09-producer.md`.
 
 ### Camera log (`?camlog`)
 

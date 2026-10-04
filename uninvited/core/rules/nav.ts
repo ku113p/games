@@ -104,6 +104,19 @@ export function clearOfTall(nav: Nav, ax: number, az: number, bx: number, bz: nu
   return true
 }
 
+/** Does the straight line a -> b stay in cells a drone can be in (no wall, niche, closed red wall or tall block)? Every half metre. */
+export function clearOfSolid(nav: Nav, ax: number, az: number, bx: number, bz: number): boolean {
+  const g = nav.grid
+  const len = Math.hypot(bx - ax, bz - az)
+  const n = Math.max(1, Math.ceil(len / 0.5))
+  for (let k = 0; k <= n; k++) {
+    const col = Math.floor((ax + ((bx - ax) * k) / n) / g.cell)
+    const row = Math.floor((az + ((bz - az) * k) / n) / g.cell)
+    if (col < 0 || row < 0 || col >= g.cols || row >= g.rows || !flyable(nav, row * g.cols + col)) return false
+  }
+  return true
+}
+
 export function setNavWallOpen(nav: Nav, group: number, open: boolean): void {
   if ((nav.wallOpen[group] === 1) === open) return
   nav.wallOpen[group] = open ? 1 : 0

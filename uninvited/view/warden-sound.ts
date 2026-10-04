@@ -127,3 +127,26 @@ export function wardenSwing(snd: Sound, vol: number, x?: number, z?: number): vo
   hiss(o.ctx, o.g, 'bandpass', 600, 2400, 1.2, o.t, 0.22, 0.8, 0.03)
   tone(o.ctx, o.g, 'sine', 140, 60, o.t, 0.2, 0.4)
 }
+
+/**
+ * The takedown: the swarm loses cohesion, a falling glitch "power-down". A square tone drops in stuttering steps from
+ * ~900 Hz to ~60 Hz (each step a little off, like a failing sample clock), over a band of noise grains that thin out,
+ * and a low sine sinks under it. ~0.8 s, a few dozen nodes once per takedown.
+ */
+export function wardenPowerDown(snd: Sound, vol: number, x?: number, z?: number): void {
+  const o = out(snd, vol, x, z)
+  if (!o) return
+  const crush = o.ctx.createWaveShaper()
+  const curve = new Float32Array(33)
+  for (let i = 0; i < 33; i++) curve[i] = Math.round(((i / 32) * 2 - 1) * 5) / 5 // 11 levels: a crunchy edge
+  crush.curve = curve
+  crush.connect(o.g)
+  const steps = 9
+  for (let k = 0; k < steps; k++) {
+    const t0 = o.t + k * 0.075 + (k % 3) * 0.012
+    const f = 900 * Math.pow(0.065, k / (steps - 1)) // 900 -> 58 Hz
+    tone(o.ctx, crush, 'square', f, f * 0.82, t0, 0.07, 0.22 * (1 - k * 0.07), 0.003)
+  }
+  for (let k = 0; k < 7; k++) hiss(o.ctx, o.g, 'bandpass', 4200 - k * 450, 1200, 3, o.t + k * 0.1 + (k % 2) * 0.03, 0.05, 0.16 * (1 - k * 0.12), 0.002)
+  tone(o.ctx, o.g, 'sine', 180, 38, o.t + 0.05, 0.75, 0.4, 0.04)
+}

@@ -34,8 +34,10 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import cfgAll from '../config.json'
 import type { GameState, Sim } from '../core/state'
-import { droneAim, drones, gameTime, playerPos } from '../core/queries'
+import { solidTopAt } from '../core/grid'
+import { droneAim, drones, gameTime, levelGrid, playerPos, redWalls } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
+import { CLIP_GLSL, createClipUniforms, createLightClip, type ClipUniforms } from './lightclip'
 import { inView } from './cull'
 import { addRim, palette, type Materials } from './look'
 import { DRONE_KEY, fanSpread, NO_FAN, type Sight } from './sight'
@@ -65,6 +67,8 @@ interface DroneView {
   beadB: Mesh
   fan: Mesh
   fanMat: ShaderMaterial
+  /** Where this drone's light is stopped (view/lightclip.ts), shared by its fan, look beam and view volume. */
+  clip: ClipUniforms
   beam: Mesh
   beamMat: ShaderMaterial
   cone: ViewCone
@@ -152,13 +156,15 @@ uniform float uStrength;
 uniform float uPhase;
 varying vec2 vUv;
 varying float vAng;
+varying vec3 vWorld;
+${CLIP_GLSL}
 void main() {
   // vUv.y: 0 at the base, 1 at the tip. Faint, fading toward the floor, with a brighter beam sweeping around the rim.
   float down = 1.0 - vUv.y;
   float sweep = pow(0.5 + 0.5 * cos(vAng - uTime * 1.3 - uPhase), 6.0);
   float a = (0.25 + 0.75 * sweep) * pow(vUv.y, 1.4) * (1.0 - smoothstep(0.7, 1.0, down) * 0.0);
   a *= 0.5 + 0.5 * smoothstep(0.0, 0.25, vUv.y);
-  gl_FragColor = vec4(uColor * a * uStrength, 1.0);
+  gl_FragColor = vec4(uColor * a * uStrength * clipVis(vWorld.xz), 1.0);
 }`
 
 const BEAM_FRAG = /* glsl */ `
@@ -303,7 +309,10 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
   const shellMat = new MeshStandardMaterial({ color: 0x080b10, metalness: 0.85, roughness: 0.26, envMapIntensity: 1.2 })
   addRim(shellMat, E.droneRimStrength, E.droneRim, E.rimPower)
   const haloTex = makeHaloTexture()
+  const grid = levelGrid(sim)
+  const lightClip = createLightClip(grid)
   const views: DroneView[] = drones(s).map((_, i) => {
+    const clip = createClipUniforms()
     const g = new Group()
     const body = new Group()
     const lean = new Group()
@@ -356,11 +365,11 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
     body.add(halo)
     lean.add(shell, seams, iris, crack, dot, ringA, ringB, eye)
     body.add(lean)
-    const cone = createCone(D.range, D.halfAngleDeg * DEG, sight.texture)
+    const cone = createCone(D.range, D.halfAngleDeg * DEG, sight.texture, { clip })
     cone.mesh.rotation.x = D.pitchDeg * DEG
     cone.mesh.position.z = R
     body.add(cone.mesh)
-    const look = createCone(LOOK.length, LOOK.halfAngleDeg * DEG, sight.texture, { scanOnly: false, nearFade: LOOK.nearFade })
+    const look = createCone(LOOK.length, LOOK.halfAngleDeg * DEG, sight.texture, { scanOnly: false, nearFade: LOOK.nearFade, clip })
     look.mesh.rotation.x = D.pitchDeg * DEG
     look.mesh.position.z = R
     body.add(look.mesh)
@@ -379,8 +388,8 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
     beam.userData['noReflect'] = true
     beam.renderOrder = 8
     const fanMat = new ShaderMaterial({
-      uniforms: { uColor: { value: palette.security.clone() }, uTime: { value: 0 }, uStrength: { value: 0.1 }, uPhase: { value: i * 1.9 } },
-      vertexShader: 'attribute float aAng; varying vec2 vUv; varying float vAng; void main(){ vUv = uv; vAng = aAng; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      uniforms: { uColor: { value: palette.security.clone() }, uTime: { value: 0 }, uStrength: { value: 0.1 }, uPhase: { value: i * 1.9 }, uClip: clip.table, uClipO: clip.origin, uClipOn: clip.on },
+      vertexShader: 'attribute float aAng; varying vec2 vUv; varying float vAng; varying vec3 vWorld; void main(){ vUv = uv; vAng = aAng; vec4 w = modelMatrix * vec4(position,1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
       fragmentShader: FAN_FRAG,
       transparent: true,
       depthWrite: false,
@@ -400,7 +409,7 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
     g.visible = false
     root.add(g)
     return {
-      root: g, body, lean, eye, haloMat, irisMat, ringMat, seamMat, crackMat, crack, ringA, ringB, beadA, beadB, fan, fanMat, beam, beamMat, cone, look, sus, susMat,
+      root: g, body, lean, eye, haloMat, irisMat, ringMat, seamMat, crackMat, crack, ringA, ringB, beadA, beadB, fan, fanMat, clip, beam, beamMat, cone, look, sus, susMat,
       bob: i * 1.7, lastSusSeg: 0, pupil: 0.3, lastX: 0, lastY: 0, lastZ: 0, px: 0, pz: 0, pitch: 0, roll: 0, wasAlive: false, lastHp: 0, hitT: 0,
     }
   })
@@ -445,6 +454,7 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
   return {
     root,
     update(st: GameState, dt: number, camera: Camera): void {
+      lightClip.setWalls(redWalls(st))
       const time = gameTime(st)
       const ds = drones(st)
       // the bursts
@@ -516,6 +526,12 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
         v.lean.rotation.x = v.pitch + Math.sin(v.bob * 1.1) * 0.025
         v.lean.rotation.z = v.roll + Math.sin(v.bob * 1.3) * 0.03
         const spawning = d.spawnTime > 0
+        // where its light is stopped by walls, slabs and rails (inside a gate hatch there is no light to clip)
+        v.clip.on.value = d.gateTime > 0 || spawning ? 0 : 1
+        if (v.clip.on.value > 0) {
+          v.clip.origin.value.set(d.pos.x, d.pos.z)
+          lightClip.fill(v.clip.table.value, d.pos.x, d.pos.y, d.pos.z, D.range)
+        }
         // materializing: flicker in
         v.body.visible = !spawning || Math.sin(time * 60) > (d.spawnTime / D.spawnSec) * 1.6 - 0.8
         v.body.scale.setScalar(spawning ? 1 + d.spawnTime * 0.6 : 1)
@@ -559,13 +575,20 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
           v.eye.getWorldPosition(eyeW)
           const p = playerPos(st)
           toHero.set(p.x - eyeW.x, p.y + AIM.chest - eyeW.y, p.z - eyeW.z)
-          const len = toHero.length()
+          const full = toHero.length()
+          let len = full
           if (len > 0.1) {
+            // never through a wall, slab or rail: it stops where the line to the chest meets something
+            const hl = Math.hypot(toHero.x, toHero.z)
+            if (hl > 0.05 && v.clip.on.value > 0) {
+              const reach = lightClip.line(eyeW.x, eyeW.y, eyeW.z, toHero.x / hl, toHero.z / hl, hl, p.y + AIM.chest)
+              if (reach < hl) len *= Math.max(0.02, reach / hl)
+            }
             // the beam lives in the drone group: place it in that group's space
             v.root.getWorldQuaternion(invQ).invert()
             v.beam.position.copy(eyeW)
             v.root.worldToLocal(v.beam.position)
-            toHero.multiplyScalar(1 / len)
+            toHero.multiplyScalar(1 / full)
             v.beam.quaternion.setFromUnitVectors(UP, toHero).premultiply(invQ)
             const r = AIM.wide + (AIM.thin - AIM.wide) * aim
             v.beam.scale.set(r, len, r)
@@ -576,7 +599,7 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
           } else v.beam.visible = false
         }
         // the scanning fan under it: faint, sweeping, as long as the drone is high
-        const fanH = Math.max(FAN_LEN_MIN, d.pos.y)
+        const fanH = Math.max(FAN_LEN_MIN, d.pos.y - Math.max(0, solidTopAt(grid, d.pos.x, d.pos.z))) // down to the surface under it, not through a slab
         v.fan.visible = !spawning
         v.fan.scale.set(fanH * FAN_HALF, fanH, fanH * FAN_HALF)
         const fu = v.fanMat.uniforms as Record<string, { value: number | Color }>

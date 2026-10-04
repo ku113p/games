@@ -104,7 +104,7 @@ states (menu/room, calm network, combat, hacking).
 Measure with F3 and `renderer.info` before and after every optimisation; never optimise by eye.
 
 **The benchmark** (`?bench=<scenario>`, `view/bench.ts`; CLI `bun tools/bench.ts`, see README) is the measuring tool. Scenarios:
-`idle`, `wave` (the biggest wave: 15 worms, drone, 2 wardens, heavy; a scripted hero fights it), `fx` and `fx-<category>`
+`idle`, `scan` / `scan-walk` / `scan-still` / `scan-off` (the hero on arena 2's bridge holding network vision, see below), `wave` (the biggest wave: 15 worms, drone, 2 wardens, heavy; a scripted hero fights it), `fx` and `fx-<category>`
 (synthetic bursts of every effect with the real handlers and sounds), `soak` (wave on repeat, 5 min), `all`. The F3 overlay shows
 its progress. **Pass thresholds** (real GPU, High preset, 1080p): p95 frame < 20 ms, p99 < 33 ms, nothing over 50 ms after the
 first 2 s, JS p95 < 8 ms, `soak`: zero growth (geometries, textures, programs, scene objects, audio voices; heap flat within
@@ -133,6 +133,29 @@ and trends count), l1, `?bench=soak` 180 s with a scripted hero fighting looping
   were frozen (`hitstop%` in the table). If the designer still feels periodic hitches on a real GPU, try `reduceFx` first.
 - *Open:* 600-730 draw calls per frame (main ~550 + floor mirror ~175; budget 150) is the biggest GPU-side cost and the first
   thing to cut (merge city props, drop small meshes from the mirror, or lower the mirror's cost on the Low preset).
+- **Network vision while moving (2026-10-05, designer: "the frame rate drops hard on the L1 bridge with Tab held").** Method: the
+  `scan*` bench scenarios, `--profile`, `--alloc`, a micro-benchmark of `sight.ts` and fragment counting of the cone volumes (additive 1/255
+  per fragment). What it is NOT: the sight fans (0.04 ms per camera fan, 0.015 ms per drone or warden fan, at most 20 per second each: well
+  under 1 ms a frame for 32 devices), the DataTexture upload (6 KB), the netvision links / routes / rings (a handful of draws, no
+  per-frame geometry), or fill (the 32 cone volumes cover 18% of the screen at 960x540 with 1.5 overdraw). The CPU profile of `scan` and
+  `scan-still` is flat and the same as `idle`'s (three's draw submission). What was found and fixed:
+  1. *The floor mirror pass saw other lights than the main pass.* Hemisphere, hero key / rim and muzzle lights were on layer 0 only, the
+     lanterns on 0 and 1; the mirror camera draws layer 1, so three re-resolved (and re-hashed, with allocations) the program of every lit
+     material twice a frame, and compiled two programs for each. Fix: every light on both layers (`game-view.ts`). Programs 152 -> 103,
+     `getParameters` + `join` garbage -35%, alloc 921 -> 777 KB/frame (idle), 1110 -> 971 (scan). The reflection looks the same.
+  2. *The view cones were drawn in the mirror pass as well* (they hang on drone / warden / camera rigs that are marked reflective): an
+     additive xray volume per device, twice. Now `noReflect` (`cone.ts`): the mirror pass lost 6 draw calls with Tab held (127 -> 121,
+     the same as without Tab); a full frame with Tab 354 -> 346 calls.
+  3. *Everything was fanned and drawn whether in view or not.* The floor shader has 10 cone slots (`MAX_CONES`) filled in device order, so
+     far cameras took the slots of the near wardens. New `view/cull.ts` (frustum of the last frame, padded 3 m): cones, floor fans and
+     sight fans are skipped for devices out of view (cameras no longer cast fans at all without Tab).
+  4. *Sight recasts are capped per frame* (`view.cones.recastsPerFrame` 3; forced recasts - a turn past the margin, a new range, a wall
+     moving - always go), so a crowd of moving devices cannot recast in one frame.
+  Still open: the hero's and the wardens' skinned `Armor` / `ArmorLines` / `Coat` materials re-resolve their program every frame
+  (about 40 `getProgram` calls a frame, found by wrapping `customProgramCacheKey`; it is the rest of the `getParameters` garbage): look at
+  `view/hero.ts` / `view/wardens.ts` (the same material on plain and skinned meshes, or a per-draw change that bumps its version). Not
+  reproduced here: a hard drop on a real GPU (this box's software GL is too noisy: the same scenario varies +-40% run to run), so the
+  designer's machine is the check: F3 with and without Tab on the bridge, then `?bench=scan` and `scan-off`.
 - Headless frames show a ~2 s stall every few seconds even in `idle`: a software-GL artifact, not the game.
 
 ### Working rules

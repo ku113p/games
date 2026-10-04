@@ -1,8 +1,0 @@
-const pw = await import('/home/ubuntu/.bun/install/cache/playwright-core@1.55.0@@@1/index.mjs')
-const browser = await pw.chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] })
-const page = await browser.newPage()
-page.on('pageerror', (e) => console.log('ERR', e.message.slice(0, 400)))
-page.on('console', (m) => m.type() === 'error' && console.log('CON', m.text().slice(0, 400)))
-await page.goto(process.argv[2] + '/?bench=scan-still&level=l1&sec=5')
-await page.waitForTimeout(8000)
-await browser.close()

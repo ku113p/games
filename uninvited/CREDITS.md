@@ -19,6 +19,7 @@ The jam requires listing every asset we did not create. Add a row the moment an 
 | H5 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
 | NF2, NF3, NF4, NF6, NF7 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
 | EM1, EW1, EW2, ET1 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
+| EW3c, EW3g (the warden swarm look) | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-05 |
 | FP4-room-fp-depth | Depth Anything V2 Small (Apache-2.0) through transformers.js, run locally | 2026-10-04 |
 | FP4-room-fp-masks-a/b, CU4g-vr-inside-mask | SlimSAM (Segment Anything, Apache-2.0) through transformers.js, run locally | 2026-10-04 |
 
@@ -53,6 +54,8 @@ energy halberd, the light lines; EW2 the enforcer: the broad armor, the hex ener
 our own Blender script `tools/warden/build.py` (`--variant sentinel|enforcer`) on top of the Quaternius Universal Base
 Characters male body, from the concept images EW1 and EW2. The drone (EM1: orb, shader iris, orbiting rings, scanning fan)
 is built procedurally in `view/drones.ts`. Both were written with Claude Code (Anthropic), 2026-10-04.
+Since 2026-10-05 the warden is drawn as a particle swarm (EW3g): the same skinned bodies, rendered by our own dot shader and a pooled
+particle system (`view/swarm.ts`, written with Claude Code); the armor meshes of the build are dropped at load, the models are unchanged.
 
 ## Music (`audio/music/`)
 

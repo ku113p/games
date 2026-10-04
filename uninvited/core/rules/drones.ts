@@ -1,6 +1,6 @@
 // Patrol drones (DESIGN 8-9): patrol waypoints, see in a cone, grow suspicion, stare, then alert -> chase and shoot,
 // lose you -> look around the last known place. Searchers comb the area at alarm 1-2; wave drones always hunt.
-import { cellAt, floorHeightAt, solidTopAt, type Grid } from '../grid'
+import { blockContains, cellAt, CellKind, floorHeightAt, roofAt, solidTopAt, type Grid } from '../grid'
 import type { DroneConfig } from '../config'
 import type { DroneState, GameState, Sim, Vec3 } from '../state'
 import { angleDiff, clamp, DEG, dist2, emit, turnTowards } from '../util'
@@ -8,7 +8,7 @@ import { raiseAlarm, randomSearchPoint } from './alarm'
 import { fireBolt } from './combat'
 import { seeFactor } from './detection'
 import { abortGateIn, enterGate, gateStep, nearestGate } from './gates'
-import { clearOfTall, flyable, nextCell } from './nav'
+import { clearOfSolid, flyable, navDistance, nextCell } from './nav'
 import { rangedFree } from './tokens'
 
 export { spawnDrone } from './gates'
@@ -58,6 +58,87 @@ export function droneAltitude(g: Grid, cfg: DroneConfig, x: number, z: number): 
   return y
 }
 
+const MARGIN = 0.35 // how close the drone's centre may come to a solid (its body is about 0.55 across)
+
+/**
+ * Is this point inside something solid at height y: outside the plan, a wall, niche, closed red wall, or a block taller
+ * than y? `centre`: the drone's own point, which also keeps out of every cell the nav calls blocked (a tall block fills
+ * the whole cell there); the margin points (its body) only keep out of the real shapes.
+ */
+function pointSolid(sim: Sim, x: number, y: number, z: number, centre: boolean): boolean {
+  const g = sim.grid
+  const c = cellAt(g, x, z)
+  if (c < 0) return true
+  if (centre) {
+    if (!flyable(sim.nav, c)) return true
+  } else {
+    const k = g.kind[c]
+    if (k === CellKind.Wall || k === CellKind.Niche || (k === CellKind.RedWall && sim.nav.wallOpen[g.group[c] as number] !== 1)) return true
+  }
+  for (const b of g.blocks) if (b.maxY + 0.2 > y && blockContains(b, x, z)) return true
+  return false
+}
+
+function solidAt(sim: Sim, x: number, y: number, z: number, m: number): boolean {
+  if (pointSolid(sim, x, y, z, true)) return true
+  return m > 0 && (pointSolid(sim, x + m, y, z, false) || pointSolid(sim, x - m, y, z, false) || pointSolid(sim, x, y, z + m, false) || pointSolid(sim, x, y, z - m, false))
+}
+
+/** The highest low surface (floor, cover, block) at a point, ignoring wall cells (those are rejected on their own). */
+function lowTop(g: Grid, x: number, z: number): number {
+  const c = cellAt(g, x, z)
+  if (c < 0 || g.kind[c] === CellKind.Wall) return -Infinity
+  return solidTopAt(g, x, z)
+}
+
+/** The height the drone needs at (x, z): over the low blocks below it, under the roof; NaN when there is no room. */
+function fitHeight(sim: Sim, x: number, z: number, y: number, m: number): number {
+  const g = sim.grid
+  let top = lowTop(g, x, z)
+  let roof = roofAt(g, x, z)
+  if (m > 0) {
+    for (let k = 0; k < 4; k++) {
+      const px = x + (k === 0 ? m : k === 1 ? -m : 0)
+      const pz = z + (k === 2 ? m : k === 3 ? -m : 0)
+      top = Math.max(top, lowTop(g, px, pz))
+      roof = Math.min(roof, roofAt(g, px, pz))
+    }
+  }
+  const need = top + 0.35
+  const out = Math.min(Math.max(y, need), roof - 0.4)
+  return out < need - 1e-6 ? NaN : out
+}
+
+/**
+ * The last guard on every drone move (patrol, search, leave, ring, slide, strafe): the step from (ox, oy, oz) to where
+ * the drone is now must not enter a solid. It lifts over low blocks, ducks under roofs; if the step is blocked it tries
+ * sliding along x or z, else it stays. The movement code plans round obstacles; this guarantees it.
+ */
+function confine(sim: Sim, d: DroneState, ox: number, oy: number, oz: number): void {
+  const nx = d.pos.x
+  const nz = d.pos.z
+  const ny = d.pos.y
+  const m = solidAt(sim, ox, oy, oz, MARGIN) ? 0 : MARGIN
+  const tryMove = (x: number, z: number): boolean => {
+    const y = fitHeight(sim, x, z, ny, m)
+    if (y !== y) return false
+    const len = Math.hypot(x - ox, z - oz)
+    const n = Math.max(1, Math.ceil(len / 0.3))
+    for (let k = 1; k <= n; k++) {
+      const t = k / n
+      if (solidAt(sim, ox + (x - ox) * t, oy + (y - oy) * t, oz + (z - oz) * t, m)) return false
+    }
+    d.pos.x = x
+    d.pos.z = z
+    d.pos.y = y
+    return true
+  }
+  if (tryMove(nx, nz) || tryMove(nx, oz) || tryMove(ox, nz)) return
+  d.pos.x = ox
+  d.pos.z = oz
+  d.pos.y = oy
+}
+
 /** Flies towards (tx, tz): straight when the way is clear, otherwise along the grid's flow field. Returns the distance left. */
 function flyTowards(sim: Sim, d: DroneState, tx: number, tz: number, speed: number, dt: number, settle = true): number {
   const g = sim.grid
@@ -66,13 +147,16 @@ function flyTowards(sim: Sim, d: DroneState, tx: number, tz: number, speed: numb
   const total = Math.sqrt(dist2(d.pos.x, d.pos.z, tx, tz))
   if (total < 0.05) return 0
   const ty = droneAltitude(g, sim.cfg.drone, tx, tz)
-  if (!sim.world.lineOfSight(d.pos.x, d.pos.y, d.pos.z, tx, ty, tz) || !clearOfTall(sim.nav, d.pos.x, d.pos.z, tx, tz)) {
+  if (!sim.world.lineOfSight(d.pos.x, d.pos.y, d.pos.z, tx, ty, tz) || !clearOfSolid(sim.nav, d.pos.x, d.pos.z, tx, tz)) {
     const from = cellAt(g, d.pos.x, d.pos.z)
     const to = cellAt(g, tx, tz)
     const next = nextCell(sim.nav, from, to)
     if (next >= 0) {
       gx = ((next % g.cols) + 0.5) * g.cell
       gz = (Math.floor(next / g.cols) + 0.5) * g.cell
+    } else if (from !== to && from >= 0 && flyable(sim.nav, from)) {
+      // no way there (the spot is in a wall, or cut off): hold, never cut straight through (confine() is the last guard)
+      return total
     }
   }
   const dx = gx - d.pos.x
@@ -123,33 +207,45 @@ function standoffPoint(sim: Sim, i: number, d: DroneState, cx: number, cz: numbe
   const own = Math.atan2(d.pos.z - cz, d.pos.x - cx)
   const a = own + clamp(angleDiff(slotA, own), -0.6, 0.6)
   const rr = r
+  // a slot is usable when a drone can be there (tier 1), the flow field connects it with the player's cell (tier 2), and
+  // it has a line to the player (tier 3: the best). The first spot of the best tier wins; the search goes round the ring,
+  // then closer in (never closer than clearRadius + 1).
+  const target = cellAt(g, cx, cz)
+  const chestY = d.lastKnown.y + sim.cfg.player.chestHeight
+  const eyeY = d.lastKnown.y + so.heightMin
+  const tier = (px: number, pz: number): number => {
+    const c = cellAt(g, px, pz)
+    if (c < 0 || !flyable(sim.nav, c)) return 0
+    if (target >= 0 && flyable(sim.nav, target) && navDistance(sim.nav, c, target) < 0) return 1
+    return sim.world.lineOfSight(px, eyeY, pz, cx, chestY, cz) ? 3 : 2
+  }
   let x = cx + Math.cos(a) * rr
   let z = cz + Math.sin(a) * rr
-  // a spot inside a wall: try the neighbours on the ring, then closer in; else stay where it is
-  const ok = (px: number, pz: number): boolean => {
-    const c = cellAt(g, px, pz)
-    return c >= 0 && flyable(sim.nav, c)
-  }
-  if (!ok(x, z)) {
-    // a wall there: the neighbours on the ring, then rings closer in (never closer than clearRadius + 1)
-    let found = false
-    for (let ring = 0; ring < 3 && !found; ring++) {
+  let best = tier(x, z)
+  if (best < 3) {
+    let bx = x
+    let bz = z
+    for (let ring = 0; ring < 3 && best < 3; ring++) {
       const rad = Math.max(so.clearRadius + 1, rr * (1 - ring * 0.2))
-      for (let k = 0; k <= 8 && !found; k++) {
-        for (let sgn = -1; sgn <= 1 && !found; sgn += 2) {
-          if (k === 0 && sgn === 1) continue
+      for (let k = 0; k <= 8 && best < 3; k++) {
+        for (let sgn = -1; sgn <= 1 && best < 3; sgn += 2) {
+          if (k === 0 && (sgn === 1 || ring === 0)) continue
           const aa = a + sgn * k * 0.4
           const px = cx + Math.cos(aa) * rad
           const pz = cz + Math.sin(aa) * rad
-          if (ok(px, pz)) {
-            x = px
-            z = pz
-            found = true
+          const t = tier(px, pz)
+          if (t > best) {
+            best = t
+            bx = px
+            bz = pz
           }
         }
       }
     }
-    if (!found) {
+    if (best > 0) {
+      x = bx
+      z = bz
+    } else {
       // boxed in: with sight of the player it holds; without, it works its way closer (the clear radius slides it out again)
       x = d.sees ? d.pos.x : cx
       z = d.sees ? d.pos.z : cz
@@ -200,7 +296,29 @@ function standoff(s: GameState, sim: Sim, i: number, d: DroneState, dt: number, 
       dx /= l
       dz /= l
     }
-    flyTowards(sim, d, px + dx * (so.clearRadius + 2), pz + dz * (so.clearRadius + 2), so.slideSpeed, dt, false)
+    // the way out: along that line, or the nearest direction to it that ends in a free, connected spot
+    const out = so.clearRadius + 2
+    const base = Math.atan2(dz, dx)
+    let tx = px + dx * out
+    let tz = pz + dz * out
+    const here = cellAt(sim.grid, d.pos.x, d.pos.z)
+    for (let k = 0; k <= 12; k++) {
+      let found = false
+      for (let sgn = -1; sgn <= 1 && !found; sgn += 2) {
+        if (k === 0 && sgn === 1) continue
+        const aa = base + sgn * k * 0.26
+        const sx = px + Math.cos(aa) * out
+        const sz = pz + Math.sin(aa) * out
+        const c = cellAt(sim.grid, sx, sz)
+        if (c >= 0 && flyable(sim.nav, c) && (c === here || navDistance(sim.nav, here, c) >= 0)) {
+          tx = sx
+          tz = sz
+          found = true
+        }
+      }
+      if (found) break
+    }
+    flyTowards(sim, d, tx, tz, so.slideSpeed, dt, false)
     settleHeight(sim, d, floor + standoffHeight(sim, i, hp), dt)
     return
   }
@@ -290,6 +408,9 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
     // the player's chest, for facing and shooting
     if (d.sees) d.yaw = turnTowards(d.yaw, Math.atan2(p.x - d.pos.x, p.z - d.pos.z), cfg.turnRate * dt)
 
+    const ox = d.pos.x
+    const oy = d.pos.y
+    const oz = d.pos.z
     switch (d.mode) {
       case 'patrol': {
         if (d.sees) break // stares while making up its mind
@@ -380,6 +501,7 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
         break
       }
     }
+    if (d.active && d.gateTime <= 0 && d.spawnTime <= 0) confine(sim, d, ox, oy, oz)
   }
 }
 

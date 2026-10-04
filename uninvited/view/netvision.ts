@@ -211,8 +211,23 @@ export function buildNetVision(s: GameState, sim: Sim): NetVision {
     return out
   }
   for (let d = 0; d < routes.length && d < MAX_ROUTES; d++) {
-    const r = routes[d]
+    let r = routes[d]
     if (!r || r.length < 2) continue
+    if (r.length === 2) {
+      // out and back along one line: two lanes side by side with a rounded turn at each end, so the way back reads as its own
+      const a = r[0] as { x: number; z: number }
+      const b = r[1] as { x: number; z: number }
+      const l = Math.hypot(b.x - a.x, b.z - a.z)
+      if (l < 0.05) continue
+      const nx = (-(b.z - a.z) / l) * N.routeLane
+      const nz = ((b.x - a.x) / l) * N.routeLane
+      r = [
+        { x: a.x + nx, z: a.z + nz },
+        { x: b.x + nx, z: b.z + nz },
+        { x: b.x - nx, z: b.z - nz },
+        { x: a.x - nx, z: a.z - nz },
+      ] as unknown as typeof r
+    }
     const pts = smooth(r)
     const n = pts.length
     if (n < 2) continue

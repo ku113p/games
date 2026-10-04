@@ -49,3 +49,6 @@ uninvited/tools/sfx/kenney/
 
 # Local benchmark output (tools/bench.ts)
 uninvited/bench/results/
+
+# Agents scratch files - never in the repo
+uninvited/scratchpad/
