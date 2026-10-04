@@ -25,6 +25,7 @@ Third person, browser, PC, keyboard and mouse.
 ## 3. The weapon - a gunblade
 
 - **One weapon, sword and gun at once** (a gunblade). Our own, long, a hunter's; inspired by the Final Fantasy 8 gunblade, not a copy.
+- **How the gunblade is held** (the designer, 2026-10-05; in the game and in all art and paintings): only by the grip at the back end, never by the blade or the barrel. At rest it hangs at the hip, blade and barrel pointing down. When shooting - **one hand**, arm extended, the blade parallel to the floor.
 - **LMB is always the sword.** **Hold RMB - aim, it is a gun, LMB shoots.** No weapon switching.
 - **The gun charges only from monsters:** a sword kill charges the gun (picked up automatically). No ammo on the level. Reload exists.
 - Why both modes: the sword is for the crowd; the gun for single targets you cannot reach; only the gun takes ghosts; bats are fast and hard to hit with the gun, but you can always jump up to them and cut them in the air.
