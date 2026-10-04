@@ -1,5 +1,10 @@
 {
   "sim": { "maxDt": 0.05, "maxEvents": 256 },
+  "world": {
+    "tops": { "1": 0.5, "2": 1.1, "3": 1.6, "4": 2.4, "5": 3.2, "6": 4.5, "7": 6, "8": 8, "9": 11, "a": 14, "b": 18, "c": 24, "d": 32 },
+    "defaultTop": 8, "voidDepth": 40, "skyGate": 7,
+    "fall": { "depth": 6, "fadeSec": 0.55, "damage": 20, "safeMargin": 0.8 }
+  },
   "player": {
     "walkSpeed": 2.6, "runSpeed": 6.4, "crouchSpeed": 1.5,
     "groundAccel": 50, "groundDecel": 60, "airAccel": 4, "turnRate": 24,
@@ -11,10 +16,10 @@
   },
   "noise": { "run": 8, "jump": 5, "land": 7, "dash": 7, "sword": 6, "rifle": 16, "hit": 10, "kill": 14, "laser": 10, "runEverySec": 0.35, "fadeSec": 0.6 },
   "combat": {
-    "switchSec": 0.25,
+    "switchSec": 0.25, "aimDrawSec": 0.1,
     "sword": { "damage": 80, "range": 2.6, "arcDeg": 180, "cooldownSec": 0.42, "reachUp": 3.2, "reachDown": 1.0, "animSec": 0.32 },
-    "rifle": { "damage": 20, "intervalSec": 0.16, "spreadDeg": 2.5, "range": 40, "charges": 60, "aimAssistDeg": 5, "muzzleHeight": 1.35, "animSec": 0.12 },
-    "hitRadius": { "drone": 0.6, "camera": 0.45, "laser": 0.5 }
+    "rifle": { "damage": 20, "intervalSec": 0.16, "spreadDeg": 2.5, "aimSpreadDeg": 0.8, "range": 40, "charges": 60, "aimAssistDeg": 5, "muzzleHeight": 1.35, "animSec": 0.12 },
+    "hitRadius": { "drone": 0.6, "camera": 0.45, "laser": 0.5, "worm": 0.45 }
   },
   "detection": { "rate": 1.1, "decay": 0.35, "crouchFactor": 0.3, "runFactor": 1.5, "farFactor": 0.45 },
   "videoCamera": { "range": 14, "halfAngleDeg": 24, "pitchDeg": 22, "mountHeight": 3.6, "sweepPeriodSec": 9, "holdShare": 0.25, "hp": 40, "respotSec": 6 },
@@ -30,9 +35,27 @@
     "hearFactor": 0.8, "maxExtra": 10,
     "spawnSec": 1.0, "gateExitSec": 1.0, "gateDepth": 1.5, "gateOut": 1.2, "gateStaggerSec": 1.0
   },
+  "worm": {
+    "hp": 45, "radius": 0.3, "speed": 6.4, "speedSpread": 0.12, "searchSpeed": 2.4, "turnRate": 10, "max": 24,
+    "biteRange": 1.7, "biteReach": 2.3, "windupSec": 0.42, "recoverSec": 0.6, "biteDamage": 12,
+    "staggerSec": 0.25, "knockback": 4, "spawnSec": 0.7, "emergeSec": 0.8, "gateStaggerSec": 0.2,
+    "directDist": 9, "flankDist": 6, "flankDeg": 110, "senseDist": 7, "senseCrouchDist": 3.5, "loseSec": 4, "climb": 1.6
+  },
+  "warden": {
+    "hp": 200, "rifleFactor": 1.25, "radius": 0.4, "eyeHeight": 1.85, "chestHeight": 1.35, "hitRadius": 0.6,
+    "range": 10, "halfAngleDeg": 21, "pitchDeg": 12, "closeDist": 1.6, "closeHalfAngleDeg": 60,
+    "patrolSpeed": 1.15, "investigateSpeed": 1.45, "searchSpeed": 1.75, "alertSpeed": 3.3,
+    "turnRate": 1.6, "alertTurnRate": 2.6, "headTurnRate": 1.0, "headMaxDeg": 70,
+    "pauseChance": 0.3, "pauseSec": [1.2, 2.8], "postActSec": [4, 8], "waitVary": 0.3,
+    "scanDeg": 55, "scanPeriodSec": 5, "glanceDeg": 35,
+    "suspiciousSec": 1.6, "investigateLookSec": 4.5, "searchLookSec": 3, "loseSec": 5, "keen": 1.5, "hearFactor": 0.9,
+    "strikeRange": 1.7, "strikeReach": 2.3, "strikeArcDeg": 100, "strikeWindupSec": 0.7, "strikeRecoverSec": 0.8, "strikeDamage": 22,
+    "shotMinDist": 4.5, "shotAimSec": 1.1, "shotIntervalSec": 3.2, "shotFirstSec": 1.4, "boltSpeed": 9,
+    "hitAnimSec": 0.35, "bumpSuspicion": 0.6, "repathSec": 1.0
+  },
   "alarm": {
     "decaySec": [0, 30, 45, 0], "searchers": [0, 1, 2, 0], "searchRadius": [0, 14, 40, 60],
-    "waveSizes": [1, 2, 2], "waveFirstDelaySec": 5, "waveGapSec": 9, "firewallAfterWaves": 3, "maxWaveDrones": 3, "minSpawnDist": 12, "raiseCooldownSec": 4
+    "waveSizes": [1, 2, 2, 2], "wavePacks": [[6], [6, 5], [6, 6], [6, 6, 5]], "searchPacks": [0, 0, 4, 0], "waveFirstDelaySec": 5, "waveGapSec": 6, "firewallAfterWaves": 3, "maxWaveDrones": 3, "minSpawnDist": 12, "raiseCooldownSec": 4
   },
   "scan": { "warnAt": 0.7, "maxSec": 6, "cooldownSec": 1.5, "overheatCooldownSec": 6 },
   "terminal": { "interactRadius": 1.7, "pauseSec": 30, "timeBonusSec": 0 },
@@ -44,15 +67,17 @@
     "pixelRatioMax": 1.5,
     "fov": 62,
     "dashFov": 70,
+    "far": 1500,
     "camera": {
       "distance": 4.3, "crouchDistance": 3.5, "pivotHeight": 1.6, "crouchPivotHeight": 1.1, "shoulder": 0.55,
       "sensitivity": 0.0022, "minPitch": -0.45, "maxPitch": 1.15, "startPitch": 0.22,
       "followLerp": 22, "followLerpY": 12, "aimRange": 60,
       "collisionRadius": 0.28, "collisionPad": 0.14, "minDistance": 0.25, "easeOutRate": 2.5,
-      "sprintFov": 7, "sprintFovRate": 5, "bobHeight": 0.035, "bobSide": 0.022, "bobStride": 0.95
+      "sprintFov": 7, "sprintFovRate": 5, "bobHeight": 0.035, "bobSide": 0.022, "bobStride": 0.95,
+      "aim": { "distance": 2.6, "crouchDistance": 2.2, "shoulder": 0.85, "pivotDrop": 0.04, "fov": 50, "sensitivity": 0.55, "easeSec": 0.15 }
     },
     "bloom": { "strength": 0.45, "radius": 0, "threshold": 0.9, "factors": [1.0, 0.35, 0.1, 0.03, 0.0], "scale": 1 },
-    "fog": { "color": "#03070a", "density": 0.04 },
+    "fog": { "color": "#050c11", "density": 0.016 },
     "post": {
       "exposure": 1.0, "blackPoint": 0.0015, "shoulder": 0.7, "saturation": 1.15, "vignette": 0.55, "chroma": 0.0012,
       "alarmEdge": 0.25, "alarmHz": 1.1, "edgeRed": [0.9, 0.02, 0.03],
@@ -60,18 +85,40 @@
     },
     "light": { "hemi": 0.3, "envStrips": 0.8, "rim": [0.03, 0.1, 0.13], "heroRim": 5, "heroRimDistance": 5 },
     "corridor": {
-      "seamRadius": 0.018, "ribRadius": 0.015, "seamIntensity": 0.7, "ribIntensity": 0.5,
-      "wallSpill": 0.012, "wallSheen": 0.02, "floorNear": 0.01, "floorPlate": 0.004, "ceilSpill": 0.008,
-      "wallAlbedo": 0.3, "floorAlbedo": 0.3, "keyColor": [0.06, 0.09, 0.11], "keyRange": 12,
-      "ceilColor": "#05080b", "detailColor": "#151b22",
-      "reflect": 0.45, "reflectScale": 0.35, "reflectFade": 1.1, "reflectLod": [1.0, 1.5],
-      "alarmWaveLen": 9, "alarmWaveSpeed": 9, "alarmWall": 0.02, "alarmLow": 0.15, "alarmDim": 0.35
+      "ribRadius": 0.015, "ribIntensity": 0.5, "floorPlate": 0.004,
+      "wallAlbedo": 0.3, "floorAlbedo": 0.3, "keyColor": [0.06, 0.09, 0.11], "keyRange": 12, "detailColor": "#151b22",
+      "reflect": 0.18, "reflectScale": 0.35, "reflectFade": 1.1, "reflectLod": [1.0, 1.5],
+      "alarmWaveLen": 9, "alarmWaveSpeed": 9, "alarmLow": 0.15, "alarmDim": 0.35
+    },
+    "city": {
+      "edgeRadius": 0.022, "edgeIntensity": 0.85, "cornerIntensity": 0.55, "lineMinPx": 1.1, "lineFogKeep": 0.55,
+      "cornerMinDrop": 2.5, "cornerShare": 0.5, "cornerMaxLen": 30,
+      "slabColor": "#0a1219", "hexColor": "#0b1117", "slabSheen": 0.025, "hexSize": 0.95, "hexSeam": 0.07,
+      "faceLines": 0.9, "voidFade": 0.12, "coverInset": 0.06, "bridgeDeck": 0.35, "roofThickness": 0.7,
+      "pathEvery": 2.5, "pathLen": [5, 18], "pathClear": 0.7, "pathIntensity": 1.6, "pathRadius": 0.014, "viaRadius": 0.09, "footLine": 0.35, "coverHexSize": 0.55
+    },
+    "skyline": {
+      "skyRadius": 1200, "farRadius": 560, "clearance": 30, "lot": 14, "riverAbove": 26,
+      "zenith": [0.002, 0.004, 0.007], "horizon": [0.012, 0.03, 0.04], "below": [0.004, 0.009, 0.012],
+      "star": [0.5, 0.75, 0.9], "cityGlow": [0.006, 0.03, 0.04],
+      "haze": [0.01, 0.026, 0.034], "hazeDensity": 0.0042, "lineKeep": 0.7, "lineWidth": 0.09, "mistHeight": 45, "lineIntensity": 0.42,
+      "body": [0.008, 0.013, 0.018], "emptyShare": 0.38, "platformShare": 0.2, "ledgeShare": 0.22, "bridgeShare": 0.3,
+      "heightMin": 3, "heightVar": 8, "heightGrow": 0.32,
+      "riverGlow": 1.2, "narrowChannel": 4, "riverHead": 0.9, "riverSpeed": 1.0,
+      "landmarkTiers": [[2.2, 0.12], [1.7, 0.18], [1.3, 0.22], [1.0, 0.2], [0.6, 0.16], [0.3, 0.12]],
+      "landmarkGlow": 1.3, "beamIntensity": 1.6, "beamWidth": 0.22
+    },
+    "cityLife": {
+      "packetEvery": 7, "packetSpeed": [2.5, 5.5], "packetGlow": 1.5, "packetSize": [0.025, 0.02, 0.3], "packetLift": 0.02,
+      "motes": 260, "moteBox": 36, "moteSize": 0.04, "moteMaxPx": 3, "moteGlow": 1.4, "moteRise": 0.12
     },
     "cones": {
-      "rays": 48, "updateHz": 20, "marginDeg": 10, "moveSnap": 0.3,
+      "rays": 48, "updateHz": 20, "marginDeg": 10, "moveSnap": 0.3, "sightStep": 0.1,
       "floorFill": 0.025, "floorRays": 0.22, "floorRim": 0.45, "floorRings": 0.08,
       "lineWidth": 0.018, "raysPerRadian": 14, "ringGap": 2.4, "ringSpeed": 1.2,
-      "volumeFill": 0.004, "volumeEdge": 0.03, "volumeNear": [1.0, 5.0]
+      "volumeFill": 0.004, "volumeEdge": 0.03, "volumeNear": [1.0, 5.0],
+      "scanFadeRate": 8,
+      "lookBeam": { "length": 1.6, "halfAngleDeg": 7, "strength": 14, "pausedStrength": 4, "lensGlow": 1.5, "nearFade": [0.3, 1.2] }
     },
     "colors": {
       "wall": "#09121a", "floor": "#060a0e",
@@ -79,7 +126,8 @@
       "security": [3.2, 0.16, 0.12], "securityDim": [1.0, 0.05, 0.04], "suspicious": [2.8, 1.4, 0.1],
       "sound": [2.8, 1.1, 0.15], "terminal": [0.35, 2.2, 2.8], "terminalDone": [1.6, 2.6, 2.0], "paused": [0.35, 0.5, 0.9],
       "heroWhite": [2.4, 2.5, 2.7], "heroRed": [3.0, 0.16, 0.12], "heroBlue": [0.25, 0.75, 3.0],
-      "checkpoint": [0.4, 2.0, 2.9], "artifact": [2.6, 2.4, 1.6]
+      "checkpoint": [0.4, 2.0, 2.9], "artifact": [2.6, 2.4, 1.6],
+      "worm": [2.9, 0.12, 1.25], "wormEye": [3.2, 1.6, 2.6]
     },
     "juice": {
       "hitStopSec": 0.045, "killHitStopSec": 0.11, "hurtHitStopSec": 0.05,
@@ -91,9 +139,17 @@
     "hud": { "toastSec": 2.8, "hintSec": 6, "hintsAfterSec": 8 },
     "heroLight": { "intensity": 6, "distance": 9, "height": 2.6, "back": 1.6 },
     "droneAim": { "chest": 1.15, "wide": 0.05, "thin": 0.012 },
+    "worms": { "segments": 7, "spacing": 0.27, "headRadius": 0.25, "tailRadius": 0.09, "wiggle": 0.16, "wiggleStride": 0.55, "rearUp": 0.5, "deathSec": 0.5 },
     "netVision": { "linkRadius": 0.022, "linkStrength": 0.8, "routeWidth": 0.36, "routeStrength": 0.35, "zoneHeight": 2.4, "noiseStrength": 0.5 }
   },
-  "audio": { "master": 0.75, "droneHum": 0.32, "cameraServo": 0.22, "alarmLoop": 0.32, "hearDist": 16, "hack": 1.0 },
+  "audio": {
+    "master": 0.75, "droneHum": 0.32, "cameraServo": 0.22, "alarmLoop": 0.32, "hearDist": 16, "hack": 1.0, "wormSkitter": 0.5,
+    "hits": {
+      "playerHit": 1.0, "playerHurt": 0.5, "playerHitLowHp": 0.35,
+      "droneHit": 0.75, "droneHitBlade": 0.6, "droneKill": 1.0, "droneKillDerez": 0.55,
+      "wormHit": 0.8, "wormKill": 0.85, "wormWindup": 0.7, "wormBite": 0.8, "wormSpawn": 0.85
+    }
+  },
   "hack": {
     "codes": ["1C", "BD", "55", "E9", "7A", "FF"],
     "gridSize": { "easy": 5, "hard": 7 },

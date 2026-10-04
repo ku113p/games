@@ -10,8 +10,8 @@
 //
 // Animation: every clip runs as an AnimationAction whose time and weight are set here each frame (no crossFadeTo, no
 // events): a full-body base layer (idle / walk-run-sprint blend / crouch / jump / dash / hit / death / hack) whose weights
-// fade toward the state from core queries, plus an upper-body overlay (slashes, rifle aim and shot) with a large weight,
-// so it wins on the arms and spine while the legs keep walking. Walk, run and sprint share one phase that advances by
+// fade toward the state from core queries, plus an upper-body overlay (slashes, rifle aim and shot; the hack's arms over a
+// crouch) with a large weight, so it wins on the arms and spine while the legs keep walking. Walk, run and sprint share one phase that advances by
 // the real speed over the blend's measured stride, so the planted foot keeps pace with the ground.
 // Afterwards the twelve three-bone coat chains are swung procedurally: springs toward gravity (or along the body when
 // lying), trailing behind when running, lifted out and back when crouched, pushed out of the legs and kept off the floor.
@@ -46,13 +46,13 @@ export interface HeroView {
   muzzle(out: Vector3): boolean
 }
 
-// --- locomotion. Strides (m per cycle of the planted foot) measured on the blended clips, see tools/hero/README.md.
+// --- locomotion. Strides (m per cycle of the planted foot) measured on the blended clips (on the Universal Base Characters legs), see tools/hero/README.md.
 // walk -> run blend by the run share 0..1 (run phase-shifted by RUN_PHASE: that lines up the two clips' foot contacts)
-const WR_STRIDE = [1.31, 1.72, 2.18, 2.62, 3.07, 3.5, 3.91, 4.32, 4.73, 5.05, 5.35] as const
-const SPRINT_STRIDE = 5.91 // m per cycle of Sprint_Loop (run -> sprint is close to linear)
+const WR_STRIDE = [1.36, 1.8, 2.28, 2.76, 3.2, 3.65, 4.08, 4.48, 4.9, 5.27, 5.5] as const
+const SPRINT_STRIDE = 6.2 // m per cycle of Sprint_Loop (run -> sprint is close to linear)
 const RUN_PHASE = 0.85 // run and sprint clips start this far (cycles) into their loop at walk phase 0
-const CROUCH_STRIDE = 1.43
-const WALK_SPEED = 0.98 // the walk clip's own speed, m/s
+const CROUCH_STRIDE = 1.48
+const WALK_SPEED = 1.02 // the walk clip's own speed, m/s
 const CADENCE = 1.15 // cycles per second the blend aims for between walk and run (picks the run share by speed)
 const SPRINT_FROM = 4.3 // m/s: sprint starts to blend in ...
 const SPRINT_FULL = 5.8 // ... and is full from here
@@ -62,6 +62,8 @@ const OVER = 24 // weight of the upper-body overlay against the base layer's 1
 const LAND_SEC = 0.42
 const AIM_HOLD_SEC = 0.8 // the rifle stays raised this long after a shot
 const UPPER = /^(spine_|neck_|Head|clavicle_|upperarm_|lowerarm_|hand_|thumb_|index_|middle_|ring_|pinky_)/
+// the arms only: the crouched hack keeps the crouch's back and head and borrows the hack's hands on the wrist display
+const ARMS = /^(clavicle_|upperarm_|lowerarm_|hand_|thumb_|index_|middle_|ring_|pinky_)/
 // slash variants: [start, end] of the clip (normalized) played over actionT with an ease-out, so the strike lands early
 const SLASH_RANGE: ReadonlyArray<readonly [number, number]> = [
   [0.36, 0.86],
@@ -86,9 +88,10 @@ const HIT = 11
 const DEATH = 12
 const HACK = 13
 // overlay (upper body)
-const OVERLAY = ['slash_a', 'slash_b', 'slash_c', 'aim', 'shoot'] as const
+const OVERLAY = ['slash_a', 'slash_b', 'slash_c', 'aim', 'shoot', 'hack'] as const
 const AIM = 3
 const SHOOT = 4
+const HACK_ARMS = 5
 
 // --- look
 const RIM_COOL = new Color(0.5, 0.66, 0.82) // the fresnel edge light, mixed a little toward the line color
@@ -144,7 +147,7 @@ const easeOut = (t: number): number => 1 - Math.pow(1 - t, 2.2)
 function wrStride(k: number): number {
   const x = clamp01(k) * (WR_STRIDE.length - 1)
   const i = Math.min(WR_STRIDE.length - 2, Math.floor(x))
-  const a = WR_STRIDE[i] ?? 1.31
+  const a = WR_STRIDE[i] ?? 1.36
   const b = WR_STRIDE[i + 1] ?? a
   return a + (b - a) * (x - i)
 }
@@ -517,10 +520,10 @@ export function createHero(): HeroView {
         clips.set(c.name, c)
       }
       const mx = new AnimationMixer(model)
-      const make = (name: string, upper: boolean): AnimationAction => {
+      const make = (name: string, part: RegExp | null): AnimationAction => {
         const src = clips.get(name)
         if (!src) throw new Error(`hero.glb: no clip ${name}`)
-        const clip = upper ? new AnimationClip(`${name}_upper`, src.duration, src.tracks.filter((t) => UPPER.test(t.name))) : src
+        const clip = part ? new AnimationClip(`${name}_upper`, src.duration, src.tracks.filter((t) => part.test(t.name))) : src
         const a = mx.clipAction(clip)
         a.setLoop(LoopRepeat, Infinity)
         a.timeScale = 0 // times are set by hand every frame
@@ -528,8 +531,8 @@ export function createHero(): HeroView {
         a.play()
         return a
       }
-      for (const n of BASE) base.push(make(n, false))
-      for (const n of OVERLAY) over.push(make(n, true))
+      for (const n of BASE) base.push(make(n, null))
+      for (const n of OVERLAY) over.push(make(n, n === 'hack' ? ARMS : UPPER))
       baseW[IDLE] = 1
       mixer = mx
       ready = true
@@ -732,7 +735,7 @@ export function createHero(): HeroView {
       const sword = mode === 'sword'
 
       // what the legs do (slash and shoot keep the legs of the state before them)
-      if (anim === 'crouch') legs = 'crouch'
+      if (anim === 'crouch' || anim === 'hackCrouched') legs = 'crouch'
       else if (anim === 'jump') legs = 'air'
       else if (anim === 'idle' || anim === 'walk' || anim === 'run' || anim === 'hack' || anim === 'death' || anim === 'hit') legs = 'stand'
       if (legs === 'air') airTime += dt
@@ -811,8 +814,13 @@ export function createHero(): HeroView {
 
       // overlay: slashes and the raised rifle
       overT.fill(0)
-      const fullBody = anim === 'dash' || anim === 'hit' || anim === 'death' || anim === 'hack'
-      if (anim === 'slash') {
+      const fullBody = anim === 'dash' || anim === 'hit' || anim === 'death' || anim === 'hack' || anim === 'hackCrouched'
+      if (anim === 'hackCrouched') {
+        // hacking from a crouch: crouched legs and back (base layer), the hack's hands on top
+        overT[HACK_ARMS] = 1
+        const clip = over[HACK_ARMS]
+        if (clip) overTime[HACK_ARMS] = ((overTime[HACK_ARMS] ?? 0) + dt) % clip.getClip().duration
+      } else if (anim === 'slash') {
         overT[slashVariant] = 1
         const r = SLASH_RANGE[slashVariant]
         const clip = over[slashVariant]
@@ -843,7 +851,7 @@ export function createHero(): HeroView {
       root.updateMatrixWorld(true)
       solveCoat(dt, anim === 'death' ? 0 : speed)
       updateGun(dt, anim, actionT)
-      holo.opacity = anim === 'hack' ? 0.75 + 0.2 * Math.sin(time * 37) * Math.sin(time * 11) : 0.4
+      holo.opacity = anim === 'hack' || anim === 'hackCrouched' ? 0.75 + 0.2 * Math.sin(time * 37) * Math.sin(time * 11) : 0.4
       prevAnim = anim
       prevActionT = actionT
     },

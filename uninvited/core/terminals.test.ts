@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { cancelHack, hackPick, interact } from './commands'
+import { cancelHack, hackPick, interact, toggleCrouch } from './commands'
 import { solveHack } from './hack/index'
 import type { EntityDef } from './level'
-import { interactPrompt } from './queries'
+import { heroAnim, interactPrompt } from './queries'
 import { placePlayer, run, setup, type Fixture } from './testing'
 
 const PLAN = [
@@ -110,5 +110,69 @@ describe('hack terminals', () => {
     interact(f.s, f.sim)
     expect(f.s.phase).toBe('won')
     expect(f.sim.events.map((e) => e.type)).toContain('artifactTaken')
+  })
+})
+
+// A terminal behind a server block, a camera on the far wall looking straight at it.
+const NOOK = [
+  '#####', //
+  '#.T.#',
+  '#...#',
+  '#...#',
+  '#...#',
+  '#.S.#',
+  '##A##',
+]
+const NOOK_ENTITIES: EntityDef[] = [
+  { kind: 'terminal', id: 't', at: [2, 1], targets: [], difficulty: 0 },
+  { kind: 'cover', at: [2, 2], size: [2, 0.6, 1.4], offset: [0, -0.4] },
+  { kind: 'videoCamera', id: 'c', at: [2, 5], wall: 's', sweep: [0, 0] },
+]
+
+describe('hacking from a crouch', () => {
+  test('a Ctrl crouch stays a crouch through the hack and after it, even with Ctrl let go', () => {
+    const f = atTerminal()
+    f.intent.crouchHold = true
+    run(f, 0.1)
+    expect(f.s.player.crouched).toBe(true)
+    interact(f.s, f.sim)
+    expect(heroAnim(f.s, f.sim)).toBe('hackCrouched')
+    f.intent.crouchHold = false // the hack screen takes the keyboard: Ctrl reads as released
+    run(f, 0.5)
+    expect(f.s.player.crouched).toBe(true)
+    solve(f)
+    expect(f.s.hack).toBeNull()
+    run(f, 0.5)
+    expect(f.s.player.crouched).toBe(true)
+    expect(heroAnim(f.s, f.sim)).toBe('crouch')
+    toggleCrouch(f.s, f.sim) // C stands up as usual
+    expect(f.s.player.crouched).toBe(false)
+  })
+
+  test('a C crouch stays through a cancelled hack; standing, the hack pose is the standing one', () => {
+    const f = atTerminal()
+    toggleCrouch(f.s, f.sim)
+    interact(f.s, f.sim)
+    run(f, 0.5)
+    cancelHack(f.s, f.sim)
+    run(f, 0.5)
+    expect(f.s.player.crouched).toBe(true)
+    const g = atTerminal()
+    interact(g.s, g.sim)
+    expect(heroAnim(g.s, g.sim)).toBe('hack')
+  })
+
+  test('crouched behind a server block the camera does not see you while you hack', () => {
+    const f = setup(NOOK, NOOK_ENTITIES)
+    placePlayer(f, 2, 1)
+    run(f, 0.2)
+    expect(f.s.cameras[0]?.sees).toBe(true) // standing, the head shows over the block
+    toggleCrouch(f.s, f.sim)
+    interact(f.s, f.sim)
+    expect(f.s.hack).not.toBeNull()
+    run(f, 3)
+    expect(f.s.cameras[0]?.sees).toBe(false)
+    expect(f.s.player.crouched).toBe(true)
+    expect(f.s.alarm.stage).toBe(0)
   })
 })

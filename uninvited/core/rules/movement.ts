@@ -75,7 +75,8 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
     makeNoise(s, sim, sim.cfg.noise.dash)
   }
 
-  p.running = !frozen && intent.run && wishing && !p.crouched && p.grounded
+  // aiming walks (no sprint)
+  p.running = !frozen && intent.run && wishing && !p.crouched && p.grounded && !p.aiming
   if (p.dashTime > 0) {
     p.dashTime -= dt
     p.vel.x = p.dashX * cfg.dashSpeed
@@ -149,8 +150,8 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   }
   p.speed = dt > 0 ? Math.sqrt(mx * mx + mz * mz) / dt : 0
 
-  // facing: towards the aim while attacking, otherwise towards the movement
-  const acting = p.slashTime > 0 || p.shootTime > 0
+  // facing: towards the aim while attacking or aiming, otherwise towards the movement
+  const acting = p.slashTime > 0 || p.shootTime > 0 || p.aiming
   if (acting) p.facing = turnTowards(p.facing, intent.lookYaw, cfg.turnRate * 2 * dt)
   else if (wishing && p.dashTime <= 0) p.facing = turnTowards(p.facing, Math.atan2(wx, wz), cfg.turnRate * dt)
   p.facing = angleDiff(p.facing, 0)
@@ -165,6 +166,31 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
     }
   } else {
     p.runNoise = 0
+  }
+}
+
+/**
+ * RMB (hold): aim (DESIGN 12). Walk speed, the body faces the aim, the rifle's spread tightens. With the sword out
+ * the aim draws the rifle (a quick draw) and puts the sword back on release. Call it every frame with the button.
+ */
+export function setAim(s: GameState, sim: Sim, on: boolean): void {
+  const p = s.player
+  const want = on && !playerFrozen(s)
+  if (want === p.aiming) return
+  p.aiming = want
+  const draw = sim.cfg.combat.aimDrawSec
+  if (want) {
+    if (p.mode === 'sword') {
+      p.mode = 'rifle'
+      p.aimSwap = true
+      p.switchCooldown = Math.max(p.switchCooldown, draw)
+      emit(sim, { type: 'modeSwitched', mode: 'rifle' })
+    }
+  } else if (p.aimSwap) {
+    p.aimSwap = false
+    p.mode = 'sword'
+    p.switchCooldown = Math.max(p.switchCooldown, draw)
+    emit(sim, { type: 'modeSwitched', mode: 'sword' })
   }
 }
 

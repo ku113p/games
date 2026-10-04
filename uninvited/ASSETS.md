@@ -131,6 +131,19 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
 - The window showed too little: CU5c (Gemini edit of CU5b) - wider, trashier, full of life. CU4e and CU5b were deleted.
 - The window neon no longer flickers (it read as a broken picture); it only breathes slowly.
 
+### Round 11 (2026-10-04): the network as an open space - "board city"
+
+- The designer: not tunnels but an open crypto-neuro-microchip space. NB1-NB7 (Gemini, refs H10 + NN1b for the look only): a board city,
+  neuro, crypto, die terraces, heat sink, floating boards, corrupted. The designer: "it is the future - why capacitors and processors";
+  all NB were deleted.
+
+### Round 12 (2026-10-04): far-future chip architecture
+
+- NF1-NF7 (Gemini, the same refs and framing, present-day parts forbidden in the prompt): photonic, neuromorphic, quantum, nano-hex,
+  crystal wafer, data metropolis, crypto lattice. **Chosen (the agent's recommendation, accepted):** NF6 is the base of the world,
+  NF4's hex modules are the cover and detail kit everywhere; accents - L2 NF2's neuromorphic growths, L3 NF3's quantum core as the
+  landmark and NF7's vault for the finale. Kept: NF2, NF3, NF4, NF6, NF7; NF1 and NF5 were deleted.
+
 ### D. Not now
 
 - Seamless textures for a 3D room/office - not needed: the real world is 2.5D (generated plates, see `DESIGN.md` section 5).

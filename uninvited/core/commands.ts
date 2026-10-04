@@ -5,8 +5,11 @@ import { attack as attackRule, switchMode as switchModeRule, updateBolts } from 
 import { updateAlarm } from './rules/alarm'
 import { updateCameras, updateHearing, updateLasers, updateSensors } from './rules/devices'
 import { updateDrones } from './rules/drones'
+import { updateFall } from './rules/fall'
+import { updateWorms } from './rules/worms'
+import { updateWardens } from './rules/wardens'
 import { updateGates } from './rules/gates'
-import { playerFrozen, updatePlayer, type Intent } from './rules/movement'
+import { playerFrozen, setAim as setAimRule, updatePlayer, type Intent } from './rules/movement'
 import { updateCheckpoints } from './rules/progress'
 import { updateScan } from './rules/scan'
 import { cancelHack as cancelHackRule, hackPick as hackPickRule, interact as interactRule, updateHack } from './rules/terminals'
@@ -32,6 +35,7 @@ export function tick(s: GameState, sim: Sim, dt: number, intent: Intent): readon
   s.run.timeSec += step
   updateHack(s, sim, step)
   updatePlayer(s, sim, step, intent)
+  updateFall(s, sim, step)
   updateScan(s, sim, step, intent.scan)
   updateCameras(s, sim, step)
   updateHearing(s, sim, step)
@@ -39,6 +43,8 @@ export function tick(s: GameState, sim: Sim, dt: number, intent: Intent): readon
   updateLasers(s, sim, step)
   updateGates(s, step)
   updateDrones(s, sim, step)
+  updateWardens(s, sim, step)
+  updateWorms(s, sim, step)
   updateBolts(s, sim, step)
   updateAlarm(s, sim, step)
   updateCheckpoints(s, sim)
@@ -108,7 +114,13 @@ export function attack(s: GameState, sim: Sim, aimYaw: number, aimPitch: number)
   return sim.events
 }
 
-/** Q / mouse wheel: sword <-> rifle. */
+/** RMB held (call every frame with the button's state): aim - walk, face the aim, the rifle drawn and steadier. */
+export function setAim(s: GameState, sim: Sim, on: boolean): readonly GameEvent[] {
+  setAimRule(s, sim, on)
+  return sim.events
+}
+
+/** Q / mouse wheel: sword <-> rifle (not while aiming). */
 export function switchMode(s: GameState, sim: Sim): readonly GameEvent[] {
   switchModeRule(s, sim)
   return sim.events

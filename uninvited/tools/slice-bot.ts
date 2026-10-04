@@ -6,14 +6,15 @@
 // the shots it sees fired. The quiet bot waits whenever the next steps would be seen, and takes 25-40 s per hack.
 import { createRapierWorld, initPhysics } from '../adapters/physics-rapier'
 import cfgJson from '../config.json'
-import { attack, beginFrame, createIntent, hackPick, interact, moveTap, switchMode, tick, toggleCrouch, TAP_LEFT, TAP_RIGHT } from '../core/commands'
+import { attack, beginFrame, createIntent, hackPick, interact, moveTap, setAim, switchMode, tick, toggleCrouch, TAP_BACK, TAP_LEFT, TAP_RIGHT } from '../core/commands'
 import type { GameConfig } from '../core/config'
 import type { GameEvent } from '../core/events'
-import { buildGrid, cellAt, CellKind, cellCenterX, cellCenterZ, floorHeightAt } from '../core/grid'
+import { buildGrid, cellAt, CellKind, cellCenterX, cellCenterZ, floorHeightAt, hasFloor } from '../core/grid'
 import { solveHack } from '../core/hack/index'
 import { createRng, nextFloat, type Rng } from '../core/random'
 import { seeFactor } from '../core/rules/detection'
 import { sweepYaw } from '../core/rules/devices'
+import { wardenLook } from '../core/rules/wardens'
 import { createSim, createState, type GameState, type Sim } from '../core/state'
 import { slice } from '../levels/slice'
 
@@ -28,9 +29,10 @@ const DODGE = SLOPPY ? 0.2 : 0.5
 const DEG = Math.PI / 180
 
 await initPhysics()
-const grid = buildGrid(slice)
+const grid = buildGrid(slice, cfg.world)
 
-type Step = { at: [number, number]; act?: 'firewall' | 'hack' | 'take' | 'crouch' | 'stand'; quietWait?: boolean }
+/** quietWait: wait here until the way ahead is clear; wardenGap: only wait for the warden to walk away (then follow it). */
+type Step = { at: [number, number]; act?: 'firewall' | 'hack' | 'take' | 'crouch' | 'stand'; quietWait?: boolean; wardenGap?: boolean }
 
 const LOUD: Step[] = [
   { at: [3, 30] },
@@ -81,8 +83,9 @@ const QUIET: Step[] = [
   { at: [24, 6] },
   { at: [25, 4] },
   { at: [25, 2] },
-  { at: [18, 1] },
-  { at: [10, 1] },
+  { at: [18.45, 2], quietWait: true, wardenGap: true, act: 'stand' }, // behind the rack east of the checkpoint: wait until the warden walks away, then walk (silent) behind it
+  { at: [13, 1] },
+  { at: [9.5, 1] }, // past its back while it checks the rack
   { at: [6, 1] },
   { at: [4, 2], act: 'take' },
 ]
@@ -98,6 +101,7 @@ interface Result {
   waves: number
   hitsTaken: number
   shotsAtPlayer: number
+  wormBites: number
 }
 
 function cx(c: number): number {
@@ -121,7 +125,7 @@ for (let r = 0; r < FR; r++) {
     for (const [ox, oz] of [[0, 0], [0.4, 0], [-0.4, 0], [0, 0.4], [0, -0.4], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]] as const) {
       const i = cellAt(grid, x + ox, z + oz)
       const k = i < 0 ? CellKind.Wall : grid.kind[i]
-      if (k === CellKind.Wall || k === CellKind.Cover || k === CellKind.RedWall) ok = false
+      if (!hasFloor(grid, i) || k === CellKind.Cover || k === CellKind.RedWall) ok = false
       for (const b of grid.blocks) if (x + ox > b.minX && x + ox < b.maxX && z + oz > b.minZ && z + oz < b.maxZ) ok = false
     }
     walk[r * FC + c] = ok ? 1 : 0
@@ -204,6 +208,7 @@ function play(seed: number, route: Step[], loud: boolean): Result {
   let strafe = 1
   let strafeT = 0
   const dodges: number[] = [] // times to dodge at
+  const backDodges: number[] = [] // times to dash back (away from a worm about to bite)
   let hitsTaken = 0
   let shots = 0
   let minHp = s.player.hp
@@ -212,10 +217,13 @@ function play(seed: number, route: Step[], loud: boolean): Result {
   let camYaw = s.player.facing
   /** Per drone slot: game time from which the bot "knows" about it (Infinity = not noticed). */
   const knownAt: number[] = s.drones.map(() => Infinity)
+  /** The same for worms (noticed in front, or heard skittering right next to you). */
+  const wormKnownAt: number[] = s.worms.map(() => Infinity)
+  let wormBites = 0
 
   const done = (won: boolean, why: string): Result => {
     physics.dispose()
-    return { won, why, time: s.time, hp: s.player.hp, minHp, alarms: s.run.alarmsRaised, kills: s.run.kills, waves: s.alarm.wavesCleared, hitsTaken, shotsAtPlayer: shots }
+    return { won, why, time: s.time, hp: s.player.hp, minHp, alarms: s.run.alarmsRaised, kills: s.run.kills, waves: s.alarm.wavesCleared, hitsTaken, shotsAtPlayer: shots, wormBites }
   }
 
   /** Would a crouched/standing player at (x, z) be seen by anyone in the next `ahead` seconds? */
@@ -247,6 +255,20 @@ function play(seed: number, route: Step[], loud: boolean): Result {
       const f = seeFactor(s, sim, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * cp, -Math.sin(dc.pitchDeg * DEG), Math.cos(d.yaw) * cp, cone, dc.range + 1)
       if (f > 0) seen = true
     }
+    // wardens: their cone (where the head looks) widened for a turn, and never right next to one
+    const wc = cfg.warden
+    for (const w of s.wardens) {
+      if (seen) break
+      if (!w.alive || w.pausedTime > 0) continue
+      if (Math.hypot(w.pos.x - x, w.pos.z - z) < 1.4) {
+        seen = true
+        break
+      }
+      const look = wardenLook(w)
+      const cp = Math.cos(wc.pitchDeg * DEG)
+      const f = seeFactor(s, sim, w.pos.x, w.pos.y + wc.eyeHeight, w.pos.z, Math.sin(look) * cp, -Math.sin(wc.pitchDeg * DEG), Math.cos(look) * cp, Math.cos((wc.halfAngleDeg + 30) * DEG), wc.range + 1.5)
+      if (f > 0) seen = true
+    }
     p.pos.x = ox
     p.pos.z = oz
     return seen
@@ -255,6 +277,15 @@ function play(seed: number, route: Step[], loud: boolean): Result {
   const last: GameEvent[] = [] // the events of the previous tick
   /** The next legs after `from` are out of every drone's reach and every camera's sweep for a while. */
   function wayClear(from: number): boolean {
+    // a warden nearby must be walking its round with its back to us
+    const p = s.player.pos
+    for (const w of s.wardens) {
+      if (!w.alive || w.pausedTime > 0 || Math.hypot(w.pos.x - p.x, w.pos.z - p.z) > 24) continue
+      if (w.mode !== 'patrol' || w.act !== 'walk' || w.speed < 0.3) return false
+      const off = Math.atan2(Math.sin(Math.atan2(p.x - w.pos.x, p.z - w.pos.z) - wardenLook(w)), Math.cos(Math.atan2(p.x - w.pos.x, p.z - w.pos.z) - wardenLook(w)))
+      if (Math.abs(off) < 110 * DEG) return false
+    }
+    if (route[from]?.wardenGap) return true
     for (let k = from + 1; k <= from + 3; k++) {
       const w = route[k]
       if (!w) break
@@ -359,20 +390,67 @@ function play(seed: number, route: Step[], loud: boolean): Result {
           best = i
         }
       }
-      const d = best >= 0 ? s.drones[best] : undefined
+      const bd = best >= 0 ? s.drones[best] : undefined
+      let d: { pos: { x: number; y: number; z: number } } | undefined = bd
+      // a warden fighting us in plain sight close by comes first (it hits hard in melee)
+      for (const w of s.wardens) {
+        if (!w.alive || w.mode !== 'alert') continue
+        const dd = Math.hypot(w.pos.x - p.pos.x, w.pos.z - p.pos.z)
+        if (dd > 9 || (d && dd > bestD) || !sim.world.lineOfSight(p.pos.x, p.pos.y + 1.4, p.pos.z, w.pos.x, w.pos.y + 1.4, w.pos.z)) continue
+        d = { pos: { x: w.pos.x, y: w.pos.y + cfg.warden.chestHeight, z: w.pos.z } }
+        bestD = dd
+      }
+      // worms: a pack close by comes first, with the sword - turn to the thick of them and swing; drones at range
+      // wait. Noticed in front (after the reaction time), or heard skittering right next to you.
+      let wx0 = 0
+      let wz0 = 0
+      let wn = 0
+      let nearW = Infinity
+      for (let i = 0; i < s.worms.length; i++) {
+        const w = s.worms[i]
+        if (!w || !w.active || !w.alive || w.spawnTime > 0 || w.mode === 'emerge') {
+          wormKnownAt[i] = Infinity
+          continue
+        }
+        const dd = Math.hypot(w.pos.x - p.pos.x, w.pos.z - p.pos.z)
+        if (wormKnownAt[i] === Infinity) {
+          const bearing = Math.atan2(w.pos.x - p.pos.x, w.pos.z - p.pos.z)
+          const off = Math.abs(Math.atan2(Math.sin(bearing - camYaw), Math.cos(bearing - camYaw)))
+          if ((off < 40 * DEG && dd < 12) || dd < 3) wormKnownAt[i] = s.time + REACT * 0.8 + nextFloat(rng) * 0.4
+          continue
+        }
+        if ((wormKnownAt[i] as number) > s.time || dd > 5.5) continue
+        const k = 1 / Math.max(0.5, dd)
+        wx0 += (w.pos.x - p.pos.x) * k
+        wz0 += (w.pos.z - p.pos.z) * k
+        wn += k
+        if (dd < nearW) nearW = dd
+      }
+      if (wn > 0 && nearW < 4.5) d = { pos: { x: p.pos.x + wx0 / wn, y: p.pos.y + 0.3, z: p.pos.z + wz0 / wn } }
+      const fightingWorms = wn > 0 && nearW < 4.5
       if (d) {
         const dx = d.pos.x - p.pos.x
         const dz = d.pos.z - p.pos.z
         const hd = Math.hypot(dx, dz)
         const muzzleY = p.pos.y + cfg.combat.rifle.muzzleHeight
-        const wantRifle = hd > 4.5 && p.charges > 0
+        const wantRifle = !fightingWorms && hd > 4.5 && p.charges > 0
+        // aim (RMB) with the rifle at a drone further away: the tighter spread
+        setAim(s, sim, wantRifle && p.mode === 'rifle' && hd > 6)
         if ((p.mode === 'rifle') !== wantRifle && p.switchCooldown <= 0) switchMode(s, sim)
         wantYaw = Math.atan2(dx, dz)
         const off = Math.abs(Math.atan2(Math.sin(wantYaw - camYaw), Math.cos(wantYaw - camYaw)))
         const err = (nextFloat(rng) - 0.5) * 2 * AIM_ERR * DEG
         const aimPitch = Math.atan2(d.pos.y - muzzleY, hd) + (nextFloat(rng) - 0.5) * 2 * 3 * DEG
-        if (off < 10 * DEG) attack(s, sim, camYaw + err, aimPitch)
-        if (p.mode === 'sword') {
+        if (off < 10 * DEG && !fightingWorms) attack(s, sim, camYaw + err, aimPitch)
+        if (fightingWorms) {
+          // hold the ground and swing when the closest is in reach (a little early, like a human mashing the button)
+          wx = 0
+          wz = 0
+          sprint = false
+          if (nearW > cfg.combat.sword.range + 0.3 && off < 10 * DEG) {
+            // not yet in reach: do not swing at air
+          } else if (off < 35 * DEG) attack(s, sim, camYaw + err, 0)
+        } else if (p.mode === 'sword') {
           // close in
           wx = hd > 1.8 ? dx : 0
           wz = hd > 1.8 ? dz : 0
@@ -457,6 +535,15 @@ function play(seed: number, route: Step[], loud: boolean): Result {
         if (loud && nextFloat(rng) < DODGE) dodges.push(s.time + 0.15 + nextFloat(rng) * 0.2)
       }
       if (e.type === 'playerHurt') hitsTaken++
+      if (e.type === 'wormBite' && e.hit) wormBites++
+      if (DEBUG && (e.type === 'wormWindup' || e.type === 'wormBite' || e.type === 'waveStarted' || e.type === 'wormPack' || (e.type === 'targetHit' && e.target === 'worm')))
+        console.log(`  t=${s.time.toFixed(2)} hp ${p.hp} ${JSON.stringify(e)}`)
+      // a worm rearing up right in front: step back out of its reach (sometimes)
+      if (loud && e.type === 'wormWindup' && nextFloat(rng) < DODGE) {
+        const w = s.worms[e.index]
+        if (w && Math.hypot(w.pos.x - p.pos.x, w.pos.z - p.pos.z) < 2) backDodges.push(s.time + 0.12 + nextFloat(rng) * 0.15)
+      }
+      if (DEBUG && e.type === 'wardenSuspicious') console.log(`  t=${s.time.toFixed(1)} warden suspicious`, JSON.stringify(s.wardens[0]))
       if (DEBUG && (e.type === 'alarmRaised' || e.type === 'laserTripped' || e.type === 'playerHurt' || e.type === 'hackSolved' || e.type === 'hackTimedOut' || e.type === 'cameraSpotted' || e.type === 'sensorTripped' || e.type === 'soundHeard' || e.type === 'droneAlerted'))
         console.log(`  t=${s.time.toFixed(1)} step ${step} at ${(p.pos.x / 2).toFixed(1)},${(p.pos.z / 2).toFixed(1)} crouched=${p.crouched}: ${JSON.stringify(e)}`)
     }
@@ -466,6 +553,13 @@ function play(seed: number, route: Step[], loud: boolean): Result {
         const dir = nextFloat(rng) < 0.5 ? TAP_LEFT : TAP_RIGHT
         moveTap(s, sim, dir, camYaw)
         moveTap(s, sim, dir, camYaw)
+      }
+    }
+    for (let k = backDodges.length - 1; k >= 0; k--) {
+      if ((backDodges[k] as number) <= s.time) {
+        backDodges.splice(k, 1)
+        moveTap(s, sim, TAP_BACK, camYaw)
+        moveTap(s, sim, TAP_BACK, camYaw)
       }
     }
 
@@ -523,7 +617,7 @@ for (let seed = 1; seed <= seeds; seed++) {
   if (r.won) wins++
   console.log(
     `${mode} seed ${seed}: ${r.won ? 'WON ' : 'LOST'} ${r.why} | ${r.time.toFixed(0)} s, hp ${r.hp.toFixed(0)} (min ${r.minHp.toFixed(0)}/${cfg.player.maxHp}), ` +
-      `alarms ${r.alarms}, kills ${r.kills}, waves cleared ${r.waves}, hits taken ${r.hitsTaken}/${r.shotsAtPlayer} shots`,
+      `alarms ${r.alarms}, kills ${r.kills}, waves cleared ${r.waves}, hits taken ${r.hitsTaken} (${r.wormBites} bites, ${r.shotsAtPlayer} shots)`,
   )
 }
 console.log(`${mode}: ${wins}/${seeds} won`)

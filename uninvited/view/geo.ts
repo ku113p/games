@@ -1,7 +1,7 @@
 // Small geometry helpers for the merged level meshes (cold path, build time only): a builder that collects
-// vertices into one BufferGeometry, thin light tubes along polylines, and chamfered panels (the beveled plates,
-// frames, vents and server faces the corridors are dressed with). Everything static ends up in a few merged meshes,
-// so the detail costs triangles, not draw calls.
+// vertices into one BufferGeometry, thin light tubes along polylines, and chamfered panels (the beveled faces the
+// server blocks are dressed with). Everything static ends up in a few merged meshes, so the detail costs triangles,
+// not draw calls.
 import { BufferAttribute, BufferGeometry } from 'three'
 
 export interface P3 {

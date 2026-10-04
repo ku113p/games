@@ -405,6 +405,232 @@ def({
   },
 });
 
+// ---------------------------------------------------------------- hits and worms (the combat pass)
+
+def({
+  name: "player_hit",
+  category: "Combat",
+  desc: "You got hit, and it hurt: a deep body punch, a crunch of torn signal and a falling crushed zap.",
+  variants: 3,
+  level: -1,
+  loudness: -10,
+  p: {
+    punch: { f0: [95, 85, 105], f1: 34, sweep: 0.07, decay: 0.32, gain: 1 },
+    crack: { hz: [1900, 1600, 2200], q: 0.6, decay: 0.035, gain: 0.85 },
+    crunch: { sec: 0.12, lpHz: 1400, drive: 4, bits: 4, hold: 6, gain: 0.7 },
+    zap: { sec: 0.22, f0: [560, 480, 640], f1: [110, 95, 125], pw: 0.25, bits: 5, hold: 3, lpHz: 4200, gain: 0.5 },
+    drive: 1.8,
+    room: { size: 0.35, damp: 0.6, mix: 0.12, tail: 0.25 },
+  },
+  render: (p, v, rng) => {
+    const punch = R.kick(V(p.punch.f0, v), p.punch.f1, p.punch.sweep, p.punch.decay);
+    const crack = R.tick(rng, V(p.crack.hz, v), p.crack.q, p.crack.decay);
+    const c = p.crunch;
+    let crunch = S.filter(S.noise(c.sec, rng, "pink"), "lp", c.lpHz);
+    crunch = S.norm(S.amp(S.crush(S.drive(S.norm(crunch), c.drive), c.bits, c.hold), S.ad(0.001, c.sec)));
+    const z = p.zap;
+    let zap = S.osc(z.sec, "square", S.expc(V(z.f0, v), V(z.f1, v), z.sec), { pw: z.pw });
+    zap = S.norm(S.amp(S.filter(S.crush(zap, z.bits, z.hold), "lp", z.lpHz), S.ad(0.002, z.sec)));
+    const hit = S.mix(L(punch, 0, p.punch.gain), L(crack, 0, p.crack.gain), L(crunch, 0, c.gain), L(zap, 0.01, z.gain));
+    return S.reverb(S.drive(S.norm(hit), p.drive), p.room);
+  },
+});
+
+def({
+  name: "drone_hit",
+  category: "Combat",
+  desc: "A drone takes a hit: a hard metal clang on its shell, a spark and a short electric spit.",
+  variants: 3,
+  level: -2,
+  p: {
+    clang: { f: [880, 760, 990], ratio: 1.41, index: 6, decay: 0.42, gain: 0.8 },
+    clang2: { f: [1330, 1170, 1490], ratio: 2.76, index: 3, decay: 0.25, gain: 0.4 },
+    crack: { hz: 4200, q: 0.8, decay: 0.02, gain: 0.9 },
+    knock: { f0: 260, f1: 110, sweep: 0.03, decay: 0.1, gain: 0.6 },
+    spit: { sec: 0.18, density: [[0, 3500], [0.15, 150]] as const, hz: 5200, q: 1, gain: 0.35 },
+    room: { size: 0.45, damp: 0.4, mix: 0.16, tail: 0.35 },
+  },
+  render: (p, v, rng) => {
+    const clang = R.bell(V(p.clang.f, v), p.clang.ratio, p.clang.index, p.clang.decay);
+    const clang2 = R.bell(V(p.clang2.f, v), p.clang2.ratio, p.clang2.index, p.clang2.decay);
+    const crack = R.tick(rng, p.crack.hz, p.crack.q, p.crack.decay);
+    const knock = R.kick(p.knock.f0, p.knock.f1, p.knock.sweep, p.knock.decay);
+    const z = p.spit;
+    const spit = R.sizzle(rng, z.sec, S.path(z.density), z.hz, z.q, S.ad(0.001, z.sec));
+    const all = S.mix(L(clang, 0, p.clang.gain), L(clang2, 0, p.clang2.gain), L(crack, 0, p.crack.gain), L(knock, 0, p.knock.gain), L(spit, 0, z.gain));
+    return S.reverb(all, p.room);
+  },
+});
+
+def({
+  name: "drone_kill",
+  category: "Combat",
+  desc: "A drone bursts: a heavy crunching blast, metal debris and a dying rotor whine.",
+  level: -1,
+  p: {
+    boom: { f0: 140, f1: 30, sweep: 0.12, decay: 0.55, gain: 1 },
+    blast: { sec: 0.3, lp: [6000, 400], drive: 3, gain: 0.75 },
+    crack: { hz: 2600, q: 0.5, decay: 0.05, gain: 0.7 },
+    debris: { sec: 0.9, count: 40, fLo: 700, fHi: 4500, decayLo: 0.03, decayHi: 0.12, front: 1.6, ratioLo: 1.3, ratioHi: 2.9, fmIndex: 2.5, gain: 0.45 },
+    whine: { sec: 0.7, f0: 1300, f1: 90, bits: [8, 3], hold: [1, 18], lpHz: 5000, gain: 0.35 },
+    room: { size: 0.75, damp: 0.5, mix: 0.25, tail: 0.8 },
+  },
+  render: (p, _v, rng) => {
+    const boom = R.kick(p.boom.f0, p.boom.f1, p.boom.sweep, p.boom.decay);
+    const b = p.blast;
+    let blast = S.filter(S.noise(b.sec, rng), "lp", S.expc(b.lp[0]!, b.lp[1]!, b.sec));
+    blast = S.norm(S.amp(S.drive(S.norm(blast), b.drive), S.ad(0.001, b.sec)));
+    const crack = R.tick(rng, p.crack.hz, p.crack.q, p.crack.decay);
+    const debris = R.shards(rng, p.debris);
+    const w = p.whine;
+    let whine = S.osc(w.sec, "saw", S.expc(w.f0, w.f1, w.sec));
+    whine = S.crush(whine, S.lin(w.bits[0]!, w.bits[1]!, w.sec), S.lin(w.hold[0]!, w.hold[1]!, w.sec));
+    whine = S.norm(S.amp(S.filter(whine, "lp", w.lpHz), S.ad(0.005, w.sec)));
+    const all = S.mix(L(boom, 0, p.boom.gain), L(blast, 0, b.gain), L(crack, 0, p.crack.gain), L(debris, 0.02, p.debris.gain), L(whine, 0.01, w.gain));
+    return S.reverb(all, p.room);
+  },
+});
+
+def({
+  name: "worm_hit",
+  category: "Combat",
+  desc: "A worm is hit but not dead: a wet digital crunch and a short angry chirp.",
+  variants: 3,
+  level: -3,
+  p: {
+    squelch: { sec: 0.09, hz: [900, 760, 1050], q: 1.6, gain: 0.9 },
+    thump: { f0: 210, f1: 70, sweep: 0.04, decay: 0.09, gain: 0.7 },
+    chirp: { sec: 0.12, f0: [700, 820, 620], f1: [1500, 1700, 1350], ratio: 1.5, index: 4, bits: 5, gain: 0.45 },
+  },
+  render: (p, v, rng) => {
+    const q = p.squelch;
+    const squelch = R.whoosh(rng, q.sec, S.expc(V(q.hz, v) * 1.8, V(q.hz, v) * 0.6, q.sec), q.q, S.ad(0.001, q.sec), "pink");
+    const thump = R.kick(p.thump.f0, p.thump.f1, p.thump.sweep, p.thump.decay);
+    const c = p.chirp;
+    const chirp = S.norm(S.amp(S.crush(S.fm(c.sec, S.expc(V(c.f0, v), V(c.f1, v), c.sec), c.ratio, c.index), c.bits), S.ad(0.003, c.sec)));
+    return S.mix(L(squelch, 0, q.gain), L(thump, 0, p.thump.gain), L(chirp, 0.015, c.gain));
+  },
+});
+
+def({
+  name: "worm_death",
+  category: "Combat",
+  desc: "A worm is cut down: a squeal that breaks off, a wet pop and a spray of data bits.",
+  variants: 3,
+  level: -2,
+  p: {
+    squeal: { sec: 0.2, f: [[0, 900], [0.06, 2600], [0.2, 300]] as const, ratio: 0.5, index: 3, bits: 6, hold: 2, gain: 0.55 },
+    pop: { f0: 320, f1: 55, sweep: 0.05, decay: 0.12, gain: 1 },
+    splat: { sec: 0.16, hz: 1300, q: 0.9, gain: 0.6 },
+    bits: { sec: 0.22, rate: 80, fLo: 600, fHi: 5000, note: 0.008, gain: 0.35 },
+    room: { size: 0.4, damp: 0.5, mix: 0.12, tail: 0.25 },
+  },
+  render: (p, v, rng) => {
+    const q = p.squeal;
+    const pitch = S.path(q.f.map(([t, f]) => [t, f * (1 + v * 0.12)] as const), "exp");
+    const squeal = S.norm(S.amp(S.crush(S.fm(q.sec, pitch, q.ratio, q.index), q.bits, q.hold), S.ad(0.004, q.sec)));
+    const pop = R.kick(p.pop.f0, p.pop.f1, p.pop.sweep, p.pop.decay);
+    const s = p.splat;
+    const splat = R.whoosh(rng, s.sec, S.expc(s.hz * 2, s.hz * 0.4, s.sec), s.q, S.ad(0.001, s.sec), "pink");
+    const b = p.bits;
+    const bits = S.norm(S.amp(R.chatter(rng, b.sec, b.rate, b.fLo, b.fHi, b.note), S.ad(0.001, b.sec)));
+    const all = S.mix(L(squeal, 0, q.gain), L(pop, 0.02, p.pop.gain), L(splat, 0.02, s.gain), L(bits, 0.04, b.gain));
+    return S.reverb(all, p.room);
+  },
+});
+
+def({
+  name: "worm_windup",
+  category: "Security",
+  desc: "A worm rears up to bite: a rising rattling hiss - the warning to step back.",
+  variants: 2,
+  level: -4,
+  p: {
+    sec: 0.42,
+    rattle: { hz: [3200, 2700], q: 3, rate: [34, 28], gain: 1 },
+    tone: { f0: [180, 160], f1: [620, 560], pw: 0.3, bits: 5, lpHz: 3000, gain: 0.45 },
+  },
+  render: (p, v, rng) => {
+    const env = S.swell(p.sec * 0.92, 0.06, 1.6);
+    const r = p.rattle;
+    const rattle = S.norm(S.gate(R.whoosh(rng, p.sec, V(r.hz, v), r.q, env), V(r.rate, v), 0.45));
+    const t = p.tone;
+    let tone = S.osc(p.sec, "square", S.expc(V(t.f0, v), V(t.f1, v), p.sec), { pw: t.pw });
+    tone = S.norm(S.amp(S.filter(S.crush(tone, t.bits), "lp", t.lpHz), env));
+    return S.mix(L(rattle, 0, r.gain), L(tone, 0, t.gain));
+  },
+});
+
+def({
+  name: "worm_bite",
+  category: "Security",
+  desc: "Mandibles snap shut: two hard clicks and a low snap.",
+  variants: 2,
+  level: -3,
+  p: {
+    clicks: [{ at: 0, hz: [2600, 2300], q: 2, decay: 0.012, gain: 1 }, { at: 0.028, hz: [3600, 3300], q: 2, decay: 0.014, gain: 0.85 }],
+    snap: { f0: 240, f1: 80, sweep: 0.03, decay: 0.08, gain: 0.7 },
+  },
+  render: (p, v, rng) => {
+    const clicks = p.clicks.map((c) => L(R.tick(rng, V(c.hz, v), c.q, c.decay), c.at, c.gain));
+    return S.mix(...clicks, L(R.kick(p.snap.f0, p.snap.f1, p.snap.sweep, p.snap.decay), 0.02, p.snap.gain));
+  },
+});
+
+def({
+  name: "worm_skitter_loop",
+  category: "Security",
+  desc: "A pack of worms skittering on the floor: dense tiny clicks in bursts and a faint chitter.",
+  loop: true,
+  level: -12,
+  p: {
+    loop: 1.6,
+    bursts: 11,
+    burst: { lenLo: 0.05, lenHi: 0.16, gapLo: 0.009, gapHi: 0.022, hzLo: 2600, hzHi: 6500, q: 3, decay: 0.006, ampLo: 0.3 },
+    chitter: { sec: 1.6, rate: 22, fLo: 1800, fHi: 4200, note: 0.006, lpHz: 5000, gain: 0.18 },
+    hpHz: 900,
+  },
+  render: (p, _v, rng) => {
+    const b = p.burst;
+    const clicks = S.buf(p.loop + b.lenHi + 0.05);
+    for (let k = 0; k < p.bursts; k++) {
+      const start = rng.range(0, p.loop)
+      const end = start + rng.range(b.lenLo, b.lenHi);
+      for (let t = start; t < end; t += rng.range(b.gapLo, b.gapHi)) {
+        S.addInto(clicks, R.tick(rng, rng.range(b.hzLo, b.hzHi), b.q, b.decay), S.ofs(t), rng.range(b.ampLo, 1));
+      }
+    }
+    const c = p.chitter;
+    const chitter = S.filter(R.chatter(rng, c.sec, c.rate, c.fLo, c.fHi, c.note), "lp", c.lpHz);
+    const all = S.mix(L(S.norm(clicks)), L(S.norm(chitter), 0, c.gain));
+    return S.loopWrap(S.filter(all, "hp", p.hpHz), p.loop);
+  },
+});
+
+def({
+  name: "worm_spawn",
+  category: "Security",
+  desc: "Worms pour out of a gate: a gurgling glitch and a rush of tiny legs.",
+  level: -3,
+  p: {
+    gurgle: { sec: 0.6, rate: 40, fLo: 120, fHi: 900, note: 0.02, lpHz: 2200, gain: 0.7 },
+    rush: { sec: 0.7, f0: 1800, f1: 5200, q: 2.5, rise: 0.35, fall: 0.3, gain: 0.5 },
+    clicks: { sec: 0.7, density: [[0, 200], [0.3, 1800], [0.7, 300]] as const, hz: 4200, q: 1.5, gain: 0.45 },
+    sub: { f0: 90, f1: 40, sweep: 0.2, decay: 0.4, gain: 0.5 },
+    room: { size: 0.6, damp: 0.5, mix: 0.2, tail: 0.4 },
+  },
+  render: (p, _v, rng) => {
+    const g = p.gurgle;
+    const gurgle = S.norm(S.amp(S.filter(R.chatter(rng, g.sec, g.rate, g.fLo, g.fHi, g.note), "lp", g.lpHz), S.ad(0.02, g.sec)));
+    const r = p.rush;
+    const rush = R.whoosh(rng, r.sec, S.expc(r.f0, r.f1, r.sec), r.q, S.swell(r.rise, r.fall));
+    const c = p.clicks;
+    const clicks = R.sizzle(rng, c.sec, S.path(c.density), c.hz, c.q, S.swell(0.3, 0.4, 1));
+    const sub = R.kick(p.sub.f0, p.sub.f1, p.sub.sweep, p.sub.decay);
+    return S.reverb(S.mix(L(gurgle, 0, g.gain), L(rush, 0, r.gain), L(clicks, 0, c.gain), L(sub, 0, p.sub.gain)), p.room);
+  },
+});
+
 def({
   name: "shield_up",
   category: "Combat",

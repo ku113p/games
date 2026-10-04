@@ -54,6 +54,9 @@ function beginHack(s: GameState, sim: Sim, terminal: number): void {
   if (!links) return
   s.hack = { terminal, session: startHack(s.rng, links.difficulty, sim.cfg.terminal.timeBonusSec, sim.cfg.hack) }
   s.scan.active = false
+  // hacking keeps the stance: a Ctrl crouch becomes a plain crouch, so letting go of Ctrl during the hack (the hack
+  // screen takes the keyboard) does not stand you up from behind cover when it ends - C or a jump does
+  s.player.crouchByHold = false
   emit(sim, { type: 'hackStarted', terminal })
 }
 
@@ -104,7 +107,7 @@ export function openWall(s: GameState, sim: Sim, i: number): void {
   emit(sim, { type: 'wallOpened', index: i })
 }
 
-/** The hack worked: open the terminal's walls, pause its lasers and drones. */
+/** The hack worked: open the terminal's walls, pause its lasers, drones and wardens. */
 export function unlockTerminal(s: GameState, sim: Sim, terminal: number): void {
   const links = sim.terminalLinks[terminal]
   const t = s.terminals[terminal]
@@ -123,6 +126,13 @@ export function unlockTerminal(s: GameState, sim: Sim, terminal: number): void {
     drone.pausedTime = sec
     drone.sees = false
     emit(sim, { type: 'devicePaused', target: 'drone', index: d, sec })
+  }
+  for (const k of links.wardens) {
+    const w = s.wardens[k]
+    if (!w || !w.alive) continue
+    w.pausedTime = sec
+    w.sees = false
+    emit(sim, { type: 'devicePaused', target: 'warden', index: k, sec })
   }
   if (links.walls.length > 0) t.done = true
   else t.cooldown = sec

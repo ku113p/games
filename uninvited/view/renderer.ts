@@ -34,7 +34,7 @@ const P = V.post
 
 const FINAL_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
-uniform float uTime, uHurt, uGlitch, uScan, uAlarm;
+uniform float uTime, uHurt, uGlitch, uScan, uAlarm, uFade;
 uniform float uExposure, uBlack, uShoulder, uSat, uVignette, uAlarmEdge, uAlarmHz, uChroma, uScanLift, uScanLines;
 uniform vec3 uScanTint, uRed;
 uniform vec2 uRes;
@@ -66,6 +66,8 @@ void main() {
   float beat = pow(0.5 + 0.5 * sin(uTime * uAlarmHz * 6.2831853), 4.0);
   c += uRed * v * v * uAlarm * uAlarmEdge * beat;
   c = mix(c, uRed, v * uHurt * 0.55);
+  // falling into the void: the picture goes dark
+  c *= 1.0 - uFade;
   gl_FragColor = vec4(c, 1.0);
 }`
 
@@ -75,8 +77,8 @@ export interface Renderer {
   camera: PerspectiveCamera
   /** The glossy floor's reflection. */
   mirror: Mirror
-  /** 0..1 effect strengths, set by the game view each frame; reflectY = the mirror plane height. */
-  fx: { hurt: number; glitch: number; scan: number; alarm: number; reflectY: number }
+  /** 0..1 effect strengths, set by the game view each frame; reflectY = the mirror plane height; fade = black. */
+  fx: { hurt: number; glitch: number; scan: number; alarm: number; reflectY: number; fade: number }
   render(time: number): void
   resize(): void
 }
@@ -114,7 +116,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   scene.environment = pmrem.fromScene(buildEnvironment(), 0.02).texture
   pmrem.dispose()
 
-  const camera = new PerspectiveCamera(V.fov, innerWidth / innerHeight, 0.05, 400)
+  const camera = new PerspectiveCamera(V.fov, innerWidth / innerHeight, 0.05, V.far)
   const size = new Vector2()
   renderer.getDrawingBufferSize(size)
   const mirror = createMirror(V.corridor.reflectScale, size.x, size.y)
@@ -133,6 +135,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       uGlitch: { value: 0 },
       uScan: { value: 0 },
       uAlarm: { value: 0 },
+      uFade: { value: 0 },
       uExposure: { value: P.exposure },
       uBlack: { value: P.blackPoint },
       uShoulder: { value: P.shoulder },
@@ -153,7 +156,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   composer.addPass(final)
   composer.addPass(new OutputPass())
   const u = final.uniforms as Record<string, { value: unknown }>
-  const fx = { hurt: 0, glitch: 0, scan: 0, alarm: 0, reflectY: 0 }
+  const fx = { hurt: 0, glitch: 0, scan: 0, alarm: 0, reflectY: 0, fade: 0 }
 
   return {
     renderer,
@@ -167,6 +170,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       ;(u['uGlitch'] as { value: number }).value = fx.glitch
       ;(u['uScan'] as { value: number }).value = fx.scan
       ;(u['uAlarm'] as { value: number }).value = fx.alarm
+      ;(u['uFade'] as { value: number }).value = fx.fade
       mirror.render(renderer, scene, camera, fx.reflectY)
       composer.render()
     },

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { attack, dash, jump, toggleCrouch } from './commands'
-import { sensorZones } from './queries'
+import { sensorZones, suspicionSources, type SuspicionSource } from './queries'
 import { sweepYaw } from './rules/devices'
 import type { EntityDef } from './level'
 import { placePlayer, run, setup } from './testing'
@@ -97,6 +97,28 @@ describe('video cameras', () => {
     expect(types).toContain('checkCalled')
     expect(f.s.drones.some((d) => d.active && d.role === 'checker')).toBe(true)
     expect(f.s.run.devicesBroken).toBe(1)
+  })
+})
+
+describe('suspicion sources (the HUD marks)', () => {
+  const pool = (): SuspicionSource[] => Array.from({ length: 4 }, () => ({ x: 0, y: 0, z: 0, level: 0, spotted: false }))
+
+  test('a camera noticing you is listed at its position, red once it has spotted you; nobody noticing lists nothing', () => {
+    const f = setup(HALL, CAMERA)
+    const out = pool()
+    placePlayer(f, 10, 1) // outside the cone
+    run(f, 0.5)
+    expect(suspicionSources(f.s, out)).toBe(0)
+    placePlayer(f, 5, 6)
+    run(f, 0.3)
+    expect(suspicionSources(f.s, out)).toBe(1)
+    expect(out[0]?.x).toBeCloseTo(f.s.cameras[0]?.pos.x ?? -1)
+    expect(out[0]?.level).toBeGreaterThan(0)
+    expect(out[0]?.spotted).toBe(false)
+    run(f, 2)
+    expect(suspicionSources(f.s, out)).toBe(1)
+    expect(out[0]?.level).toBe(1)
+    expect(out[0]?.spotted).toBe(true)
   })
 })
 

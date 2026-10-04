@@ -1,5 +1,5 @@
 // Drone meshes (concept-art/enemy-1): a glossy black body inside a disc ring with a red light band and a single red
-// eye, plus a view cone and a suspicion arc above it. Before every shot a drone holds still and aims (the telegraph):
+// eye, a short look beam out of the eye, the view cone (network vision only) and a suspicion arc above it. Before every shot a drone holds still and aims (the telegraph):
 // a thin red beam reaches from its eye to the hero, narrowing and brightening as the aim completes, and the eye ring
 // charges (tightens and flares). One mesh set per state slot (pooled, no allocations per frame).
 import {
@@ -24,9 +24,10 @@ import type { GameState, Sim } from '../core/state'
 import { droneAim, drones, gameTime, playerPos } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
 import { palette, type Materials } from './look'
-import { DRONE_KEY, fanSpread, type Sight } from './sight'
+import { DRONE_KEY, fanSpread, NO_FAN, type Sight } from './sight'
 
 const D = cfgAll.drone
+const LOOK = cfgAll.view.cones.lookBeam
 const DEG = Math.PI / 180
 const SPREAD = fanSpread(D.halfAngleDeg * DEG, D.pitchDeg * DEG)
 
@@ -40,6 +41,8 @@ interface DroneView {
   eyeMat: MeshBasicMaterial
   bandMat: MeshBasicMaterial
   cone: ViewCone
+  /** The short look beam out of the eye: always on (the cone shows only in network vision). */
+  look: ViewCone
   sus: Mesh
   susMat: MeshBasicMaterial
   bob: number
@@ -116,6 +119,10 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
     cone.mesh.rotation.x = D.pitchDeg * DEG
     cone.mesh.position.z = 0.42
     body.add(cone.mesh)
+    const look = createCone(LOOK.length, LOOK.halfAngleDeg * DEG, sight.texture, { scanOnly: false, nearFade: LOOK.nearFade })
+    look.mesh.rotation.x = D.pitchDeg * DEG
+    look.mesh.position.z = 0.42
+    body.add(look.mesh)
     const susMat = new MeshBasicMaterial({ color: palette.suspicious.clone(), toneMapped: false, transparent: true, depthTest: false, side: DoubleSide })
     const beamMat = new ShaderMaterial({
       uniforms: { uColor: { value: palette.security.clone() }, uAim: { value: 0 }, uTime: { value: 0 }, uLen: { value: 1 } },
@@ -137,7 +144,7 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
     g.add(body, sus, beam)
     g.visible = false
     root.add(g)
-    return { root: g, body, ring: band, eyeRing, beam, beamMat, eyeMat, bandMat, cone, sus, susMat, bob: i * 1.7, lastSusSeg: 0 }
+    return { root: g, body, ring: band, eyeRing, beam, beamMat, eyeMat, bandMat, cone, look, sus, susMat, bob: i * 1.7, lastSusSeg: 0 }
   })
 
   return {
@@ -197,7 +204,10 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
         v.bandMat.color.copy(paused ? palette.paused : palette.security).multiplyScalar(alert ? 0.9 + 0.5 * Math.sin(time * 12) : 0.7)
         v.ring.rotation.z += dt * (alert ? 8 : 1.5)
         v.cone.mesh.visible = !paused && !spawning
-        v.cone.set(tmp, alert ? 1.6 : 0.7 + d.suspicion * 1.2, time, sight.fan(DRONE_KEY + i, d.pos.x, d.pos.z, d.yaw, SPREAD, D.range))
+        v.look.mesh.visible = !spawning
+        v.look.set(tmp, (paused ? LOOK.pausedStrength : LOOK.strength) * (alert ? 1.6 : 1 + d.suspicion), time, NO_FAN)
+        if (!aiming) v.eyeMat.color.multiplyScalar(LOOK.lensGlow)
+        v.cone.set(tmp, alert ? 1.6 : 0.7 + d.suspicion * 1.2, time, sight.fan(DRONE_KEY + i, d.pos.x, d.pos.y, d.pos.z, d.yaw, SPREAD, D.range))
         // suspicion arc above it, facing the camera
         const showSus = !alert && !paused && d.suspicion > 0.02
         v.sus.visible = showSus

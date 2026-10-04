@@ -14,6 +14,7 @@
     ["C", "crouch / stand (toggle)"],
     ["Ctrl (hold)", "crouch while held"],
     ["LMB", "attack"],
+    ["RMB (hold)", "aim"],
     ["Q / wheel", "sword <-> rifle"],
     ["E", "hack / take"],
     ["Tab (hold)", "network vision - not for too long"],
@@ -81,12 +82,13 @@
   "toast.empty": "NO CHARGES",
   "toast.check": "SOMEONE IS COMING TO CHECK",
   "hint.start": "Walking is quiet. Hold Shift to sprint - it is loud. C or Ctrl to crouch behind cover. Double tap a direction to dash.",
-  "hint.camera": "A camera. Crouch behind the blocks and move when the cone looks away.",
+  "hint.camera": "A camera. Its red eye shows where it looks; hold Tab to see its view. Crouch behind the blocks and move when it looks away.",
   "hint.sensor": "Hold Tab for network vision: it shows the sensor zones. Walk or crouch through - never sprint, dash or jump.",
   "hint.niche": "Server blocks hide you while you crouch behind them. Stand up and your head shows.",
   "hint.terminal": "A terminal. E to hack it - you stand still while you work, and the security keeps moving.",
-  "hint.sound": "A sound camera listens inside its ring. Walk or crouch - do not sprint, jump or fight.",
+  "hint.sound": "A sound camera listens around it (Tab shows how far). Walk or crouch - do not sprint, jump or fight.",
   "hint.redWall": "A red wall. Find the terminal that controls it - or bring the whole alarm down on you.",
+  "hint.warden": "A warden. It sees where its visor looks and turns slowly - stay out of its view, or walk up behind its back.",
   "reason.camera": "a camera saw you",
   "reason.sound": "a sound camera heard you",
   "reason.sensor": "a motion sensor",
@@ -94,5 +96,6 @@
   "reason.laser": "the laser grid",
   "reason.scan": "network vision traced",
   "reason.hack": "the hack timed out",
-  "reason.attack": "an attack"
+  "reason.attack": "an attack",
+  "reason.warden": "a warden saw you"
 }

@@ -59,6 +59,25 @@ import uiBack from '../audio/sfx/ui_back.mp3'
 import ammoDrop from '../audio/sfx/ammo_drop.mp3'
 import jackIn from '../audio/sfx/jack_in.mp3'
 import shieldHit from '../audio/sfx/shield_hit.mp3'
+import playerHitV1 from '../audio/sfx/player_hit_v1.mp3'
+import playerHitV2 from '../audio/sfx/player_hit_v2.mp3'
+import playerHitV3 from '../audio/sfx/player_hit_v3.mp3'
+import droneHitV1 from '../audio/sfx/drone_hit_v1.mp3'
+import droneHitV2 from '../audio/sfx/drone_hit_v2.mp3'
+import droneHitV3 from '../audio/sfx/drone_hit_v3.mp3'
+import droneKill from '../audio/sfx/drone_kill.mp3'
+import wormHitV1 from '../audio/sfx/worm_hit_v1.mp3'
+import wormHitV2 from '../audio/sfx/worm_hit_v2.mp3'
+import wormHitV3 from '../audio/sfx/worm_hit_v3.mp3'
+import wormDeathV1 from '../audio/sfx/worm_death_v1.mp3'
+import wormDeathV2 from '../audio/sfx/worm_death_v2.mp3'
+import wormDeathV3 from '../audio/sfx/worm_death_v3.mp3'
+import wormWindupV1 from '../audio/sfx/worm_windup_v1.mp3'
+import wormWindupV2 from '../audio/sfx/worm_windup_v2.mp3'
+import wormBiteV1 from '../audio/sfx/worm_bite_v1.mp3'
+import wormBiteV2 from '../audio/sfx/worm_bite_v2.mp3'
+import wormSkitterLoop from '../audio/sfx/worm_skitter_loop.mp3'
+import wormSpawn from '../audio/sfx/worm_spawn.mp3'
 
 const FILES: Record<string, string> = {
   footstep_run_v1: footstepRunV1,
@@ -119,9 +138,28 @@ const FILES: Record<string, string> = {
   ammo_drop: ammoDrop,
   jack_in: jackIn,
   shield_hit: shieldHit,
+  player_hit_v1: playerHitV1,
+  player_hit_v2: playerHitV2,
+  player_hit_v3: playerHitV3,
+  drone_hit_v1: droneHitV1,
+  drone_hit_v2: droneHitV2,
+  drone_hit_v3: droneHitV3,
+  drone_kill: droneKill,
+  worm_hit_v1: wormHitV1,
+  worm_hit_v2: wormHitV2,
+  worm_hit_v3: wormHitV3,
+  worm_death_v1: wormDeathV1,
+  worm_death_v2: wormDeathV2,
+  worm_death_v3: wormDeathV3,
+  worm_windup_v1: wormWindupV1,
+  worm_windup_v2: wormWindupV2,
+  worm_bite_v1: wormBiteV1,
+  worm_bite_v2: wormBiteV2,
+  worm_skitter_loop: wormSkitterLoop,
+  worm_spawn: wormSpawn,
 }
 
-export type LoopName = 'drone_hum_loop' | 'camera_servo_loop' | 'alarm_3_loop'
+export type LoopName = 'drone_hum_loop' | 'camera_servo_loop' | 'alarm_3_loop' | 'worm_skitter_loop'
 
 export class Sound {
   ctx: AudioContext | null = null
@@ -176,7 +214,7 @@ export class Sound {
         }
       }),
     )
-    for (const name of ['drone_hum_loop', 'camera_servo_loop', 'alarm_3_loop'] as const) this.startLoop(name)
+    for (const name of ['drone_hum_loop', 'camera_servo_loop', 'alarm_3_loop', 'worm_skitter_loop'] as const) this.startLoop(name)
     this.ready = true
   }
 

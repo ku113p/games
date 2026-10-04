@@ -1,7 +1,8 @@
 // Keyboard + mouse (pointer lock) -> the player's intent and one-shot actions (DESIGN 12).
 //   WASD / arrows move (a double tap of a direction dashes that way - the core times the taps), mouse looks,
 //   Shift (hold) sprint, Space jump, C crouch toggle, Ctrl (hold) crouch while held,
-//   LMB attack (hold to repeat), Q / wheel switch sword <-> rifle, E interact / hack, Tab network vision (hold).
+//   LMB attack (hold to repeat), RMB aim (hold), Q / wheel switch sword <-> rifle, E interact / hack,
+//   Tab network vision (hold).
 //   Ctrl must not reach the browser while playing: its shortcuts (Ctrl+S, Ctrl+D, Ctrl+wheel zoom...) are blocked;
 //   Ctrl+W cannot be, so a "leave the page?" guard is up while the pointer is locked.
 //   1-4 are reserved for May's abilities (not in the slice).
@@ -16,6 +17,8 @@ export interface Held {
   /** Ctrl held: crouch while held. */
   crouch: boolean
   attack: boolean
+  /** RMB held: aim. */
+  aim: boolean
   scan: boolean
 }
 
@@ -50,7 +53,7 @@ export interface GameInput {
 }
 
 export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
-  const held: Held = { forward: false, back: false, left: false, right: false, run: false, crouch: false, attack: false, scan: false }
+  const held: Held = { forward: false, back: false, left: false, right: false, run: false, crouch: false, attack: false, aim: false, scan: false }
   const pressed: Pressed = { jump: 0, tapForward: 0, tapBack: 0, tapLeft: 0, tapRight: 0, crouch: 0, attack: 0, switchMode: 0, interact: 0 }
   const look = { dx: 0, dy: 0 }
   let enabled = true
@@ -109,7 +112,7 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
   }
 
   function clearHeld(): void {
-    held.forward = held.back = held.left = held.right = held.run = held.crouch = held.attack = held.scan = false
+    held.forward = held.back = held.left = held.right = held.run = held.crouch = held.attack = held.aim = held.scan = false
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -126,9 +129,11 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
       held.attack = true
       pressed.attack++
     }
+    if (e.button === 2) held.aim = true
   }
   const onMouseUp = (e: MouseEvent): void => {
     if (e.button === 0) held.attack = false
+    if (e.button === 2) held.aim = false
   }
   const onMouseMove = (e: MouseEvent): void => {
     if (!enabled || !isLocked()) return

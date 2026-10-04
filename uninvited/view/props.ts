@@ -1,4 +1,5 @@
-// Security devices and level props: video cameras with sweeping cones, sound cameras with their hearing ring,
+// Security devices and level props: video cameras with a look beam and their view cones (network vision only), sound
+// cameras with their hearing ring (network vision only),
 // motion sensors (visible only in network vision), laser grids, red walls, hack terminals, checkpoints, the artifact,
 // and the network-vision links from terminals to what they control.
 import {
@@ -44,7 +45,7 @@ import {
 import { createCone, type ViewCone } from './cone'
 import { palette, type Materials } from './look'
 import { buildNetVision, type NetVision } from './netvision'
-import { fanSpread, type Sight } from './sight'
+import { fanSpread, NO_FAN, type Sight } from './sight'
 
 const DEG = Math.PI / 180
 const VC = cfgAll.videoCamera
@@ -53,6 +54,8 @@ const LZ = cfgAll.laser
 
 const tmpColor = new Color()
 const CAM_SPREAD = fanSpread(VC.halfAngleDeg * DEG, VC.pitchDeg * DEG)
+const LOOK = cfgAll.view.cones.lookBeam
+const SCAN_FADE = cfgAll.view.cones.scanFadeRate
 
 /** Flat floor decals would only double themselves in the floor mirror. */
 function noReflect(m: Mesh): Mesh {
@@ -88,6 +91,8 @@ function screenTexture(lines: number, seed: number, tint: string): CanvasTexture
 interface CameraView {
   pivot: Group
   cone: ViewCone
+  /** The short look beam out of the lens: always on (the cone shows only in network vision). */
+  beam: ViewCone
   lens: MeshBasicMaterial
   root: Group
 }
@@ -208,12 +213,15 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
     const cone = createCone(VC.range, VC.halfAngleDeg * DEG, sight.texture)
     cone.mesh.position.z = 0.32
     pivot.add(cone.mesh)
+    const beam = createCone(LOOK.length, LOOK.halfAngleDeg * DEG, sight.texture, { scanOnly: false, nearFade: LOOK.nearFade })
+    beam.mesh.position.z = 0.32
+    pivot.add(beam.mesh)
     g.add(pivot)
     root.add(g)
-    return { pivot, cone, lens, root: g }
+    return { pivot, cone, beam, lens, root: g }
   })
 
-  // ---- sound cameras: a dome with concentric amber rings and a hearing ring on the floor
+  // ---- sound cameras: a dome with concentric amber rings and a hearing ring on the floor (network vision only)
   const sounds: SoundView[] = soundCameras(s).map((c) => {
     const g = new Group()
     g.position.set(c.pos.x, c.pos.y, c.pos.z)
@@ -444,9 +452,12 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
   const net: NetVision = buildNetVision(s, sim)
   root.add(net.root)
 
+  let scanK = 0 // network vision faded in, 0..1
   function update(st: GameState, sm: Sim, dt: number): void {
     const time = gameTime(st)
     const scanning = scanActive(st)
+    scanK += ((scanning ? 1 : 0) - scanK) * Math.min(1, dt * SCAN_FADE)
+    if (scanK < 0.01) scanK = 0
     // cameras
     const cs = videoCameras(st)
     for (let i = 0; i < cams.length; i++) {
@@ -457,7 +468,7 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
       if (!c.alive) continue
       v.pivot.rotation.y = c.yaw
       v.pivot.rotation.x = VC.pitchDeg * DEG
-      const fan = sight.fan(i, c.pos.x, c.pos.z, c.yaw, CAM_SPREAD, VC.range)
+      const fan = sight.fan(i, c.pos.x, c.pos.y, c.pos.z, c.yaw, CAM_SPREAD, VC.range)
       if (c.pausedTime > 0) {
         tmpColor.copy(palette.paused)
         v.cone.set(tmpColor, 0.25, time, fan)
@@ -467,7 +478,8 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
         const flash = c.sees && c.suspicion >= 1 ? 0.5 + 0.5 * Math.sin(time * 30) : 0
         v.cone.set(tmpColor, 0.8 + c.suspicion * 1.4 + flash, time, fan)
       }
-      v.lens.color.copy(c.pausedTime > 0 ? palette.paused : palette.security)
+      v.beam.set(tmpColor, (c.pausedTime > 0 ? LOOK.pausedStrength : LOOK.strength) * (1 + c.suspicion), time, NO_FAN)
+      v.lens.color.copy(c.pausedTime > 0 ? palette.paused : palette.security).multiplyScalar(LOOK.lensGlow)
     }
     // sound cameras
     const ss = soundCameras(st)
@@ -476,18 +488,19 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
       const c = ss[i]
       if (!c) continue
       v.root.visible = c.alive
-      v.floorRing.visible = c.alive
-      v.pulse.visible = c.alive
+      // its hearing range (the floor ring and the ping) is a range: network vision only
+      v.floorRing.visible = c.alive && scanK > 0
+      v.pulse.visible = c.alive && scanK > 0
       if (!c.alive) continue
       const paused = c.pausedTime > 0
       const heard = Math.max(0, 1 - c.heardAgo * 2)
       v.ringMat.color.copy(paused ? palette.paused : palette.sound).multiplyScalar(1 + heard * 1.5)
-      v.floorMat.opacity = (scanning ? 0.6 : 0.22) + heard * 0.5 + c.suspicion * 0.3
+      v.floorMat.opacity = (0.6 + heard * 0.5 + c.suspicion * 0.3) * scanK
       v.floorMat.color.copy(c.suspicion > 0.6 ? palette.security : palette.sound)
       const t = (time / SC.pingSec) % 1
       const r = 0.3 + t * SC.radius
       v.pulse.scale.setScalar(r)
-      v.pulseMat.opacity = (1 - t) * 0.35
+      v.pulseMat.opacity = (1 - t) * 0.35 * scanK
       for (let k = 0; k < v.rings.length; k++) (v.rings[k] as Mesh).scale.setScalar(1 + 0.15 * Math.sin(time * 4 - k))
     }
     // motion sensors: a slow dim blink, brighter up close, a fast bright one while rearming after a trip

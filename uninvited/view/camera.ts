@@ -5,10 +5,13 @@
 // then the boom is swept backwards as five parallel rays (centre + up/down/left/right at collisionRadius) - a cheap
 // sphere cast. The camera snaps in to whatever the sweep allows (it can never sit inside a wall, a niche roof or a
 // ramp) and eases back out slowly. A sprint widens the FOV a little and bobs the camera with the stride.
+// Aiming (RMB) eases the camera in over ~0.15 s: closer, a narrower FOV, the hero further left of the centre (over the
+// right shoulder), a slower mouse; the collision works the same.
 import { Vector3, type PerspectiveCamera } from 'three'
 import cfgAll from '../config.json'
 
 const C = cfgAll.view.camera
+const AIM = C.aim
 const WALK = cfgAll.player.walkSpeed
 const RUN = cfgAll.player.runSpeed
 
@@ -20,8 +23,10 @@ export interface CameraRig {
   pitch: number
   /** Mouse movement in pixels. */
   look(dx: number, dy: number): void
-  /** Places the camera; shake is an offset in metres. */
-  update(dt: number, px: number, py: number, pz: number, crouched: boolean, fovWanted: number, shakeX: number, shakeY: number): void
+  /** Places the camera; shake is an offset in metres. `aiming` eases the aim framing in or out. */
+  update(dt: number, px: number, py: number, pz: number, crouched: boolean, fovWanted: number, shakeX: number, shakeY: number, aiming?: boolean): void
+  /** 0..1 how far into the aim framing (eased). */
+  readonly aim: number
   /** Where the crosshair points: written into out (a world point up to aimRange away). */
   aimPoint(out: Vector3): void
   snap(): void
@@ -45,6 +50,11 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
   let lastZ = 0
   let sprint = 0
   let bobPhase = 0
+  /** Linear 0..1 towards the aim framing, and its smoothstep. */
+  let aimT = 0
+  let aimK = 0
+  /** The boom length the last frame wanted (to tell a collision pull-in from an aim zoom). */
+  let lastWant = C.distance
 
   /** How far the boom can reach from the pivot along `back` before the swept sphere touches something. */
   function sweep(max: number): number {
@@ -77,17 +87,27 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
     set pitch(v: number) {
       pitch = v
     },
-    look(dx: number, dy: number): void {
-      yaw -= dx * C.sensitivity
-      pitch = Math.min(C.maxPitch, Math.max(C.minPitch, pitch + dy * C.sensitivity))
+    get aim() {
+      return aimK
     },
-    update(dt, px, py, pz, crouched, fovWanted, shakeX, shakeY): void {
+    look(dx: number, dy: number): void {
+      const sens = C.sensitivity * (1 + (AIM.sensitivity - 1) * aimK)
+      yaw -= dx * sens
+      pitch = Math.min(C.maxPitch, Math.max(C.minPitch, pitch + dy * sens))
+    },
+    update(dt, px, py, pz, crouched, fovWanted, shakeX, shakeY, aiming = false): void {
       const snapping = snapNext
       snapNext = false
       const k = snapping ? 1 : Math.min(1, dt * C.followLerp)
       const ky = snapping ? 1 : Math.min(1, dt * C.followLerpY)
-      height += ((crouched ? C.crouchPivotHeight : C.pivotHeight) - height) * (snapping ? 1 : Math.min(1, dt * 10))
-      const wantDist = crouched ? C.crouchDistance : C.distance
+      aimT = Math.max(0, Math.min(1, aimT + (aiming ? 1 : -1) * (dt / AIM.easeSec)))
+      aimK = aimT * aimT * (3 - 2 * aimT)
+      const aimMoving = aimT > 0 && aimT < 1
+      height += ((crouched ? C.crouchPivotHeight : C.pivotHeight) - AIM.pivotDrop * aimK - height) * (snapping ? 1 : Math.min(1, dt * 10))
+      const baseDist = crouched ? C.crouchDistance : C.distance
+      const aimDist = crouched ? AIM.crouchDistance : AIM.distance
+      const wantDist = baseDist + (aimDist - baseDist) * aimK
+      const wantShoulder = C.shoulder + (AIM.shoulder - C.shoulder) * aimK
 
       // the sprint feel: speed from the hero's own movement (teleports and pauses ignored)
       const moved = Math.hypot(px - lastX, pz - lastZ)
@@ -106,9 +126,11 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
 
       // the shoulder offset, cast from the head so it never pokes into a wall at your right
       side.set(-Math.cos(yaw), 0, Math.sin(yaw))
-      const roomRight = ray(head.x, head.y, head.z, side.x, 0, side.z, C.shoulder + C.collisionRadius)
-      const shoulderMax = Math.max(0, Math.min(C.shoulder, roomRight - C.collisionRadius))
-      shoulder = shoulderMax < shoulder || snapping ? shoulderMax : shoulder + (shoulderMax - shoulder) * Math.min(1, dt * C.easeOutRate)
+      const roomRight = ray(head.x, head.y, head.z, side.x, 0, side.z, wantShoulder + C.collisionRadius)
+      const shoulderMax = Math.max(0, Math.min(wantShoulder, roomRight - C.collisionRadius))
+      // pulled in by a wall: at once; the aim easing out: follows it; otherwise eases back out slowly
+      const shoulderFree = shoulder >= Math.min(C.shoulder, AIM.shoulder) - 0.01 && roomRight - C.collisionRadius >= wantShoulder
+      shoulder = shoulderMax < shoulder || snapping || (aimMoving && shoulderFree) ? shoulderMax : shoulder + (shoulderMax - shoulder) * Math.min(1, dt * C.easeOutRate)
       pivot.set(head.x + side.x * shoulder, head.y, head.z + side.z * shoulder)
 
       // the boom: behind (opposite the look) and up by the pitch, swept against the level
@@ -117,9 +139,13 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
       up.crossVectors(back, side).normalize()
       const hit = sweep(wantDist + C.collisionPad)
       const allowed = Math.max(C.minDistance, hit - C.collisionPad)
-      // snap in at once (never inside a wall), ease back out slowly
+      // snap in at once (never inside a wall), ease back out slowly - but an aim zoom out in free space follows the
+      // aim easing (the boom was at its full length, nothing pulled it in)
+      const free = dist >= lastWant - 0.02
       if (allowed < dist || snapping) dist = Math.min(allowed, wantDist)
+      else if (free && aimMoving) dist = Math.min(wantDist, allowed)
       else dist += (Math.min(wantDist, allowed) - dist) * Math.min(1, dt * C.easeOutRate)
+      lastWant = wantDist
 
       // the stride bob while sprinting
       const bobY = Math.abs(Math.sin(bobPhase)) * C.bobHeight * sprint * 2 - C.bobHeight * sprint
@@ -131,9 +157,9 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
       camera.position.set(want.x + ox, want.y + oy, want.z + oz)
       look.set(pivot.x - back.x * 6 + ox, pivot.y - back.y * 6 + oy, pivot.z - back.z * 6 + oz)
       camera.lookAt(look)
-      const fov = fovWanted + C.sprintFov * sprint
+      const fov = fovWanted + C.sprintFov * sprint + (AIM.fov - fovWanted) * aimK
       if (Math.abs(camera.fov - fov) > 0.05) {
-        camera.fov += (fov - camera.fov) * Math.min(1, dt * 10)
+        camera.fov += (fov - camera.fov) * Math.min(1, dt * (aimMoving ? 40 : 10))
         camera.updateProjectionMatrix()
       }
     },

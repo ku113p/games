@@ -18,7 +18,11 @@ import {
   isHiddenInNiche,
   isRunning,
   levelGrid,
+  landmarks,
+  voidFade,
   maxSuspicion,
+  suspicionSources,
+  type SuspicionSource,
   motionSensors,
   playerFacing,
   playerPos,
@@ -34,29 +38,40 @@ import {
   terminals,
   videoCameras,
   drones,
+  wardenLookYaw,
+  wardens,
   waveInfo,
   weaponMode,
+  isAiming,
+  spawnGates,
+  worms,
   type Rgb,
 } from '../core/queries'
 import { floorHeightAt } from '../core/grid'
 import type { GameState, Sim } from '../core/state'
 import { Sound } from './audio'
 import { createCameraRig, type CameraRig, type RayFn } from './camera'
-import { buildCorridors, MAX_CONES, type Corridors } from './corridors'
+import { buildCity, MAX_CONES, type City } from './city'
+import { buildCityLife, type CityLife } from './city-life'
+import { buildSkyline, type Skyline } from './skyline'
 import { buildDrones, type DroneViews } from './drones'
+import { buildWorms, type WormViews } from './worms'
 import { createFx, type Fx } from './fx'
 import { createHero, type HeroView } from './hero'
-import { createHud, t, type Hud, type HudState } from './hud'
+import { setConesFade } from './cone'
+import { createHud, MAX_MARKS, t, type Hud, type HudMark, type HudState } from './hud'
 import { createMaterials, palette } from './look'
 import { buildProps, type Props } from './props'
 import { REFLECT_LAYER } from './reflect'
 import { createRenderer, type Renderer } from './renderer'
+import { buildWardens, WARDEN_KEY, type WardenViews } from './wardens'
 import { createSight, DRONE_KEY, fanSpread, type Sight } from './sight'
 import { createSpawnGates } from './spawn-gates'
 
 const V = cfgAll.view
 const J = V.juice
 const A = cfgAll.audio
+const H = cfgAll.audio.hits
 
 export interface GameView {
   readonly hud: Hud
@@ -83,9 +98,11 @@ const coneColor = new Color()
 const sparkWhite = new Color(2.5, 2.6, 2.8)
 const sparkCyan = palette.seam
 const sparkRed = palette.security
+const sparkWorm = new Color(...cfgAll.view.colors.worm)
 const DEG = Math.PI / 180
 const CAM_SPREAD = fanSpread(cfgAll.videoCamera.halfAngleDeg * DEG, cfgAll.videoCamera.pitchDeg * DEG)
 const DRONE_SPREAD = fanSpread(cfgAll.drone.halfAngleDeg * DEG, cfgAll.drone.pitchDeg * DEG)
+const WARDEN_SPREAD = fanSpread(cfgAll.warden.halfAngleDeg * DEG, cfgAll.warden.pitchDeg * DEG)
 
 /** What glows and every solid body that can hide it shows up in the floor mirror (so a reflection never shows
  * through a block or a wall); tiny bits and flat floor decals stay out of it - they would only cost draw calls
@@ -109,17 +126,24 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   const mats = createMaterials()
   const grid = levelGrid(sim)
   const sight: Sight = createSight(grid)
-  const corridors: Corridors = buildCorridors(grid, mats, sight, r.mirror, s)
-  r.scene.add(corridors.root)
+  const city: City = buildCity(grid, mats, sight, r.mirror, s)
+  r.scene.add(city.root)
+  const skyline: Skyline = buildSkyline(grid, landmarks(sim))
+  r.scene.add(skyline.root)
+  const life: CityLife = buildCityLife(city.paths)
+  r.scene.add(life.root)
   const props: Props = buildProps(s, sim, mats, sight)
   r.scene.add(props.root)
   const droneViews: DroneViews = buildDrones(s, mats, sight, sim)
   r.scene.add(droneViews.root)
+  const wormViews: WormViews = buildWorms(s, mats)
+  r.scene.add(wormViews.root)
   const hero: HeroView = createHero()
   r.scene.add(hero.root)
-  markReflective(corridors.root)
+  markReflective(city.root)
   markReflective(props.root)
   markReflective(droneViews.root)
+  markReflective(wormViews.root)
   markReflective(hero.root)
   // a soft key light that travels with the hero so the black suit, drones and cover read against the dark
   const keyLight = new PointLight(0x9fdcff, V.heroLight.intensity, V.heroLight.distance, 1.6)
@@ -131,6 +155,9 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   r.scene.add(fx.root)
   const hud = createHud(uiRoot, V.hud.toastSec, V.hud.hintSec)
   const sound = new Sound(A.master)
+  const wardenViews: WardenViews = buildWardens(s, sim, sight, sound)
+  r.scene.add(wardenViews.root)
+  markReflective(wardenViews.root)
   const gates = createSpawnGates(r.scene, s, sim, mats, sound)
   const rig = createCameraRig(r.camera, ray, playerFacing(s))
 
@@ -164,7 +191,11 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     wavesNeeded: 0,
     firewallDown: false,
     crouched: false,
+    marks: Array.from({ length: MAX_MARKS }, (): HudMark => ({ angle: 0, level: 0, spotted: false })),
+    markCount: 0,
   }
+  const sources = Array.from({ length: MAX_MARKS }, (): SuspicionSource => ({ x: 0, y: 0, z: 0, level: 0, spotted: false }))
+  let scanFade = 0 // network vision faded in, 0..1: the view ranges show only in it
   const waves = { wave: 0, cleared: 0, needed: 0, firewallDown: false, active: false }
 
   function near(x: number, y: number, z: number): number {
@@ -191,6 +222,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       if (!w.open && d2(mx, mz) < 8 * 8) hint('redWall', t('hint.redWall'))
     }
     for (const term of terminals(st)) if (!term.done && d2(term.pos.x, term.pos.z) < 4 * 4) hint('terminal', t('hint.terminal'))
+    for (const w of wardens(st)) if (w.alive && d2(w.pos.x, w.pos.z) < 14 * 14) hint('warden', t('hint.warden'))
   }
 
   const view: GameView = {
@@ -203,9 +235,18 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const p = playerPos(st)
       let hackSolvedNow = false
       for (const e of events) {
+        if (e.type.startsWith('warden')) wardenViews.event(e, st)
         switch (e.type) {
           case 'jumped':
             sound.play('jump', 0.7)
+            break
+          case 'fellIntoVoid':
+            sound.play('glitch', 0.6)
+            glitch = Math.max(glitch, J.glitchHurt)
+            break
+          case 'voidReturned':
+            rig.snap() // back on safe ground, still in the dark: no camera swoop across the void
+            glitch = Math.max(glitch, J.glitchKill)
             break
           case 'landed':
             sound.play('land', 0.7)
@@ -242,8 +283,37 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
             sound.play('ammo_drop', 0.6)
             break
           case 'targetHit':
+            if (e.target === 'worm') {
+              // worms: a wet crunch; a kill scatters the body in magenta sparks (several die at once to one swing)
+              const nr = near(e.x, e.y, e.z)
+              if (e.killed) {
+                sound.play('worm_death', H.wormKill * nr)
+                wormViews.burst(e.index, (x, y, z) => fx.sparks(x, y, z, 12, 5, sparkWorm, 0.6))
+                fx.sparks(e.x, e.y, e.z, 26, 6, sparkWhite, 0.6)
+                view.hitStop = Math.max(view.hitStop, J.hitStopSec * 1.2)
+                shake = Math.max(shake, J.shakeHit)
+              } else {
+                sound.play('worm_hit', H.wormHit * nr)
+                if (!e.byRifle) sound.play('sword_hit', H.droneHitBlade * 0.6 * nr)
+                wormViews.flash(e.index)
+                fx.sparks(e.x, e.y, e.z, 12, 4, sparkWorm, 0.4)
+                shake = Math.max(shake, e.byRifle ? J.shakeShot * 2 : J.shakeHit * 0.7)
+              }
+              break
+            }
+            if (e.target === 'drone') {
+              // drones: a metal clang on every hit, a heavy crunching blast on a kill
+              const nr = near(e.x, e.y, e.z)
+              if (e.killed) {
+                sound.play('drone_kill', H.droneKill * nr)
+                sound.play('derez', H.droneKillDerez * nr)
+              } else {
+                sound.play('drone_hit', H.droneHit * nr)
+                if (!e.byRifle) sound.play('sword_hit', H.droneHitBlade * nr)
+              }
+            }
             if (e.killed) {
-              sound.play('derez', 0.9 * near(e.x, e.y, e.z))
+              if (e.target !== 'drone') sound.play('derez', 0.9 * near(e.x, e.y, e.z))
               sound.play('glitch', 0.6)
               fx.sparks(e.x, e.y, e.z, 90, 9, sparkRed, 0.3)
               fx.sparks(e.x, e.y, e.z, 50, 6, sparkWhite, 0.5)
@@ -251,20 +321,50 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
               shake = Math.max(shake, J.shakeKill)
               glitch = Math.max(glitch, J.glitchKill)
             } else {
-              sound.play(e.byRifle ? 'bullet_impact' : 'sword_hit', 0.85)
+              if (e.target !== 'drone') sound.play(e.byRifle ? 'bullet_impact' : 'sword_hit', 0.85)
+              else if (e.byRifle) sound.play('bullet_impact', 0.5)
               fx.sparks(e.x, e.y, e.z, e.byRifle ? 14 : 28, e.byRifle ? 5 : 7, e.byRifle ? sparkWhite : sparkRed)
               view.hitStop = Math.max(view.hitStop, e.byRifle ? J.hitStopSec * 0.5 : J.hitStopSec)
               shake = Math.max(shake, e.byRifle ? J.shakeShot * 2 : J.shakeHit)
             }
             break
-          case 'playerHurt':
-            sound.play('player_hurt', 0.9)
+          case 'playerHurt': {
+            // a meaty body hit on top of the signal buzz, heavier when low; a red flash and an arc towards the source
+            sound.play('player_hit', H.playerHit)
+            sound.play('player_hurt', H.playerHurt)
+            if (e.hp < cfgAll.player.maxHp * 0.3) sound.play('land', H.playerHitLowHp, 0.6)
+            const fdx = e.fromX - p.x
+            const fdz = e.fromZ - p.z
+            // clockwise from straight ahead on screen: the camera looks along rig.yaw (forward = (sin, cos))
+            const ang = fdx * fdx + fdz * fdz > 0.01 ? -Math.atan2(Math.sin(Math.atan2(fdx, fdz) - rig.yaw), Math.cos(Math.atan2(fdx, fdz) - rig.yaw)) : 0
+            hud.hit(fdx * fdx + fdz * fdz > 0.01 ? ang : Math.PI, Math.min(1, e.amount / 15))
             hurt = 1
             shake = Math.max(shake, J.shakeHurt)
             glitch = Math.max(glitch, J.glitchHurt)
             view.hitStop = Math.max(view.hitStop, J.hurtHitStopSec)
             fx.sparks(p.x, p.y + 1.1, p.z, 16, 5, sparkRed)
             break
+          }
+          case 'wormPack': {
+            const g = spawnGates(sm)[e.gate]
+            if (g) sound.play('worm_spawn', H.wormSpawn * near(g.mouth.x, g.mouth.y, g.mouth.z))
+            break
+          }
+          case 'wormWindup': {
+            const w = worms(st)[e.index]
+            if (w) sound.play('worm_windup', H.wormWindup * near(w.pos.x, w.pos.y, w.pos.z))
+            break
+          }
+          case 'wormBite': {
+            const w = worms(st)[e.index]
+            if (w) sound.play('worm_bite', H.wormBite * near(w.pos.x, w.pos.y, w.pos.z), e.hit ? 0.9 : 1.15)
+            break
+          }
+          case 'wormSensed': {
+            const w = worms(st)[e.index]
+            if (w) sound.play('worm_windup', H.wormWindup * 0.6 * near(w.pos.x, w.pos.y, w.pos.z), 1.4)
+            break
+          }
           case 'playerDied':
             sound.play('player_death', 1)
             glitch = 1.4
@@ -320,7 +420,8 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
             hud.toast(t('toast.check'))
             break
           case 'noise':
-            fx.noiseRing(e.x, e.y - 1, e.z, e.radius)
+            // how far a noise carries is a range: shown only in network vision
+            if (scanActive(st)) fx.noiseRing(e.x, e.y - 1, e.z, e.radius)
             break
           case 'alarmRaised':
             sound.play(e.stage >= 2 ? 'alarm_2' : 'alarm_1', 0.8)
@@ -417,7 +518,11 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
         }
       }
 
-      // floor fans of every view cone
+      // floor fans of every view cone - only in network vision, like the cone volumes
+      scanFade += ((scanActive(st) ? 1 : 0) - scanFade) * Math.min(1, dt * V.cones.scanFadeRate)
+      if (scanFade < 0.01) scanFade = 0
+      setConesFade(scanFade)
+      sight.setWalls(redWalls(st))
       let nc = 0
       const vc = cfgAll.videoCamera
       const cp = Math.cos((vc.pitchDeg * Math.PI) / 180)
@@ -426,10 +531,10 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const cams = videoCameras(st)
       for (let i = 0; i < cams.length; i++) {
         const c = cams[i]
-        if (!c || !c.alive || c.pausedTime > 0 || nc >= MAX_CONES) continue
+        if (scanFade <= 0 || !c || !c.alive || c.pausedTime > 0 || nc >= MAX_CONES) continue
         coneColor.copy(palette.security).lerp(palette.suspicious, c.suspicion < 1 ? Math.min(1, c.suspicion * 1.5) : 0)
-        const fan = sight.fan(i, c.pos.x, c.pos.z, c.yaw, CAM_SPREAD, vc.range)
-        corridors.setCone(nc++, c.pos.x, c.pos.y, c.pos.z, Math.sin(c.yaw) * cp, -sp, Math.cos(c.yaw) * cp, camCos, vc.range, coneColor, 0.9 + c.suspicion, fan)
+        const fan = sight.fan(i, c.pos.x, c.pos.y, c.pos.z, c.yaw, CAM_SPREAD, vc.range)
+        city.setCone(nc++, c.pos.x, c.pos.y, c.pos.z, Math.sin(c.yaw) * cp, -sp, Math.cos(c.yaw) * cp, camCos, vc.range, coneColor, (0.9 + c.suspicion) * scanFade, fan)
       }
       const dc = cfgAll.drone
       const dp = Math.cos((dc.pitchDeg * Math.PI) / 180)
@@ -438,17 +543,34 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const ds = drones(st)
       for (let i = 0; i < ds.length; i++) {
         const d = ds[i]
-        if (nc >= MAX_CONES) break
+        if (nc >= MAX_CONES || scanFade <= 0) break
         if (!d || !d.active || !d.alive || d.pausedTime > 0 || d.spawnTime > 0) continue
         coneColor.copy(palette.security).lerp(palette.suspicious, d.mode === 'alert' ? 0 : Math.min(1, d.suspicion * 1.6))
-        const fan = sight.fan(DRONE_KEY + i, d.pos.x, d.pos.z, d.yaw, DRONE_SPREAD, dc.range)
-        corridors.setCone(nc++, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * dp, -dsp, Math.cos(d.yaw) * dp, droneCos, dc.range, coneColor, d.mode === 'alert' ? 1.6 : 0.8 + d.suspicion, fan)
+        const fan = sight.fan(DRONE_KEY + i, d.pos.x, d.pos.y, d.pos.z, d.yaw, DRONE_SPREAD, dc.range)
+        city.setCone(nc++, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * dp, -dsp, Math.cos(d.yaw) * dp, droneCos, dc.range, coneColor, (d.mode === 'alert' ? 1.6 : 0.8 + d.suspicion) * scanFade, fan)
       }
-      corridors.setConeCount(nc)
+      const wc = cfgAll.warden
+      const wp = Math.cos(wc.pitchDeg * DEG)
+      const wsp = Math.sin(wc.pitchDeg * DEG)
+      const wardenCos = Math.cos(wc.halfAngleDeg * DEG)
+      const ws = wardens(st)
+      for (let i = 0; i < ws.length; i++) {
+        const w = ws[i]
+        if (nc >= MAX_CONES || scanFade <= 0) break
+        if (!w || !w.alive || w.pausedTime > 0 || w.controlled) continue
+        const look = wardenLookYaw(st, i)
+        const ey = w.pos.y + wc.eyeHeight
+        coneColor.copy(palette.security).lerp(palette.suspicious, w.mode === 'alert' ? 0 : Math.min(1, w.suspicion * 1.6))
+        const fan = sight.fan(WARDEN_KEY + i, w.pos.x, ey, w.pos.z, look, WARDEN_SPREAD, wc.range)
+        city.setCone(nc++, w.pos.x, ey, w.pos.z, Math.sin(look) * wp, -wsp, Math.cos(look) * wp, wardenCos, wc.range, coneColor, (w.mode === 'alert' ? 1.6 : 0.8 + w.suspicion) * scanFade, fan)
+      }
+      city.setConeCount(nc)
 
       props.update(st, sm, dt)
       gates.update(dt, st, sm)
       droneViews.update(st, dt, r.camera)
+      wormViews.update(st, sm, dt)
+      wardenViews.update(st, sm, dt, scanFade)
       sight.flush(dt)
       fx.update(dt, st)
 
@@ -461,13 +583,17 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       sound.loop('camera_servo_loop', A.cameraServo * Math.max(0, 1 - cn / (A.hearDist * 0.7)))
       const stage = alarmStage(st)
       sound.loop('alarm_3_loop', stage >= 3 && st.phase === 'playing' ? A.alarmLoop : 0)
+      // the skitter of the worms: louder with more of them close by
+      let wl = 0
+      for (const w of worms(st)) if (w.active && w.alive && w.spawnTime <= 0) wl += Math.max(0, 1 - Math.hypot(w.pos.x - p.x, w.pos.z - p.z) / A.hearDist)
+      sound.loop('worm_skitter_loop', A.wormSkitter * Math.min(1, wl * 0.45))
 
       // the camera
       shake = Math.max(0, shake - dt * J.shakeDecay * Math.max(0.3, shake))
       const sx = (Math.sin(time * 71) + Math.sin(time * 37)) * 0.5 * shake * 0.25
       const sy = (Math.sin(time * 53) + Math.sin(time * 29)) * 0.5 * shake * 0.25
       const fov = anim === 'dash' ? V.dashFov : V.fov
-      rig.update(dt, p.x, p.y, p.z, isCrouched(st), fov, sx, sy)
+      rig.update(dt, p.x, p.y, p.z, isCrouched(st), fov, sx, sy, isAiming(st))
 
       // post effects
       hurt = Math.max(0, hurt - dt * 2.2)
@@ -476,8 +602,11 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       r.fx.glitch = Math.min(1, glitch)
       r.fx.scan += ((scanActive(st) ? 1 : 0) - r.fx.scan) * Math.min(1, dt * 10)
       r.fx.alarm = stage >= 3 ? 1 : 0
-      corridors.setAlarm(stage >= 3 ? 1 : stage * V.corridor.alarmLow, time, p.x, p.z)
+      city.setAlarm(stage >= 3 ? 1 : stage * V.corridor.alarmLow, time, p.x, p.z)
       r.fx.reflectY = floorHeightAt(grid, p.x, p.z)
+      r.fx.fade = voidFade(st, sm)
+      skyline.update(time, r.camera)
+      life.update(dt, r.camera)
 
       // HUD
       const h = hudState
@@ -502,6 +631,21 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       h.wavesNeeded = waves.needed
       h.firewallDown = waves.firewallDown
       h.crouched = isCrouched(st)
+      h.aim = rig.aim
+      // the suspicion marks: each watcher noticing you, turned toward it on screen (clockwise from straight ahead)
+      h.markCount = suspicionSources(st, sources)
+      const fx0 = Math.sin(rig.yaw)
+      const fz0 = Math.cos(rig.yaw)
+      for (let i = 0; i < h.markCount; i++) {
+        const src = sources[i] as SuspicionSource
+        const m = h.marks[i] as HudMark
+        const dx = src.x - p.x
+        const dz = src.z - p.z
+        // right of the view is (-cos yaw, sin yaw)
+        m.angle = Math.atan2(-fz0 * dx + fx0 * dz, fx0 * dx + fz0 * dz)
+        m.level = src.level
+        m.spotted = src.spotted
+      }
       hud.update(h)
       if (time > 1.5) hint('start', t('hint.start'))
       if (h.niche) hint('niche', t('hint.niche'))

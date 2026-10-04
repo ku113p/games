@@ -3,7 +3,7 @@
 import { createRapierWorld, initPhysics } from './adapters/physics-rapier'
 import { createLocalStore } from './adapters/storage'
 import cfgJson from './config.json'
-import { attack, beginFrame, cancelHack, createIntent, hackPick, interact, jump, moveTap, switchMode, tick, toggleCrouch, TAP_BACK, TAP_FORWARD, TAP_LEFT, TAP_RIGHT } from './core/commands'
+import { attack, beginFrame, cancelHack, createIntent, hackPick, interact, jump, moveTap, setAim, switchMode, tick, toggleCrouch, TAP_BACK, TAP_FORWARD, TAP_LEFT, TAP_RIGHT } from './core/commands'
 import type { GameConfig } from './core/config'
 import { buildGrid } from './core/grid'
 import type { HackSession } from './core/hack/index'
@@ -23,7 +23,7 @@ const level = slice
 const SAVE_SLOT = `save.${level.id}`
 
 await initPhysics()
-const grid = buildGrid(level)
+const grid = buildGrid(level, cfg.world)
 const physics = createRapierWorld(grid, { radius: cfg.player.radius, ...cfgJson.physics })
 const sim = createSim(level, cfg, physics, grid)
 const seed = 20261012
@@ -226,8 +226,9 @@ function frame(now: number): void {
     if (pressed.crouch % 2 === 1) toggleCrouch(state, sim)
     for (let i = 0; i < pressed.switchMode; i++) switchMode(state, sim)
     if (pressed.interact > 0) interact(state, sim)
+    setAim(state, sim, held.aim)
     if (pressed.attack > 0 || held.attack) attack(state, sim, aim.yaw, aim.pitch)
-  }
+  } else setAim(state, sim, false)
   const active = mode === 'playing' || mode === 'hack' || mode === 'resume'
   intent.moveForward = active && mode === 'playing' ? (held.forward ? 1 : 0) - (held.back ? 1 : 0) : 0
   intent.moveRight = active && mode === 'playing' ? (held.right ? 1 : 0) - (held.left ? 1 : 0) : 0
@@ -305,7 +306,7 @@ requestAnimationFrame(frame)
     view.rig.pitch = pitch
     view.rig.snap()
   },
-  hold(key: 'forward' | 'back' | 'left' | 'right' | 'run' | 'crouch' | 'attack' | 'scan', on: boolean): void {
+  hold(key: 'forward' | 'back' | 'left' | 'right' | 'run' | 'crouch' | 'attack' | 'aim' | 'scan', on: boolean): void {
     input.held[key] = on
   },
   press(key: 'jump' | 'tapForward' | 'tapBack' | 'tapLeft' | 'tapRight' | 'crouch' | 'attack' | 'switchMode' | 'interact'): void {

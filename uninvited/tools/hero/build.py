@@ -2,6 +2,7 @@
 
 Blender 4.5, headless:
     blender -b --python tools/hero/build.py -- --src <quaternius dir> [--out assets/models/hero.glb]
+                                                [--body ubc-male|ubc-female|mannequin]
                                                 [--preview <dir>] [--blend <file.blend>]
 
 Takes the Quaternius Universal Animation Library 1 + 2 (CC0, "Standard", in-place Unreal-Godot glb files) - one
@@ -20,6 +21,10 @@ Takes the Quaternius Universal Animation Library 1 + 2 (CC0, "Standard", in-plac
     mesh "Blade" and the empty "Muzzle"; the empty "RifleHold" is the gun's transform for rifle mode (bigger, the game
     blends between the two).
 Only the clips the game uses are kept, renamed to the game's names (CLIPS below), and exported as one glb.
+--body picks the body under all of this: the default "ubc-male", or "ubc-female" - a body from Quaternius' Universal Base
+Characters (CC0, same 65-bone rig, so the UAL clips play on it): its mesh and armature are used as they are (no remesh,
+its own weights) and the heights the additions are drawn at (collar, hood, visor, hips, coat bones) follow its
+proportions (fit_to_body) - or "mannequin", the UAL's own body, remeshed.
 Everything is deterministic (seeded random), so a rebuild gives the same file.
 """
 import bpy
@@ -62,6 +67,10 @@ ARM_GROUPS = ('upperarm', 'lowerarm', 'hand', 'thumb', 'index', 'middle', 'ring'
 HAND_GROUPS = ('hand_', 'thumb_', 'index_', 'middle_', 'ring_', 'pinky_')
 TORSO_ALLOWED = ('pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01', 'clavicle_l', 'clavicle_r')
 
+# --body: the Universal Base Characters files (searched for under --src like the UAL packs)
+UBC_BODIES = {'ubc-male': ('Superhero_Male_FullBody.gltf', 'SuperHero_Male'),
+              'ubc-female': ('Superhero_Female_FullBody.gltf', 'Superhero_Female')}
+
 # the smooth suit
 BODY_VOXEL = 0.006   # voxel remesh size: closes the gaps between the mannequin's segments
 BODY_SMOOTH = 30     # smoothing iterations after the remesh (the hands are left alone)
@@ -70,18 +79,24 @@ WEIGHT_BLUR = 5      # neighbour-averaging passes over the carried-over weights 
 
 rng = random.Random(1031)
 
+# How far the chosen body's landmarks sit from the mannequin's, which the heights below were drawn for. All zero (and
+# hip_k one) for the mannequin; fit_to_body() fills them for another body.
+FIT = {'fitted': False, 'neck': 0.0, 'shoulder': 0.0, 'head_y': 0.0, 'head_z': 0.0, 'hip_k': 1.0, 'hip_r': 0.0}
+
 
 # ----------------------------------------------------------------------------------------------- small helpers
 def parse_args():
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     opts = {'src': os.environ.get('QUATERNIUS_DIR', ''), 'out': os.path.join(ROOT, 'assets', 'models', 'hero.glb'),
-            'preview': '', 'blend': ''}
+            'preview': '', 'blend': '', 'body': 'ubc-male'}
     i = 0
     while i < len(argv):
         opts[argv[i].lstrip('-')] = argv[i + 1]
         i += 2
     if not opts['src']:
         raise SystemExit('pass --src <folder with UAL1_Standard.glb and UAL2_Standard.glb> (or set QUATERNIUS_DIR)')
+    if opts['body'] != 'mannequin' and opts['body'] not in UBC_BODIES:
+        raise SystemExit('--body: mannequin or one of %s' % ', '.join(sorted(UBC_BODIES)))
     return opts
 
 
@@ -291,6 +306,92 @@ class Body:
 
     def is_arm(self, i):
         return self.dom[i].startswith(ARM_GROUPS)
+
+
+# ----------------------------------------------------------------------------------------------- another body
+def load_ubc(src, body, arm, mannequin):
+    """Swap the UAL armature and mannequin for a Universal Base Characters body. It has the same 65-bone rig (bone
+    names and hierarchy; the rest pose differs only by its proportions), so the clips loaded above play on it as they
+    are. Returns the new armature, its body mesh and the mannequin's landmarks."""
+    fname, mesh_name = UBC_BODIES[body]
+    ref = landmarks(arm, Body(mannequin))
+    bpy.data.objects.remove(mannequin)
+    bpy.data.objects.remove(arm)
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=find_file(src, fname))
+    new = [o for o in bpy.data.objects if o not in before]
+    arm = next(o for o in new if o.type == 'ARMATURE')
+    ob = next(o for o in new if o.type == 'MESH' and o.name.startswith(mesh_name))
+    for o in new:
+        if o not in (arm, ob):  # eyes, eyebrows, the importer's icosphere
+            bpy.data.objects.remove(o)
+    arm.name = 'Armature'  # the clips' slots are named after it
+    if arm.animation_data is None:
+        arm.animation_data_create()
+    arm.animation_data.action = None
+    arm.data.pose_position = 'REST'
+    bpy.context.view_layer.update()
+    return arm, ob, ref
+
+
+def ubc_body(arm, body, mats):
+    """The UBC mesh as the suit: kept as modelled (a clean closed mesh with its own weights), only welded along its
+    UV seams (no textures here), all "Suit"."""
+    for m in list(body.modifiers):
+        body.modifiers.remove(m)
+    me = body.data
+    while me.uv_layers:
+        me.uv_layers.remove(me.uv_layers[0])
+    while me.color_attributes:
+        me.color_attributes.remove(me.color_attributes[0])
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.clear()
+    me.materials.append(mats['Suit'])
+    me.materials.append(mats['SuitJoints'])
+    for p in me.polygons:
+        p.material_index = 0
+        p.use_smooth = True
+    bind(body, arm)
+    body.name = 'Body'
+    me.name = 'Body'
+    bpy.context.view_layer.update()
+    return Body(body)
+
+
+def landmarks(arm, B):
+    """Heights (and a few offsets) the additions are fitted to: neck, shoulders, hip joints, the head's center and the
+    hips' half width just below the hip joints."""
+    bones = arm.data.bones
+    head = [v for v, d in zip(B.v, B.dom) if d == 'Head']
+    lo = Vector([min(p[i] for p in head) for i in range(3)])
+    hi = Vector([max(p[i] for p in head) for i in range(3)])
+    hip = bones['thigh_l'].head_local.z
+    ring = [abs(v.x) for i, v in enumerate(B.v) if abs(v.z - (hip - 0.03)) < 0.02 and not B.is_arm(i)]
+    return {'neck': bones['neck_01'].head_local.z, 'shoulder': bones['upperarm_l'].head_local.z, 'hip': hip,
+            'hip_r': max(ring), 'head': (lo + hi) / 2}
+
+
+def fit_to_body(ref, cur):
+    """Move the hand-placed heights from the mannequin's proportions (ref) to the current body's (cur)."""
+    global Z_HIP, Z_CUT, Z_SHOULDER, CHAIN_Z, HOOD_C, Z_TUCK
+    FIT['fitted'] = True
+    FIT['neck'] = cur['neck'] - ref['neck']
+    FIT['shoulder'] = cur['shoulder'] - ref['shoulder']
+    FIT['head_y'] = cur['head'].y - ref['head'].y
+    FIT['head_z'] = cur['head'].z - ref['head'].z
+    FIT['hip_k'] = cur['hip'] / ref['hip']
+    FIT['hip_r'] = cur['hip_r'] - ref['hip_r']
+    Z_HIP *= FIT['hip_k']
+    Z_CUT *= FIT['hip_k']
+    CHAIN_Z = tuple(z * FIT['hip_k'] for z in CHAIN_Z)
+    Z_SHOULDER += FIT['shoulder']
+    HOOD_C = HOOD_C + Vector((0.0, FIT['head_y'], FIT['head_z']))
+    Z_TUCK += FIT['neck']
+    print('fit to body:', {k: round(v, 4) for k, v in FIT.items() if k != 'fitted'})
 
 
 # ----------------------------------------------------------------------------------------------- the smooth suit
@@ -522,7 +623,7 @@ def neon_lines(arm, B, bvh, mats):
     chest = []
     for i in range(40 + 1):
         s = i / 40
-        z = lerp(1.43, 1.0, s)
+        z = lerp(1.43 + FIT['shoulder'], 1.0 * FIT['hip_k'], s)
         x = lerp(0.105, 0.04, smoothstep(0.0, 1.0, s))
         chest.append((Vector((x, 0.02, z)), Vector((0.0, -1.0, 0.0)), 0.25))
     paths.append(chest)
@@ -569,13 +670,13 @@ FLARE = 0.42        # how fast the skirt widens going down (m per m)
 def collar_top(theta):
     """Height of the collar's top edge: high at the back, sloping down to the open front."""
     f = 1.0 - abs(theta - 180.0) / (180.0 - GAP)
-    return 1.50 + 0.135 * smoothstep(0.0, 1.0, f ** 0.75)
+    return 1.50 + FIT['neck'] + 0.135 * smoothstep(0.0, 1.0, f ** 0.75)
 
 
 def collar_r(z, theta):
     """The stand-up collar: a wide, slightly flared ring around the neck that the hood tucks into."""
     back = 0.5 - 0.5 * math.cos(math.radians(theta))
-    return lerp(0.125, 0.19, smoothstep(1.46, 1.64, z)) * (0.95 + 0.07 * back)
+    return lerp(0.125, 0.19, smoothstep(1.46 + FIT['neck'], 1.64 + FIT['neck'], z)) * (0.95 + 0.07 * back)
 
 
 def hull2d(pts):
@@ -639,15 +740,15 @@ def coat_columns():
 def coat_profile(B, thetas):
     """Radius table r[row][col] and the axis center per row, from the body's convex cross-sections."""
     zs = []
-    z = 1.65
+    z = 1.65 + FIT['neck']
     while z > 0.18:
         zs.append(round(z, 4))
-        z -= 0.025 if z > 1.38 else 0.035
+        z -= 0.025 if z > 1.38 + FIT['shoulder'] else 0.035
     rows = []
     for z in zs:
         band = 0.03
         pts = [(p.x, p.y) for i, p in enumerate(B.v) if abs(p.z - z) < band and not B.is_arm(i)
-               and not (B.dom[i] == 'Head' and z < 1.62)]
+               and not (B.dom[i] == 'Head' and z < 1.62 + FIT['head_z'])]
         rows.append((z, pts))
     centers, radii = [], []
     for z, pts in rows:
@@ -657,11 +758,11 @@ def coat_profile(B, thetas):
         cy = 0.012
         r = [hull_radius(h, 0.0, cy, t) for t in thetas]
         if z >= Z_HIP:
-            r = [x + 0.02 + 0.01 * smoothstep(1.38, 1.48, z) for x in r]
+            r = [x + 0.02 + 0.01 * smoothstep(1.38 + FIT['shoulder'], 1.48 + FIT['shoulder'], z) for x in r]
         else:
             r = [x + 0.045 for x in r]
-        if z >= 1.44:
-            k = smoothstep(1.44, 1.52, z)
+        if z >= 1.44 + FIT['neck']:
+            k = smoothstep(1.44 + FIT['neck'], 1.52 + FIT['neck'], z)
             r = [lerp(x, max(x, collar_r(z, t)), k) for x, t in zip(r, thetas)]
         centers.append(Vector((0.0, cy, z)))
         radii.append(r)
@@ -692,7 +793,7 @@ def chain_blend(theta):
 
 
 def skirt_weights(theta, z):
-    wp = smoothstep(0.86, Z_HIP - 0.01, z)
+    wp = smoothstep(0.86 * FIT['hip_k'], Z_HIP - 0.01, z)
     # along the chain: bone a above CHAIN_Z[1], b down to CHAIN_Z[2], c below, with soft overlaps at the joints
     x = 0.06
     ka = smoothstep(CHAIN_Z[1] - x, CHAIN_Z[1] + x, z)
@@ -783,10 +884,17 @@ def build_coat(arm, B, mats):
                 w = B.weights_at(p, TORSO_ALLOWED)
                 s_ = sum(w.values())
                 if s_ < 0.5:  # next to the arms: hold on to the chest instead
-                    w['spine_03' if z > 1.3 else 'spine_02'] = w.get('spine_03' if z > 1.3 else 'spine_02', 0.0) + 0.5 - s_
-                if 'neck_01' in w and z > 1.5:  # the collar stands with the neck but not with the head
+                    up = 'spine_03' if z > 1.3 + FIT['shoulder'] else 'spine_02'
+                    w[up] = w.get(up, 0.0) + 0.5 - s_
+                if 'neck_01' in w and z > 1.5 + FIT['neck']:  # the collar stands with the neck but not with the head
                     w['spine_03'] = w.get('spine_03', 0.0) + w['neck_01'] * 0.4
                     w['neck_01'] *= 0.6
+                if FIT['fitted'] and z > 1.49 + FIT['neck']:
+                    # a fuller body (traps, neck) lies at uneven distances under the collar, so the nearest-point
+                    # weights flip between neighbouring columns and the collar edge breaks when posed: weight the
+                    # collar by height instead, close to the hood that tucks into it (so the hood stays inside)
+                    wn = 0.85 * smoothstep(1.47 + FIT['neck'], 1.55 + FIT['neck'], z)
+                    w = blend_weights(w, {'spine_03': 1.0 - wn, 'neck_01': wn}, smoothstep(1.49 + FIT['neck'], 1.55 + FIT['neck'], z))
             elif z >= Z_HIP - 0.04:
                 k = smoothstep(Z_HIP + 0.04, Z_HIP - 0.04, z)
                 w = blend_weights(B.weights_at(p, TORSO_ALLOWED), skirt_weights(t, z), k)
@@ -936,7 +1044,7 @@ def add_coat_bones(arm):
     pelvis = eb['pelvis']
     for name, theta in CHAINS:
         d = dir_at(theta)
-        r_hip = 0.15 if 60 < theta < 300 else 0.13
+        r_hip = (0.15 if 60 < theta < 300 else 0.13) + FIT['hip_r']
         joints = [Vector((0, 0.012, z)) + d * (r_hip + o) for z, o in zip(CHAIN_Z, CHAIN_OUT)]
         parent = pelvis
         for k, seg in enumerate('abc'):
@@ -1030,9 +1138,9 @@ def build_hood(arm, B, mats, coat_r):
     ws = []
     for v in ob.data.vertices:
         z = v.co.z
-        wh = smoothstep(1.55, 1.63, z)
+        wh = smoothstep(1.55 + FIT['neck'], 1.63 + FIT['neck'], z)
         rest = 1 - wh
-        wn = smoothstep(1.47, 1.55, z)
+        wn = smoothstep(1.47 + FIT['neck'], 1.55 + FIT['neck'], z)
         ws.append({'Head': wh, 'neck_01': rest * wn, 'spine_03': rest * (1 - wn)})
     skin(ob, arm, ws)
     return ob
@@ -1042,8 +1150,8 @@ def build_visor(arm, B, mats):
     pts, nrm = [], []
     for i in range(25):
         a = -42 + 84 * i / 24
-        z = 1.70 - 0.004 * (abs(a) / 42) ** 2
-        o = Vector((0, 0.0, z))
+        z = 1.70 + FIT['head_z'] - 0.004 * (abs(a) / 42) ** 2
+        o = Vector((0, FIT['head_y'], z))
         d = Vector((math.sin(math.radians(a)), -math.cos(math.radians(a)), 0))
         hit, n, _, _ = B.bvh.ray_cast(o, d, 1.0)
         if hit is None:
@@ -1364,8 +1472,13 @@ def main():
     opts = parse_args()
     arm, body_ob = load_base(opts['src'])
     mats = make_materials()
-    B0 = Body(body_ob)
-    B = smooth_body(arm, body_ob, B0, mats)
+    if opts['body'] == 'mannequin':
+        B0 = Body(body_ob)
+        B = smooth_body(arm, body_ob, B0, mats)
+    else:
+        arm, body_ob, ref = load_ubc(opts['src'], opts['body'], arm, body_ob)
+        B = ubc_body(arm, body_ob, mats)
+        fit_to_body(ref, landmarks(arm, B))
     add_coat_bones(arm)
     armor = build_armor(arm, B, mats)
     neon_lines(arm, B, mesh_bvh(body_ob, armor), mats)

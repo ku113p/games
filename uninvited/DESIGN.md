@@ -59,6 +59,7 @@ The first red wall cannot be opened - he has to go to a terminal. There he meets
 assistant, and now it gives superpowers. The wall opens. Then basic stealth and hacking, the first set of obstacles.
 At the end Johnny finds **Jim's notes with the plan for framing him** (leaking the smear campaign) - the evidence that makes Johnny think
 Jim did it himself, out of spite.
+**The layout is approved** (2026-10-04): start ledge over the void + T0 (meeting May) + bridge to red wall D1 -> arena 1 "the plaza" (a camera, cover, the first warden) -> passage P1 (C1, a motion sensor) -> arena 2 "the river" (a void river, a drone along it, T1 pauses the laser and the drone, a low bridge with a laser and a high bridge, a warden on the far bank) -> passage P2 (C2, a sound camera) -> arena 3 "the core" (C3 on the entry terrace; the landmark tower with Jim's file behind D2; T2 pauses the tower cameras and drone, T3 behind a posted warden on the east terrace opens D2). ~4.4 slices, 8-10 min.
 
 **The room.** A food delivery. A pause between levels.
 
@@ -126,14 +127,31 @@ the player should think "everything around is shit, and yet this thing still wor
 ## 6. A network level
 
 - The network is **not a real place** - it is a representation of how Johnny hacks the system.
-- Levels are hand-made, not generated. Large (10-50x the spike), **corridor-like**, more linear, not flat, no empty spaces.
-- Corridors cannot be passed calmly by disabling one thing: e.g. a camera must be paused and a robot hacked at the same time,
+- Levels are hand-made, not generated. Large, linear as a whole (a "string of pearls", below), not flat: open arenas joined by short passages.
+- Arenas cannot be passed calmly by disabling one thing: e.g. a camera must be paused and a robot hacked at the same time,
   or you are seen and have to shoot your way out. Maybe lasers too.
 - **Winning a level:** reach the end and take the artifact (a representation of a letter/file).
 - **Losing:** health runs out.
 - **3 checkpoints** per level; passing one gives May's upgrade points.
 - **Saving:** checkpoints + ordinary saves, just in case.
 - **On death** - a choice: load a save or restart the level.
+- **The setting is an open space** (the designer's decision, 2026-10-04: not tunnels but an open crypto-neuro-microchip space). It is the far future: no present-day parts (capacitors, pins, resistors, circuit boards). The sky and the far view are open (a dark void with distant lights, other districts and a landmark far away), and below are districts of slabs and hex towers 4-12 m tall: they form streets and arena squares and block sight at ground level (a completely flat open space is not made - stealth needs cover). Low hex modules are cover; slabs at different heights and light bridges are tiers; pulses run along the data "rivers". Between arenas, short enclosed passages are the breathers. "Crypto" is decoration only (glyphs, encryption locks). **The look is chosen (2026-10-04, the agent's recommendation):** the base of the world is **NF6** "data metropolis" (clean slabs of different heights, only light lines, rivers of data, bridges at several heights); **NF4's hex modules** are the cover and detail kit on every level (some modules may slide); accents: L1 - clean NF6, L2 - NF2's neuromorphic "trees" along the arena edges, L3 - NF3's quantum core as the landmark and NF7's vault in the finale. The concepts are in `art/generated/`.
+- **After playing the slice (2026-10-04) the designer:** levels must feel more alive and natural; bigger rooms, more space;
+  not every cell/room under patrol; drones fly long, varied routes naturally instead of "looking like they hunt someone";
+  cover must not look like a crutch.
+- **Structure and sizes accepted by the designer (2026-10-04)** (agent's proposal):
+  - A level is a "string of pearls": a calm passage (a breather, May, a finding, a checkpoint) -> a large guarded arena -> ... Linear, but free inside an arena.
+  - A vantage point at each arena entrance (a balcony/glass): you see the whole hall, read the routes in network vision and plan.
+  - 2-3 paths through an arena (quiet along the floor behind racks, high over bridges and cable trays, violent through the middle); the paths cross; loops around obstacles to break pursuit.
+  - Guards cover 30-50% of an arena: 4-8 s windows, safe pockets; long routes tied to the architecture, stops with a purpose, no look-around at every point.
+  - Rhythm: quiet -> build-up -> peak -> release; a new mechanic: show it safely -> give it simple -> combine it.
+  - A landmark: the level's goal (a core/tower with the artifact) is visible from afar.
+  - Cover that belongs to the world (a kit): hex modules of different heights (low ones to crouch behind, tall ones as district walls), slabs, bridge rails, data "rivers".
+  - Ambient life: data packets along tracks, "janitor" programs, slabs blinking under load - not enemies, but they move and make noise.
+  - Varied shapes and height: tiered halls, a bridge over a void, an atrium, an archive maze, a service passage; other parts of the level are visible across the void.
+  - Metrics: streets and passages 3-6 m, arenas 20x30 - 40x40 m, district towers 4-12 m, passage ceilings 3-5 m.
+  - As built (the slice converted): slabs with light lines on their top edges, hex-dressed blocks and hex cover, towers rising out of the void, low parapets where you look out, roofs only over the passages, light bridges over the void, far districts and data rivers below, a landmark tower with a light beam. Falling into the void fades out and puts you back on the last safe ground for 20 HP. Spawn gates sit in slab sides, floor hatches, roof hatches or sky portals.
+  - Size: L1 (tutorial) ~4-5 slices, 8-10 min, 3 arenas; L2 and L3 ~8-10 slices, 12-15 min, 4 arenas each (jam judges usually give a game 10-20 min).
 
 ## 7. Two paths
 
@@ -147,9 +165,15 @@ There are **two** paths - stealth and hacking are merged, otherwise too many mec
 - **Cameras:** each has a view cone, turns in a repeating pattern, not too fast - there is always a way to slip past.
   There are **video-only** and **sound-only** cameras, and they look different. Cameras **cannot be hacked**, but can be **paused**.
 - **Noise:** running, jumping, fighting.
+- **View ranges and noise are not shown without network vision** (the designer's decision, 2026-10-04): the cones of cameras, drones and wardens, sensor zones and the radius of your noise show only in network vision. Without it you read the direction from the devices themselves (a camera's lens glow, a drone's eye, a warden's visor), and when something starts noticing you, an on-screen suspicion indicator points at the source.
+  As built: a camera and a drone always show a glowing lens / eye and a short look beam; the view range (the cone and its grid on the floor) fades in with network vision, and so do a sound camera's hearing ring and the noise rings. The floor grid stops where the device's line of sight stops - at walls, and behind cover, server blocks and steps wherever a crouched head is hidden, exactly as the detection rule sees it. Around the crosshair each watcher that is noticing you gets an arc turned toward it that fills with its suspicion (amber), red and blinking once it has spotted you.
+- Hacking keeps your stance: start a hack crouched behind cover and you stay crouched (and hidden) through it and after it.
 - **Motion sensors:** the sensor itself is a small blinking dot on a wall, noticeable up close if you look; its **zone** shows only in network vision (a translucent red volume). It trips on **sprint, dash and jump** inside the zone; walking and crouching pass.
   A careless, running player always trips them.
-- **Patrols are drones.**
+- **Varied guards - sentries separate from drones** (the designer's decision, 2026-10-04):
+  - **Wardens** - walking guard programs: stand at a post or walk their beat, turn their heads, go to check a noise and come back. A forward cone + hearing; they turn slowly, so you can sneak up from behind.
+  - **Drones** - patrol large spaces along long smooth routes up high; at an alarm they fly out of the spawn gates.
+  - Wardens as built: an angular armored figure with a hex "lantern" helmet and red-orange lines. On the beat they stand, check racks, glance aside, with varied pauses; suspicious - stop, turn to the cue, "?"; investigate - walk to the cue, search ~4.5 s, return; at alarm 1-3 they search the alarm area. Cone 10 m, follows the head; they hear noise; turn slowly (you can come up behind). Up close (1.6 m in front) a warden notices you even crouched - the designer confirms. Fight: a telegraphed melee strike (a dash dodges it) or a slow aimed arm shot from range; the sword takes 3 hits, the rifle 8. A terminal can pause a warden; May's "take over" ability has a hook.
 - **Turret robots:** shoot, and can spot you.
 - Almost all electronics can be hacked (except cameras). Several nearby sensors can be disabled at once with an ability.
 - **Network vision** is the scanning mode, the Hacker's main tool. It shows: which terminal controls what (lines from a terminal to its wall / laser / drone), drone patrol routes, camera cones through walls, sensor zones, the radius of your noise. It has a **cooldown, but a short one**. Held too long, it calls the security.
@@ -163,6 +187,12 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 1. A couple of drones fly in and search a large area. You can quickly hide in places they cannot reach and wait it out.
 2. More drones, searching almost everywhere.
 3. Nowhere to hide - you have to fight right away. Waves come; the firewall drops only at the very end.
+
+**Waves must press hard** (the designer, 2026-10-04: "real pressure from everything", and moments when the sword is what you need - to cut down several close ones at once).
+Agent's proposal: **worms** - small fast melee programs that rush along the floor in packs of 4-6 and bite with a short windup;
+one sword swing (the 180° arc) kills several, the rifle needs 2-3 hits each. Waves are mixed and escalate: drones at range (for the rifle) + worm packs up close (for the sword), from several sides, a short breather between waves.
+As built: worms crawl out of the spawn gates, are faster than a sprint (you cannot simply outrun them), fan out around you within 6 m, rear up for 0.42 s before a bite (step back or dash to dodge; a hit cancels it); one sword swing kills every worm in the arc, the rifle needs 3 shots. Alarm-3 waves mix drones and 1-3 worm packs from different gates than the drones, 6 s breather; a wave is cleared only when its worms are dead. At alarm 2 a pack of 4 joins the search and goes back into a gate when the alarm cools. Worm kills make noise but do not call a check. Getting hit: a heavy hit sound, a red screen-edge flash and an arc pointing at the source.
+Aim as built: RMB draws the rifle (the sword comes back on release), walk speed only, Q ignored, the spread tightens from 2.5° to 0.8°; the camera eases in to 2.6 m with FOV 50 and slower mouse.
 
 **One weapon, "two in one":** an energy gunblade, sword and rifle in one (as the H10 hero carries). Two modes:
 - **An energy sword** (a blade of light) - hits in a 180° arc, close and at short-to-medium range.
@@ -198,7 +228,7 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 - Progression like **Dark Messiah / Deus Ex**, but a path is **never closed**: if you do not upgrade a path, playing it becomes much harder -
   enemies are stronger, less time to hack and to pause cameras. Doable, but you have to rush hard. The agent does the per-level balance.
 - The **Breaker** branch - three upgrades: ammo; a shield (it is also regeneration / more health); a helper turret.
-- The **Hacker** branch - actives: pause a camera for a while; take over a sentry (a patrol drone); a distraction signal.
+- The **Hacker** branch - actives: pause a camera for a while; take over a sentry (a warden or a patrol drone); a distraction signal.
   Passives (no key): longer network vision; more time before a camera notices you; more time in the hacking mini-game.
 - Active abilities go on keys **1-4** in the order you get them. If there are more than four actives, at a checkpoint you pick which four to carry.
 - Everything must work **in synergy** and be well balanced: pausing one camera does not free the map to the end.
@@ -239,6 +269,7 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 | C | crouch - **toggle** (press to crouch, press again to stand) |
 | Ctrl (hold) | crouch while held |
 | LMB | attack with the current weapon |
+| RMB (hold) | aim like third-person shooters: a small zoom (not first person), the hero a bit left of center, a crosshair; the weapon is the rifle while aiming |
 | Q / mouse wheel | switch the weapon mode (sword <-> rifle); the usual convention in third-person shooters |
 | 1-4 | May's abilities |
 | E | interact / hack |
@@ -267,11 +298,12 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 
 The hero's look: the designer likes H3 (coat) and H6 (asymmetric), but in the game the hero is **simpler** - close to Tron in simplicity: a form-fitting suit with neon lines, plus the coat nuances. Energy weapons. A little hacker flavor (e.g. a holographic wrist display).
 **H10 is chosen** (`art/generated/H10-hero-hood.jpg`): a hooded coat, only the visor glows from inside the hood, the coat hem breaks into glowing filaments.
+The in-game hero is built on the Quaternius **Universal Base Characters** male body (the designer chose it over the UAL mannequin, 2026-10-04).
 
 **Chosen concepts** (in `concept-art/`):
 | What | File | How to read it |
 | --- | --- | --- |
-| Network | `art/generated/NN1-net-corridor.jpg` | a **narrow enclosed corridor**; the designer loves the **matte saturation, slightly cartoony**: cyan lines along the edges, red security - a laser grid, a drone's camera cone, a hack terminal in the wall |
+| Network | `art/generated/NF6-data-metropolis.jpg` + `NF4-nano-hex.jpg` (accents NF2, NF3, NF7) | the open data metropolis (section 6); the matte, slightly cartoony saturation of `NN1-net-corridor.jpg`, which the designer loves: cyan lines along the edges, red security |
 | Hero in the network | `art/generated/H10-hero-hood.jpg` | simple, Tron-like: a form-fitting suit with white neon lines (the color follows the counter, section 4), a hooded coat whose hem breaks into glowing filaments, only the visor glows; an energy gunblade; a holographic wrist display. `hero-1` (a Tron copy) is rejected |
 | Security | `enemy-1.jpg` | glossy black drones with a red ring and a single red eye |
 | Office (prologue) | `art/generated/O3`, `O4`, `OP2`-`OP5` | the new enclosed office - liked; the boss as in `office-1.jpg` |

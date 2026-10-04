@@ -10,6 +10,7 @@ import { flyable, navDistance } from './nav'
 import { openWall } from './terminals'
 import { startInvestigating } from './drones'
 import { pickGate, spawnDrone } from './gates'
+import { liveWorms, spawnWavePacks, wormsHunting, wormsOnAlarm, wormsOnAlarmLowered } from './worms'
 
 export function raiseAlarm(s: GameState, sim: Sim, reason: AlarmReason, x: number, y: number, z: number): void {
   const a = s.alarm
@@ -42,6 +43,7 @@ export function raiseAlarm(s: GameState, sim: Sim, reason: AlarmReason, x: numbe
     a.waveTimer = cfg.waveFirstDelaySec
     a.waveActive = false
   }
+  wormsOnAlarm(s, sim, x, z)
 }
 
 function spawnSearcher(s: GameState, sim: Sim, role: 'searcher' | 'checker' | 'wave', x: number, z: number, skip = 0): number {
@@ -77,7 +79,8 @@ export function callCheck(s: GameState, sim: Sim, x: number, y: number, z: numbe
 function violationOngoing(s: GameState): boolean {
   for (const d of s.drones) if (d.active && d.alive && d.mode === 'alert') return true
   for (const c of s.cameras) if (c.alive && c.sees) return true
-  return false
+  for (const w of s.wardens) if (w.alive && w.mode === 'alert' && w.sees) return true
+  return wormsHunting(s)
 }
 
 function liveWaveDrones(s: GameState): number {
@@ -85,6 +88,8 @@ function liveWaveDrones(s: GameState): number {
   for (const d of s.drones) if (d.active && d.alive && d.role === 'wave') n++
   return n
 }
+
+const droneGates: number[] = []
 
 export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
   const a = s.alarm
@@ -106,13 +111,14 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
         }
         d.mode = 'leave'
       }
+      wormsOnAlarmLowered(s, sim)
     }
     return
   }
   if (a.stage < 3) return
   // stage 3: waves
   if (a.waveActive) {
-    if (liveWaveDrones(s) > 0) return
+    if (liveWaveDrones(s) + liveWorms(s, 'wave') > 0) return
     a.waveActive = false
     a.wavesCleared++
     emit(sim, { type: 'waveCleared', wave: a.wave })
@@ -127,11 +133,20 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
   const n = Math.min(size, room)
   const p = s.player.pos
   let spawned = 0
-  for (let k = 0; k < n; k++) if (spawnSearcher(s, sim, 'wave', p.x, p.z, k) >= 0) spawned++
+  droneGates.length = 0
+  for (let k = 0; k < n; k++) {
+    const d = spawnSearcher(s, sim, 'wave', p.x, p.z, k)
+    if (d < 0) continue
+    spawned++
+    droneGates.push(s.drones[d]?.gate ?? -1)
+  }
+  // the worm packs come from other sides than the drones (DESIGN 9: pressure from several sides)
+  const packs = cfg.wavePacks.length > 0 ? cfg.wavePacks[Math.min(a.wave, cfg.wavePacks.length - 1)] ?? [] : []
+  const worms = spawnWavePacks(s, sim, packs, droneGates)
   a.wave++
-  a.waveActive = spawned > 0
+  a.waveActive = spawned + worms > 0
   if (!a.waveActive) a.waveTimer = cfg.waveGapSec
-  emit(sim, { type: 'waveStarted', wave: a.wave, count: spawned })
+  emit(sim, { type: 'waveStarted', wave: a.wave, count: spawned, worms })
 }
 
 export function dropFirewall(s: GameState, sim: Sim): void {

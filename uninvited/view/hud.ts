@@ -1,5 +1,7 @@
 // The HUD and the screens (DOM over the canvas): HP, dash, charges and weapon mode, alarm level, security status,
-// network-vision heat and cooldown, the interact prompt, toasts and hints; start / pause / death / win screens.
+// the suspicion marks around the crosshair (one arc per watcher noticing you, turned toward it - the view cones show
+// only in network vision, so these say where the danger is), network-vision heat and cooldown, the interact prompt,
+// toasts and hints; start / pause / death / win screens.
 // Every text comes from texts/en.json. Per-frame updates write only when a value changed.
 import texts from '../texts/en.json'
 
@@ -10,6 +12,19 @@ export function t(key: TextKey, vars?: Record<string, string | number>): string 
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v))
   return s
 }
+
+/** A watcher noticing the player, as the HUD draws it. */
+export interface HudMark {
+  /** Clockwise from straight ahead on screen (up), radians. */
+  angle: number
+  /** 0..1 how much of the arc is filled. */
+  level: number
+  /** Red and blinking: it has spotted you. */
+  spotted: boolean
+}
+
+/** At most this many suspicion marks at once. */
+export const MAX_MARKS = 8
 
 export interface HudState {
   hp: number
@@ -34,6 +49,11 @@ export interface HudState {
   wavesNeeded: number
   firewallDown: boolean
   crouched: boolean
+  /** 0..1 how far into the aim (RMB): the aim crosshair closes in. */
+  aim?: number
+  /** The suspicion marks: the first markCount of marks are drawn. */
+  marks: HudMark[]
+  markCount: number
 }
 
 export interface Hud {
@@ -43,6 +63,8 @@ export interface Hud {
   setVisible(on: boolean): void
   /** Network vision held too long: the security is called - a clear banner. */
   traced(): void
+  /** You got hit: a red flash at the screen edges and a red arc pointing where it came from (clockwise from up, radians). */
+  hit(angle: number, strength: number): void
   showStart(onStart: () => void): void
   showPause(on: boolean): void
   showResume(on: boolean): void
@@ -74,14 +96,45 @@ const TRACE_CSS = `
 .hud-trace.risk .hud-trace-fill { background: #ff3a2a; box-shadow: 0 0 10px #ff2010; }
 .hud-trace.risk .hud-trace-bar { box-shadow: inset 0 0 0 1px rgba(255, 70, 50, 0.6), 0 0 12px rgba(255, 40, 20, 0.5); }
 @keyframes traceRisk { 50% { opacity: 0.45; } }
+.hud-marks { position: absolute; left: 50%; top: 50%; width: 360px; height: 360px; margin: -180px 0 0 -180px;
+  overflow: visible; pointer-events: none; }
+.hud-mark { opacity: 0; transition: opacity 0.2s; }
+.hud-mark.on { opacity: 1; }
+.hud-mark-track { fill: none; stroke: rgba(255, 176, 60, 0.28); stroke-width: 7; stroke-linecap: round; }
+.hud-mark-fill { fill: none; stroke: #ffb03c; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 4px #ff9a20); }
+.hud-mark-tip { fill: #ffb03c; }
+.hud-mark.spotted .hud-mark-track { stroke: rgba(255, 60, 40, 0.45); }
+.hud-mark.spotted .hud-mark-fill { stroke: #ff3a2a; filter: drop-shadow(0 0 6px #ff2010); }
+.hud-mark.spotted .hud-mark-tip { fill: #ff3a2a; }
+.hud-mark.spotted { animation: traceRisk 0.4s steps(2, start) infinite; }
 .hud-traced { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: 26px; letter-spacing: 0.32em;
   color: #ff4a3a; text-shadow: 0 0 14px #ff2010; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
 .hud-traced.on { opacity: 1; animation: traceRisk 0.3s steps(2, start) 4; }
 `
 
+/** The aim crosshair and the hit cues. */
+const AIM_HIT_CSS = `
+.hud-aim { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.hud-aim i { position: absolute; display: block; background: #eef8ff; box-shadow: 0 0 6px #6ff4ff; }
+.hud-aim i.u, .hud-aim i.d { width: 2px; height: 9px; left: -1px; }
+.hud-aim i.l, .hud-aim i.r { width: 9px; height: 2px; top: -1px; }
+.hud-aim b { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: #ff5a6a;
+  box-shadow: 0 0 6px #ff3646; }
+.hud-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  box-shadow: inset 0 0 140px 30px rgba(255, 30, 40, 0.75); background: radial-gradient(ellipse at center, rgba(255, 0, 0, 0) 55%, rgba(255, 20, 30, 0.22)); }
+.hud-flash.on { animation: hudFlash 0.42s ease-out 1; }
+@keyframes hudFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.hud-hit { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+.hud-hit-arc { position: absolute; left: -90px; top: -190px; width: 180px; height: 60px; opacity: 0;
+  border-top: 7px solid #ff2a36; border-radius: 50% 50% 0 0 / 100% 100% 0 0; filter: drop-shadow(0 0 8px #ff1020); }
+.hud-hit.on .hud-hit-arc { animation: hudHit 0.9s ease-out 1; }
+@keyframes hudHit { 0% { opacity: 1; transform: translateY(8px) scaleX(1.15); } 25% { opacity: 1; } 100% { opacity: 0; transform: none; } }
+.hud-bar.hit .hud-bar-fill { background: #fff; box-shadow: 0 0 16px #ff3646; }
+`
+
 export function createHud(root: HTMLElement, toastSec: number, hintSec: number): Hud {
   const css = document.createElement('style')
-  css.textContent = TRACE_CSS
+  css.textContent = TRACE_CSS + AIM_HIT_CSS
   document.head.appendChild(css)
   const hud = el('div', 'hud', root)
 
@@ -126,7 +179,49 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
   const tracedBanner = el('div', 'hud-traced', hud, t('hud.traced'))
   let tracedTimer: ReturnType<typeof setTimeout> | null = null
 
-  // center: crosshair + prompt
+  // center: the suspicion marks around the crosshair (an arc of MARK_ARC at MARK_R px, an arrow tip outside it)
+  const SVG = 'http://www.w3.org/2000/svg'
+  const svgEl = (tag: string, cls: string, parent: Element): SVGElement => {
+    const e = document.createElementNS(SVG, tag) as SVGElement
+    e.setAttribute('class', cls)
+    parent.appendChild(e)
+    return e
+  }
+  const marksSvg = svgEl('svg', 'hud-marks', hud)
+  marksSvg.setAttribute('viewBox', '-180 -180 360 360')
+  const MARK_R = 150
+  const MARK_ARC = 0.2 // radians each side of the middle
+  const ax = (MARK_R * Math.sin(MARK_ARC)).toFixed(1)
+  const ay = (-MARK_R * Math.cos(MARK_ARC)).toFixed(1)
+  const arc = `M -${ax} ${ay} A ${MARK_R} ${MARK_R} 0 0 1 ${ax} ${ay}`
+  const tip = `M -9 ${-MARK_R - 9} L 0 ${-MARK_R - 21} L 9 ${-MARK_R - 9} Z`
+  const marks: { g: SVGElement; fill: SVGElement; angle: number; level: number; cls: string }[] = []
+  for (let i = 0; i < MAX_MARKS; i++) {
+    const g = svgEl('g', 'hud-mark', marksSvg)
+    svgEl('path', 'hud-mark-track', g).setAttribute('d', arc)
+    const fill = svgEl('path', 'hud-mark-fill', g)
+    fill.setAttribute('d', arc)
+    fill.setAttribute('pathLength', '1')
+    svgEl('path', 'hud-mark-tip', g).setAttribute('d', tip)
+    marks.push({ g, fill, angle: NaN, level: -1, cls: '' })
+  }
+
+  // hit cues: a red flash at the edges, pooled direction arcs
+  const flash = el('div', 'hud-flash', hud)
+  const hitArcs: HTMLElement[] = []
+  for (let i = 0; i < 4; i++) {
+    const h = el('div', 'hud-hit', hud)
+    el('div', 'hud-hit-arc', h)
+    hitArcs.push(h)
+  }
+  let nextHit = 0
+  let hpHitTimer: ReturnType<typeof setTimeout> | null = null
+
+  // center: crosshair + prompt; the aim crosshair (four ticks closing in, a red dot) while aiming
+  const aimCross = el('div', 'hud-aim', hud)
+  const aimTicks = ['u', 'd', 'l', 'r'].map((c) => el('i', c, aimCross))
+  el('b', '', aimCross)
+  let lastAim = -1
   const cross = el('div', 'hud-cross', hud)
   const prompt = el('div', 'hud-prompt', hud)
   const toastBox = el('div', 'hud-toasts', hud)
@@ -250,9 +345,43 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
             : `${h.wave > 0 ? t('hud.wave', { wave: h.wave }) + '  -  ' : ''}${h.firewallDown ? t('hud.firewallDown') : t('hud.firewall', { cleared: h.wavesCleared, needed: h.wavesNeeded })}`
         last.wave = waveKey
       }
+      const aimK = Math.round((h.aim ?? 0) * 20) / 20
+      if (aimK !== lastAim) {
+        lastAim = aimK
+        aimCross.style.opacity = String(aimK)
+        cross.style.opacity = String(1 - aimK)
+        const gap = Math.round(22 - 13 * aimK)
+        const [u, d, l, r] = aimTicks as [HTMLElement, HTMLElement, HTMLElement, HTMLElement]
+        u.style.top = `${-gap - 9}px`
+        d.style.top = `${gap}px`
+        l.style.left = `${-gap - 9}px`
+        r.style.left = `${gap}px`
+      }
       if (h.crouched !== last.crouched) {
         cross.classList.toggle('crouched', h.crouched)
         last.crouched = h.crouched
+      }
+      for (let i = 0; i < MAX_MARKS; i++) {
+        const m = marks[i] as (typeof marks)[number]
+        const src = i < h.markCount ? h.marks[i] : undefined
+        const cls = src ? (src.spotted ? 'hud-mark on spotted' : 'hud-mark on') : 'hud-mark'
+        if (cls !== m.cls) {
+          m.g.setAttribute('class', cls)
+          m.cls = cls
+        }
+        if (!src) continue
+        const deg = Math.round((src.angle * 180) / Math.PI)
+        if (deg !== m.angle) {
+          m.g.setAttribute('transform', `rotate(${deg})`)
+          m.angle = deg
+        }
+        const lv = Math.round(Math.max(0.08, src.level) * 40) / 40
+        if (lv !== m.level) {
+          // fills from the middle out
+          m.fill.setAttribute('stroke-dasharray', `${lv} 1`)
+          m.fill.setAttribute('stroke-dashoffset', `${-(1 - lv) / 2}`)
+          m.level = lv
+        }
       }
     },
     toast(text: string, kind: 'info' | 'alarm' | 'good' = 'info'): void {
@@ -266,6 +395,21 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
       hintBox.classList.add('on')
       if (hintTimer) clearTimeout(hintTimer)
       hintTimer = setTimeout(() => hintBox.classList.remove('on'), hintSec * 1000)
+    },
+    hit(angle: number, strength: number): void {
+      flash.classList.remove('on')
+      void flash.offsetWidth
+      flash.style.filter = `opacity(${Math.round(Math.min(1, 0.45 + strength * 0.55) * 100)}%)`
+      flash.classList.add('on')
+      const a = hitArcs[nextHit] as HTMLElement
+      nextHit = (nextHit + 1) % hitArcs.length
+      a.classList.remove('on')
+      a.style.transform = `rotate(${Math.round((angle * 180) / Math.PI)}deg)`
+      void a.offsetWidth
+      a.classList.add('on')
+      hpBar.classList.add('hit')
+      if (hpHitTimer) clearTimeout(hpHitTimer)
+      hpHitTimer = setTimeout(() => hpBar.classList.remove('hit'), 140)
     },
     traced(): void {
       tracedBanner.classList.remove('on')

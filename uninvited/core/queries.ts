@@ -1,18 +1,22 @@
 // Read-only questions for the view and the HUD (rule 2: the view reads the state only through these).
 // Hot path: no allocations - results are numbers, strings, or written into caller-owned objects.
+import type { WormState } from './state'
+import type { WardenState } from './state'
+import { wardenLook } from './rules/wardens'
 import type { BoltState, CheckpointState, DroneState, Gate, GameState, GateState, LaserState, ScanLink, Vec3, RedWallState, SensorState, Sim, SoundCameraState, TerminalState, VideoCameraState } from './state'
 import type { HackSession } from './hack/index'
 import { heroColor, isSadEnding, type Rgb } from './rules/progress'
 import { nearestInteractable, type Interactable } from './rules/terminals'
 import { inCover } from './rules/detection'
 import { laserOn } from './rules/devices'
+import { wormWindupProgress } from './rules/worms'
 import type { Block, Grid } from './grid'
 
 export type { Rgb } from './rules/progress'
 export type { Interactable } from './rules/terminals'
 
 /** The hero's animation state, for the hero view (placeholder now, the H10 model later). */
-export type HeroAnim = 'idle' | 'walk' | 'run' | 'crouch' | 'jump' | 'dash' | 'slash' | 'shoot' | 'hit' | 'death' | 'hack'
+export type HeroAnim = 'idle' | 'walk' | 'run' | 'crouch' | 'jump' | 'dash' | 'slash' | 'shoot' | 'hit' | 'death' | 'hack' | 'hackCrouched'
 
 export function heroAnim(s: GameState, sim: Sim): HeroAnim {
   const p = s.player
@@ -21,7 +25,7 @@ export function heroAnim(s: GameState, sim: Sim): HeroAnim {
   if (p.slashTime > 0) return 'slash'
   if (p.shootTime > 0) return 'shoot'
   if (p.dashTime > 0) return 'dash'
-  if (s.hack !== null) return 'hack'
+  if (s.hack !== null) return p.crouched ? 'hackCrouched' : 'hack'
   if (!p.grounded) return 'jump'
   if (p.crouched) return 'crouch'
   if (p.speed > sim.cfg.player.walkSpeed + 0.4) return 'run'
@@ -140,6 +144,11 @@ export function securityStatus(s: GameState): SecurityStatus {
     if (c.suspicion > 0.02) suspected = true
   }
   for (const c of s.soundCameras) if (c.alive && c.suspicion > 0.05) suspected = true
+  for (const w of s.wardens) {
+    if (!w.alive) continue
+    if (w.mode === 'alert' && w.sees) return 'detected'
+    if (w.suspicion > 0.02 || w.mode !== 'patrol') suspected = true
+  }
   return suspected ? 'suspected' : 'hidden'
 }
 
@@ -149,7 +158,51 @@ export function maxSuspicion(s: GameState): number {
   for (const d of s.drones) if (d.active && d.alive && d.suspicion > m) m = d.suspicion
   for (const c of s.cameras) if (c.alive && c.suspicion > m) m = c.suspicion
   for (const c of s.soundCameras) if (c.alive && c.suspicion > m) m = c.suspicion
+  for (const w of s.wardens) if (w.alive && w.suspicion > m) m = w.suspicion
   return m
+}
+
+/** A watcher that is noticing the player, for the HUD's directional suspicion marks. */
+export interface SuspicionSource {
+  x: number
+  y: number
+  z: number
+  /** 0..1 how close it is to spotting you (1 once it has). */
+  level: number
+  /** It sees you and has spotted you (red). */
+  spotted: boolean
+}
+
+/**
+ * Every watcher that is noticing the player right now (suspicion above a trace, or spotted) written into `out` from
+ * index 0; returns how many. The view shows them without view cones, so the player still learns where the danger is.
+ */
+export function suspicionSources(s: GameState, out: SuspicionSource[]): number {
+  let n = 0
+  const put = (x: number, y: number, z: number, level: number, spotted: boolean): void => {
+    if (n >= out.length || (level <= 0.02 && !spotted)) return
+    const o = out[n++] as SuspicionSource
+    o.x = x
+    o.y = y
+    o.z = z
+    o.level = Math.min(1, level)
+    o.spotted = spotted
+  }
+  for (const d of s.drones) {
+    if (!d.active || !d.alive || d.spawnTime > 0) continue
+    const alert = d.mode === 'alert'
+    put(d.pos.x, d.pos.y, d.pos.z, alert ? 1 : d.suspicion, alert && d.sees)
+  }
+  for (const c of s.cameras) if (c.alive) put(c.pos.x, c.pos.y, c.pos.z, c.suspicion, c.sees && c.suspicion >= 1)
+  for (const c of s.soundCameras) if (c.alive) put(c.pos.x, c.pos.y, c.pos.z, c.suspicion, c.suspicion >= 1)
+  for (const w of s.wardens) {
+    if (!w.alive || w.pausedTime > 0 || w.controlled) continue
+    const alert = w.mode === 'alert'
+    // a warden that stopped to look, or walks over to check a noise, is noticing you even before it has seen you
+    const checking = w.mode === 'suspicious' || w.mode === 'investigate' ? 0.3 : 0
+    put(w.pos.x, w.pos.y, w.pos.z, alert ? 1 : Math.max(w.suspicion, checking), alert && w.sees)
+  }
+  return n
 }
 
 export function scanActive(s: GameState): boolean {
@@ -236,6 +289,59 @@ export function hackTerminal(s: GameState): number {
   return s.hack?.terminal ?? -1
 }
 
+export function wardens(s: GameState): readonly Readonly<WardenState>[] {
+  return s.wardens
+}
+
+/** Where warden i looks (its cone's yaw: the body plus the head turn). */
+export function wardenLookYaw(s: GameState, i: number): number {
+  const w = s.wardens[i]
+  return w ? wardenLook(w) : 0
+}
+
+/** Each warden's round as walked (floor points, a loop) for network vision; empty for a warden on a post. Cold path (allocates). */
+export function wardenRoutes(sim: Sim): readonly (readonly Readonly<Vec3>[])[] {
+  return sim.wardenRoutes.map((r) => r.line)
+}
+
+/** What a warden's body does right now, for its animation. */
+export type WardenAnim = 'idle' | 'walk' | 'search' | 'run' | 'scan' | 'check' | 'suspicious' | 'alert' | 'strike' | 'recover' | 'aim' | 'hit' | 'death' | 'paused'
+
+export function wardenAnim(s: GameState, i: number): WardenAnim {
+  const w = s.wardens[i]
+  if (!w || !w.alive) return 'death'
+  if (w.pausedTime > 0 || w.controlled) return 'paused'
+  if (w.strike > 0) return 'strike'
+  if (w.recover > 0) return 'recover'
+  if (w.aim > 0) return 'aim'
+  if (w.hitTime > 0) return 'hit'
+  const moving = w.speed > 0.15
+  switch (w.mode) {
+    case 'alert':
+      return moving ? 'run' : 'alert'
+    case 'suspicious':
+      return 'suspicious'
+    case 'investigate':
+    case 'search':
+      return moving ? 'search' : 'scan'
+    default:
+      if (moving || w.act === 'walk') return moving ? 'walk' : 'idle'
+      return w.act === 'scan' ? 'scan' : w.act === 'check' ? 'check' : 'idle'
+  }
+}
+
+/** 0..1 how far a warden is into its strike windup, aim, recovery or flinch (for the view's telegraphs). */
+export function wardenActionProgress(s: GameState, sim: Sim, i: number): number {
+  const w = s.wardens[i]
+  const c = sim.cfg.warden
+  if (!w) return 0
+  if (w.strike > 0) return 1 - w.strike / c.strikeWindupSec
+  if (w.recover > 0) return 1 - w.recover / c.strikeRecoverSec
+  if (w.aim > 0) return 1 - w.aim / c.shotAimSec
+  if (w.hitTime > 0) return 1 - w.hitTime / c.hitAnimSec
+  return 0
+}
+
 export function drones(s: GameState): readonly Readonly<DroneState>[] {
   return s.drones
 }
@@ -286,7 +392,7 @@ export function terminals(s: GameState): readonly Readonly<TerminalState>[] {
 }
 
 /** Indices of what a terminal controls (for the network-vision links). */
-export function terminalLinks(sim: Sim, i: number): Readonly<{ walls: readonly number[]; lasers: readonly number[]; drones: readonly number[] }> | null {
+export function terminalLinks(sim: Sim, i: number): Readonly<{ walls: readonly number[]; lasers: readonly number[]; drones: readonly number[]; wardens: readonly number[] }> | null {
   return sim.terminalLinks[i] ?? null
 }
 
@@ -328,11 +434,57 @@ export function gameTime(s: GameState): number {
   return s.time
 }
 
-/** The level's static grid (for building the corridors). */
+/** The level's static grid (for building the city). */
 export function levelGrid(sim: Sim): Readonly<Grid> {
   return sim.grid
 }
 
 export function levelCeiling(sim: Sim): number {
   return sim.grid.ceiling
+}
+
+/** A landmark tower far away (view only): its foot at (x, base, z), its top at height, half width radius. */
+export interface Landmark {
+  x: number
+  z: number
+  base: number
+  height: number
+  radius: number
+}
+
+/** The level's landmarks in world metres. Cold path (allocates): call it once when building the view. */
+export function landmarks(sim: Sim): Landmark[] {
+  const g = sim.grid
+  const out: Landmark[] = []
+  for (const e of sim.level.entities) {
+    if (e.kind !== 'landmark') continue
+    out.push({ x: (e.at[0] + 0.5) * g.cell, z: (e.at[1] + 0.5) * g.cell, base: e.base ?? g.bottom, height: e.height, radius: e.radius })
+  }
+  return out
+}
+
+/**
+ * How dark the screen is from falling into the void, 0..1: it fades out while the player falls, the player is put
+ * back on safe ground at 1, and it fades in again.
+ */
+export function voidFade(s: GameState, sim: Sim): number {
+  const t = s.player.fallTime
+  if (t === 0) return 0
+  const f = sim.cfg.world.fall.fadeSec
+  return f > 0 ? Math.max(0, Math.min(1, 1 - Math.abs(t) / f)) : 0
+}
+
+/** RMB held: aiming (the camera eases in, the rifle is drawn, the spread tightens). */
+export function isAiming(s: GameState): boolean {
+  return s.player.aiming
+}
+
+/** Worm slots (inactive ones have active = false). */
+export function worms(s: GameState): readonly Readonly<WormState>[] {
+  return s.worms
+}
+
+/** 0..1 how far worm i is into rearing up for a bite (the telegraph); 0 when it is not. */
+export function wormWindup(s: GameState, sim: Sim, i: number): number {
+  return wormWindupProgress(s, sim, i)
 }

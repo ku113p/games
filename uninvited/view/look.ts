@@ -45,7 +45,7 @@ export function addRim(m: Material, strength = 1): void {
 }
 
 /** Shared materials (one instance each, recolored in place when needed). The corridor lines have their own shader
- * materials in view/corridors.ts (the alarm waves run along them). */
+ * materials in view/city.ts (the alarm waves run along them). */
 export function createMaterials(): Materials {
   const glossBlack = new MeshStandardMaterial({ color: 0x080b10, metalness: 0.85, roughness: 0.26, envMapIntensity: 1.2 })
   const matteBlack = new MeshStandardMaterial({ color: 0x0a0d12, metalness: 0.4, roughness: 0.55 })

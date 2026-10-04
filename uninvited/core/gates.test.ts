@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { GameEvent } from './events'
-import type { EntityDef } from './level'
 import { gateStates, spawnGates } from './queries'
 import { raiseAlarm } from './rules/alarm'
 import { tick } from './commands'
-import { placePlayer, run, setup, type Fixture } from './testing'
+import { FakeWorld } from './fake-world'
+import type { EntityDef, LevelDef } from './level'
+import { createSim } from './state'
+import { placePlayer, run, setup, testConfig, testLevel, type Fixture } from './testing'
 
 const PLAN = [
   '####################', //
@@ -32,15 +34,28 @@ function events(f: Fixture, seconds: number, each?: () => void): GameEvent[] {
 }
 
 describe('spawn gates', () => {
-  test('a wall gate sits on the wall, a ceiling hatch in the ceiling; a bad wall side is a readable error', () => {
+  test('a wall gate sits in the slab, an overhead one opens in the open sky; a bad wall side is a readable error', () => {
     const f = setup(PLAN, GATES)
     const g = spawnGates(f.sim)
     expect(g).toHaveLength(3)
     expect(g[0]?.mouth.z).toBeCloseTo(2) // north wall of row 1
     expect(g[0]?.nz).toBe(1)
     expect(g[1]?.ceiling).toBe(true)
-    expect(g[1]?.mouth.y).toBeCloseTo(5)
-    expect(() => setup(PLAN, [{ kind: 'spawn', at: [10, 2], wall: 'n' }])).toThrow(/no wall on its 'n' side/)
+    expect(g[1]?.mouth.y).toBeCloseTo(f.sim.cfg.world.skyGate) // no roof: a portal in the sky
+    expect(() => setup(PLAN, [{ kind: 'spawn', at: [10, 2], wall: 'n' }])).toThrow(/no slab on its 'n' side/)
+  })
+
+  test('under a roof the overhead gate is a hatch in it; a floor hatch opens upwards; a low slab cannot take a gate', () => {
+    const cfg = testConfig()
+    const level = { ...testLevel(PLAN, [...GATES, { kind: 'spawn', at: [5, 3], wall: 'down' }]), roofs: [{ from: [8, 1], to: [12, 3], height: 4.5 }] } satisfies LevelDef
+    const sim = createSim(level, cfg, new FakeWorld())
+    const g = spawnGates(sim)
+    expect(g[1]?.mouth.y).toBeCloseTo(4.5)
+    expect(g[3]?.ny).toBe(1)
+    expect(g[3]?.mouth.y).toBeCloseTo(0)
+    expect(g[3]?.deep.y).toBeLessThan(0)
+    const low = { ...testLevel(PLAN, [{ kind: 'spawn', at: [17, 1], wall: 'n' }]), tops: PLAN.map((row, r) => (r === 0 ? row.replace(/#/g, '2') : row.replace(/[^#]/g, '.').replace(/#/g, '.'))) }
+    expect(() => createSim(low, cfg, new FakeWorld())).toThrow(/too low for a gate/)
   })
 
   test('an alarm drone comes out of a gate: the gate opens first, the drone waits behind it, then flies out', () => {

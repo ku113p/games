@@ -9,17 +9,22 @@ import { callCheck } from './alarm'
 import { makeNoise, makeNoiseAt } from './detection'
 import { alertDrone } from './drones'
 import { playerFrozen } from './movement'
+import { damageWorm } from './worms'
+import { wardenHit } from './wardens'
 
-/** Hurts the player (bolts, lasers). Dashing can dodge, a short invulnerability follows every hit. */
-export function hurtPlayer(s: GameState, sim: Sim, amount: number): void {
+/**
+ * Hurts the player (bolts, lasers, bites) from (fromX, fromZ) - the player's own position when it has no direction.
+ * Dashing can dodge, a short invulnerability follows every hit. Returns true when it hurt.
+ */
+export function hurtPlayer(s: GameState, sim: Sim, amount: number, fromX = s.player.pos.x, fromZ = s.player.pos.z): boolean {
   const p = s.player
   const cfg = sim.cfg.player
-  if (s.phase !== 'playing' || p.invuln > 0) return
-  if (cfg.dashInvulnerable && p.dashTime > 0) return
+  if (s.phase !== 'playing' || p.invuln > 0) return false
+  if (cfg.dashInvulnerable && p.dashTime > 0) return false
   p.hp = Math.max(0, p.hp - amount)
   p.invuln = cfg.hurtInvulnSec
   p.hitTime = cfg.hitAnimSec
-  emit(sim, { type: 'playerHurt', amount, hp: p.hp })
+  emit(sim, { type: 'playerHurt', amount, hp: p.hp, fromX, fromZ })
   if (p.hp <= 0) {
     s.phase = 'dead'
     s.hack = null
@@ -27,10 +32,11 @@ export function hurtPlayer(s: GameState, sim: Sim, amount: number): void {
     s.run.deaths++
     emit(sim, { type: 'playerDied' })
   }
+  return true
 }
 
 export function switchMode(s: GameState, sim: Sim): void {
-  if (playerFrozen(s)) return
+  if (playerFrozen(s) || s.player.aiming) return // aiming holds the rifle
   const p = s.player
   p.mode = p.mode === 'sword' ? 'rifle' : 'sword'
   p.switchCooldown = sim.cfg.combat.switchSec
@@ -50,6 +56,24 @@ function targetAt(s: GameState, sim: Sim, kind: TargetKind, i: number): boolean 
     tgt.y = d.pos.y
     tgt.z = d.pos.z
     tgt.r = hr.drone
+    return true
+  }
+  if (kind === 'warden') {
+    const w = s.wardens[i]
+    if (!w || !w.alive) return false
+    tgt.x = w.pos.x
+    tgt.y = w.pos.y + sim.cfg.warden.chestHeight
+    tgt.z = w.pos.z
+    tgt.r = sim.cfg.warden.hitRadius
+    return true
+  }
+  if (kind === 'worm') {
+    const w = s.worms[i]
+    if (!w || !w.active || !w.alive || w.spawnTime > 0) return false
+    tgt.x = w.pos.x
+    tgt.y = w.pos.y + 0.25
+    tgt.z = w.pos.z
+    tgt.r = hr.worm
     return true
   }
   if (kind === 'videoCamera' || kind === 'soundCamera') {
@@ -73,12 +97,14 @@ function targetAt(s: GameState, sim: Sim, kind: TargetKind, i: number): boolean 
 
 function targetCount(s: GameState, kind: TargetKind): number {
   if (kind === 'drone') return s.drones.length
+  if (kind === 'worm') return s.worms.length
+  if (kind === 'warden') return s.wardens.length
   if (kind === 'videoCamera') return s.cameras.length
   if (kind === 'soundCamera') return s.soundCameras.length
   return s.lasers.length * 2
 }
 
-const KINDS: readonly TargetKind[] = ['drone', 'videoCamera', 'soundCamera', 'laser']
+const KINDS: readonly TargetKind[] = ['drone', 'warden', 'worm', 'videoCamera', 'soundCamera', 'laser']
 
 /** Applies damage; kills break things loudly and always bring someone to check (DESIGN 9). */
 export function damageTarget(s: GameState, sim: Sim, kind: TargetKind, i: number, amount: number, byRifle: boolean): void {
@@ -98,6 +124,19 @@ export function damageTarget(s: GameState, sim: Sim, kind: TargetKind, i: number
     } else {
       alertDrone(s, sim, i)
     }
+  } else if (kind === 'warden') {
+    const w = s.wardens[i]
+    if (!w) return
+    // armor: the rifle's charges hit it a little harder than their damage (about 8 shots or 3 sword hits)
+    w.hp -= byRifle ? amount * sim.cfg.warden.rifleFactor : amount
+    killed = w.hp <= 0
+    if (killed) {
+      w.alive = false
+      w.speed = 0
+      s.run.kills++
+    } else wardenHit(s, sim, i)
+  } else if (kind === 'worm') {
+    killed = damageWorm(s, sim, i, amount)
   } else if (kind === 'laser') {
     const l = s.lasers[i >> 1]
     if (!l) return
@@ -113,8 +152,9 @@ export function damageTarget(s: GameState, sim: Sim, kind: TargetKind, i: number
   }
   emit(sim, { type: 'targetHit', target: kind, index: kind === 'laser' ? i >> 1 : i, x, y, z, killed, byRifle })
   makeNoiseAt(sim, x, y, z, killed ? sim.cfg.noise.kill : sim.cfg.noise.hit)
-  if (killed) {
-    if (kind !== 'drone') s.run.devicesBroken++
+  if (killed && kind !== 'worm') {
+    // (worms are the alarm's own: killing one is noise enough)
+    if (kind !== 'drone' && kind !== 'warden') s.run.devicesBroken++
     if (s.alarm.stage < 3) callCheck(s, sim, x, y, z)
   }
 }
@@ -202,7 +242,7 @@ function fire(s: GameState, sim: Sim, aimYaw: number, aimPitch: number): void {
     dz = az
   }
   // spread: a random direction inside the cone (some shots miss, DESIGN 9)
-  const spread = cfg.spreadDeg * DEG * Math.sqrt(nextFloat(s.rng))
+  const spread = (p.aiming ? cfg.aimSpreadDeg : cfg.spreadDeg) * DEG * Math.sqrt(nextFloat(s.rng))
   const around = nextFloat(s.rng) * Math.PI * 2
   // two axes perpendicular to the shot
   let ux = -dz
@@ -298,7 +338,7 @@ export function updateBolts(s: GameState, sim: Sim, dt: number): void {
       if (hx * hx + hy * hy + hz * hz < (pc.radius + 0.15) * (pc.radius + 0.15)) {
         b.active = false
         emit(sim, { type: 'boltHit', x: nx, y: ny, z: nz, player: true })
-        hurtPlayer(s, sim, sim.cfg.drone.boltDamage)
+        hurtPlayer(s, sim, sim.cfg.drone.boltDamage, b.pos.x - b.vel.x, b.pos.z - b.vel.z)
         continue
       }
     }

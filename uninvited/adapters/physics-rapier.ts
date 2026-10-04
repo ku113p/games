@@ -1,5 +1,7 @@
-// The World port on Rapier: static colliders built from the level grid, a kinematic character controller for the
-// player (with a crouched capsule), rays for line of sight, and red walls that can be switched off.
+// The World port on Rapier: static colliders built from the level grid (slabs and hex blocks as tall as their tops,
+// platforms with nothing under the void, hex modules as prisms, ceilings only under the level's roofs), a kinematic
+// character controller for the player (with a crouched capsule), rays for line of sight, and red walls that can be
+// switched off.
 // Hot path: reused Ray / vectors; Rapier's own wasm bindings still allocate small result objects per call.
 import RAPIER from '@dimforge/rapier3d-compat'
 import { CellKind, RampAxis, type Grid } from '../core/grid'
@@ -43,8 +45,10 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
   const cell = g.cell
   const top = g.ceiling
   const kindAt = (c: number, r: number): number => (c < 0 || r < 0 || c >= g.cols || r >= g.rows ? CellKind.Wall : (g.kind[r * g.cols + c] as number))
+  const solidTop = (c: number, r: number): number => g.top[r * g.cols + c] as number
+  const deep = g.bottom - 2
 
-  // walls: merge runs of wall cells along each row
+  // blocks ('#', 'H'): merge runs of block cells of the same top along each row; they reach down into the void
   for (let r = 0; r < g.rows; r++) {
     let c = 0
     while (c < g.cols) {
@@ -53,8 +57,9 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
         continue
       }
       const c0 = c
-      while (c < g.cols && kindAt(c, r) === CellKind.Wall) c++
-      cuboid(c0 * cell, -3, r * cell, c * cell, top + 1, (r + 1) * cell)
+      const t = solidTop(c, r)
+      while (c < g.cols && kindAt(c, r) === CellKind.Wall && solidTop(c, r) === t) c++
+      cuboid(c0 * cell, deep, r * cell, c * cell, t, (r + 1) * cell)
     }
   }
   // floors: flat runs of the same height merged; ramps as sloped convex hulls
@@ -63,7 +68,7 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
     while (c < g.cols) {
       const i = r * g.cols + c
       const k = kindAt(c, r)
-      if (k === CellKind.Wall) {
+      if (k === CellKind.Wall || k === CellKind.Void) {
         c++
         continue
       }
@@ -90,7 +95,8 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
       const c0 = c
       while (c < g.cols) {
         const j = r * g.cols + c
-        if (kindAt(c, r) === CellKind.Wall || g.rampAxis[j] !== RampAxis.None || g.h0[j] !== h) break
+        const kj = kindAt(c, r)
+        if (kj === CellKind.Wall || kj === CellKind.Void || g.rampAxis[j] !== RampAxis.None || g.h0[j] !== h) break
         c++
       }
       cuboid(c0 * cell, h - 1, r * cell, c * cell, h, (r + 1) * cell)
@@ -105,10 +111,27 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
       if (g.kind[i] === CellKind.Niche) cuboid(c * cell, h + g.nicheHeight, r * cell, (c + 1) * cell, top + 1, (r + 1) * cell)
     }
   }
-  // server blocks (the level's cover entities)
-  for (const b of g.blocks) cuboid(b.minX, b.minY - 0.5, b.minZ, b.maxX, b.maxY, b.maxZ)
-  // the ceiling
-  cuboid(-10, top, -10, g.cols * cell + 10, top + 2, g.rows * cell + 10)
+  // server blocks (the level's cover entities) and hex modules (hexagonal prisms)
+  for (const b of g.blocks) {
+    if (!b.hex) {
+      cuboid(b.minX, b.minY - 0.5, b.minZ, b.maxX, b.maxY, b.maxZ)
+      continue
+    }
+    const cx = (b.minX + b.maxX) / 2
+    const cz = (b.minZ + b.maxZ) / 2
+    const rr = (b.maxX - b.minX) / 2
+    const pts = new Float32Array(36)
+    for (let k = 0; k < 12; k++) {
+      const a = ((k % 6) * Math.PI) / 3
+      pts[k * 3] = cx + Math.cos(a) * rr
+      pts[k * 3 + 1] = k < 6 ? b.minY - 0.5 : b.maxY
+      pts[k * 3 + 2] = cz + Math.sin(a) * rr
+    }
+    const desc = RAPIER.ColliderDesc.convexHull(pts)
+    if (desc) fixed(desc)
+  }
+  // ceilings only under the roofs: the rest is open sky
+  for (const roof of g.roofs) cuboid(roof.minX, roof.y, roof.minZ, roof.maxX, roof.y + 1, roof.maxZ)
 
   // red walls: thin slabs across the corridor
   const blockers: RAPIER.Collider[] = g.wallGroups.map((cells) => {
