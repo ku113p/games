@@ -21,7 +21,7 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
 - **JIM** - "a man in his mid fifties with short grey hair and a trimmed grey beard, in an expensive charcoal three-piece suit, tired stern eyes" (from `concept-art/office-1.jpg`).
 - **STEVE** - "a nervous young man in his early twenties, short light-brown hair, white shirt with a corporate lanyard".
 - **OFFICE look** - "cold white and steel-blue light, glass partitions, brushed metal, holographic monitors, clean and oppressive megacorporation interior".
-- **ROOM look** - "riveted corrugated metal walls and cheap patched plastic panels, everything cheap, worn, fourth-rate and home-made but kept tidy, no garbage, cables taped along the walls, warm tungsten desk lamp against cold cyan screen glow, rain and pink-cyan neon outside one small window".
+- **ROOM look** - "riveted corrugated metal walls and cheap patched plastic panels, everything cheap, worn, fourth-rate and home-made but kept tidy, no garbage, only a few power cords (a wireless era - no data cables), warm tungsten desk lamp against cold cyan screen glow, rain and pink-cyan neon outside one small window".
 - **REAL suffix** - "Photorealistic cinematic film still, 35mm lens, natural film grain, no text, no letters, no logos, no watermark."
 - **NET look** (key art only; the network itself is built in code) - "Tron Legacy inspired cyberspace: glossy black architecture outlined with thin continuous cyan light lines, red security, deep fog".
 
@@ -87,6 +87,24 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
   white light only on a few seams (the color later follows the ending counter), the face hidden. 9:16, no refs (refs pulled it back to Tron).
 - H5 was blocked by the Azure safety filter with a policy error (not the BlockList one), so it was made with Gemini and looks off-style.
 - After the designer picks a hero, NN1-style scenes and the KA2/K2 key art get regenerated with the new hero.
+
+### Round 5 (2026-10-04): the room after the designer played it
+
+- The wired headphones did not fit (you jack in with VR), the tablet was too fancy for the room, and the designer wants to look out of the window.
+- FP3: a Gemini edit of FP2 - headphones removed (a hoodie on the hook), a second-hand VR headset on the desk cabled to the computer,
+  a cheap scuffed tablet with a taped crack. Everything else kept. A MAI full regeneration still drew headphones and was dropped.
+- FP3 depth (Depth Anything V2 Small) and exact prop masks from SlimSAM (point and box prompts, run locally through transformers.js):
+  `FP3-room-fp-masks-a.png` R window glass, G tablet, B water; `-masks-b.png` R noodles, G VR. The noodles mask is a union of the shelf and per-cup masks.
+- Close-ups redone against FP3 (the old ones showed the headphones): CU1b water, CU2b noodles, CU3b tablet, CU4b VR (the first try left a second
+  headset on the desk), CU5 the view out of the window (MAI's filter blocked it twice; Gemini made it).
+- FP2 and CU1-CU4 were deleted.
+
+### Round 6 (2026-10-04): a wireless era
+
+- The designer: too many cables for a wireless era - power cords are fine, interface cables are not. The chair at the bottom-left
+  "sank inward" when the view moved (near-depth parallax at the frame edge).
+- FP4: a Gemini edit of FP3 - no data cables, a wireless keyboard and VR headset, the chair removed (the corner is now a floor grate with tools).
+  New depth and SlimSAM masks with the same channel layout; close-ups CU1c-CU4c against FP4. FP3 and the CU*b files were deleted.
 
 ### D. Not now
 

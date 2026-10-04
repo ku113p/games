@@ -110,10 +110,10 @@ Engine test: this is both realistic and fast (`tests/engine-room/`). Two scenes:
 The real world exists so the player identifies with the hero; almost no actions are expected from him here.
 No walking. An action is a click on an object; the response is scripted, with no character animation (a camera move, a picture change, a fade, a sound).
 
-**What can be done in the room.** Every time the same: drink water, eat, read the news on a translucent futuristic tablet, cry.
+**What can be done in the room.** Every time the same: drink water, eat, read the news on a cheap old tablet (scuffed, cracked, matching the room), look out of the window at the street, cry.
 Plus something special between levels: after level 1 - eat from the delivery; after the middle level - news of mass layoffs; in the finale - the parcel (section 4).
 
-**Going into the network** - click on the network device + confirm.
+**Going into the network** - from the computer: click the wireless VR headset that lies on the desk by the computer, + confirm. No wired headphones.
 
 Why the room: Johnny periodically disconnects from the network and returns to reality - the player must feel that reality is different.
 It is a pause between games: life is bad, but there is some life. Mood: "yes, in the gutter, but really not that bad";
@@ -222,6 +222,7 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 ## 14. Art
 
 - The main network look is **A "Grid"** (clean Tron); the other color schemes stay as options.
+- The era is **wireless**: the only cables are power cords; there are no interface or control cables - not on the keyboard, the headset or the computer.
 - Shapes are **living lines, not square**, like Tron; no Minecraft boxes.
 - The real world is detailed and well rendered (section 5).
 - Everything runs on a JS engine in the browser (Three.js). The real world is **2.5D** (section 5): realistic and fast; full 3D and pixelation are not needed.

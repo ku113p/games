@@ -2,8 +2,10 @@
 //   - living head: depth-based parallax that follows the mouse + slow breathing
 //   - rack focus: depth of field driven by the depth map, focus eases to the hovered prop
 //   - click a prop: push-in, cut to its close-up (Ken Burns drift), action sound; click / Esc / right-click goes back
-//   - living plate: rain on the glass, flickering neon, alive screens, dust in the lamp light, lamp flicker
-//   - jack in: headset close-up -> confirm -> push into the centre screen, glitch, white flash -> the network
+//   - hover: glow + rim from the SAM prop masks; hit-testing uses the same masks
+//   - living plate: rain on the window glass (mask only), flickering neon, alive screens, dust in the lamp light, lamp flicker
+//   - look out of the window: push-in to the street close-up, the rain gets louder
+//   - jack in: VR headset close-up -> confirm -> push into the centre screen, glitch, white flash -> the network
 // Throwaway test code, not the game architecture. Every tuning number lives in config.json.
 import {
   AdditiveBlending,
@@ -25,14 +27,7 @@ import {
   WebGLRenderer,
   WebGLRenderTarget,
 } from 'three'
-import cuHeadsetUrl from '../../art/generated/CU4-headset.jpg'
-import cuNoodlesUrl from '../../art/generated/CU2-noodles.jpg'
-import cuTabletUrl from '../../art/generated/CU3-tablet.jpg'
-import cuWaterUrl from '../../art/generated/CU1-water.jpg'
-import depthUrl from '../../art/generated/FP2-room-fp-depth.png'
-import plateUrl from '../../art/generated/FP2-room-fp.jpg'
-import newsPhotoUrl from '../../art/generated/N1-news-layoffs.jpg'
-import netUrl from '../../art/generated/NN1-net-corridor.jpg'
+import { art } from './art'
 import { Sound } from './audio'
 import cfg from './config.json'
 import { DUST_FRAG, DUST_VERT, POST_FRAG, QUAD_VERT, STEAM_FRAG, STEAM_VERT, WORLD_FRAG } from './shaders'
@@ -51,7 +46,7 @@ const yesBtn = document.getElementById('yes') as HTMLButtonElement
 const noBtn = document.getElementById('no') as HTMLButtonElement
 const jackOutBtn = document.getElementById('jackout') as HTMLButtonElement
 const hintEl = document.getElementById('hint')!
-;(document.getElementById('news-img') as HTMLImageElement).src = newsPhotoUrl
+;(document.getElementById('news-img') as HTMLImageElement).src = art(cfg.assets.newsPhoto)
 
 // ------------------------------------------------------------------------------------------------ renderer
 const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' })
@@ -71,27 +66,30 @@ function tex(url: string, mips = true, onLoad?: (t: Texture) => void): Texture {
 }
 
 // ------------------------------------------------------------------------------------------------ world pass
-const plateTex = tex(plateUrl, true, (t) => {
+const plateTex = tex(art(cfg.assets.plate), true, (t) => {
   const img = t.image as HTMLImageElement
   plateAspect = img.width / img.height
   ;(worldU['uTexel']!.value as Vector2).set(1 / img.width, 1 / img.height)
   fitCover()
 })
-const depthTex = tex(depthUrl, false, (t) => measureDepths(t.image as HTMLImageElement))
-const netTex = tex(netUrl, true)
-const NET_ASPECT = 1376 / 768
-const CLOSEUP_ASPECT = 1365 / 768
-const closeupTex: Record<string, Texture> = {
-  water: tex(cuWaterUrl),
-  noodles: tex(cuNoodlesUrl),
-  tablet: tex(cuTabletUrl),
-  headset: tex(cuHeadsetUrl),
+// depth + masks are also read once on the CPU (prop depth, centroid, hit-test mask) when all three have loaded
+let cpuPending = 3
+const cpuDone = (): void => {
+  if (--cpuPending === 0) measureProps()
+}
+const depthTex = tex(art(cfg.assets.depth), false, cpuDone)
+const maskATex = tex(art(cfg.assets.masksA), true, cpuDone) // mipmaps: the window mask is feathered by sampling a coarser level
+const maskBTex = tex(art(cfg.assets.masksB), true, cpuDone)
+const netTex = tex(art(cfg.assets.net), true)
+const aspectOf = (t: Texture, fallback: number): number => {
+  const img = t.image as HTMLImageElement | null
+  return img && img.width > 0 ? img.width / img.height : fallback
 }
 
 const plateFit = new Vector2(1, 1)
 const imageFit = new Vector2(1, 1)
-let plateAspect = 1365 / 768
-let imageAspect = CLOSEUP_ASPECT
+let plateAspect = 1376 / 768
+let imageAspect = 1376 / 768
 /** Cover-fit: how much of the image (0..1) one screen spans, per axis. */
 function coverFit(out: Vector2, imgAspect: number): void {
   const a = innerWidth / innerHeight
@@ -121,7 +119,15 @@ const worldMat = new ShaderMaterial({
   uniforms: {
     tPlate: { value: plateTex },
     tDepth: { value: depthTex },
-    tImage: { value: closeupTex['water'] },
+    tImage: { value: netTex },
+    tMaskA: { value: maskATex },
+    tMaskB: { value: maskBTex },
+    uSelA: { value: new Vector3() },
+    uSelB: { value: new Vector3() },
+    uHoverGain: { value: 1 },
+    uEdge: { value: new Vector4(cfg.head.nearCap, cfg.head.edgeFade, cfg.head.edgeStrength, 0) },
+    uRainMask: { value: new Vector3(cfg.rain.maskFeatherLod, cfg.rain.maskRange[0]!, cfg.rain.maskRange[1]!) },
+    uDropAmount: { value: cfg.rain.dropAmount },
     uPlateFit: { value: plateFit },
     uPlateView: { value: plateView },
     uImageFit: { value: imageFit },
@@ -135,7 +141,7 @@ const worldMat = new ShaderMaterial({
     uBlurGain: { value: cfg.dof.blurGain },
     uDeadZone: { value: cfg.dof.deadZone },
     uMaxLod: { value: cfg.dof.maxLod },
-    uTexel: { value: new Vector2(1 / 1365, 1 / 768) },
+    uTexel: { value: new Vector2(1 / 1376, 1 / 768) },
     uTime: time,
     uWindow: { value: v4(cfg.regions.window) },
     uScreens: { value: cfg.regions.screens.map(v4) },
@@ -146,11 +152,8 @@ const worldMat = new ShaderMaterial({
     uScreenFx: { value: new Vector4(cfg.screensFx.scanline, cfg.screensFx.band, cfg.screensFx.flicker, cfg.screensFx.bandSpeed) },
     uHoverRect: { value: hoverRect },
     uHover: { value: 0 },
-    uHoverDepth: { value: 0 },
-    uHoverTol: { value: 0.05 },
     uHoverColor: { value: new Vector3(cfg.hover.color[0]!, cfg.hover.color[1]!, cfg.hover.color[2]!) },
     uRimPx: { value: cfg.hover.rimPx },
-    uHoverEdge: { value: 0 },
     uHoverFx: { value: new Vector3(cfg.hover.lift, cfg.hover.rim, cfg.hover.dim) },
   },
 })
@@ -194,6 +197,7 @@ const dustMat = new ShaderMaterial({
     uLamp: { value: lampUniform },
     uLampLevel: lampLevel,
     uPxScale: pxScale,
+    uDepthClamp: { value: cfg.head.depthClamp },
     uColor: { value: new Vector3(cfg.dust.color[0]!, cfg.dust.color[1]!, cfg.dust.color[2]!) },
     uBrightness: { value: cfg.dust.brightness },
   },
@@ -257,6 +261,7 @@ const postMat = new ShaderMaterial({
     uFlash: { value: 0 },
     uFade: { value: 0 },
     uZoomBlur: { value: 0 },
+    uZoomCenter: { value: new Vector2(0.5, 0.5) },
     uAberration: { value: cfg.post.aberration },
     uVignette: { value: cfg.post.vignette },
     uGrain: { value: cfg.post.grain },
@@ -272,57 +277,99 @@ postScene.add(postQuad)
 interface Hotspot {
   name: string
   label: string
-  rect: Vector4
-  cx: number
+  rect: Vector4 // bounding box for a quick reject; the mask decides
+  bit: number // this prop's bit in maskBits
+  selA: Vector3 // one-hot mask channel for the shader
+  selB: Vector3
+  cx: number // push-in target: the mask's centroid (rect centre until the masks are read)
   cy: number
   depth: number // raw depth-map value (0..1, bright = near), measured at load
   depthN: number // the same, normalized for parallax
-  tol: number
-  edgeGlow: number
+  glow: number
   tex: Texture
   sound: string
   volume: number
   pushZoom: number
   pan: Vector2
+  duck: number
+  rain: number
 }
-const panCfg = cfg.closeups.pan as Record<string, number[]>
-const hotspots: Hotspot[] = cfg.hotspots.map((h) => ({
-  name: h.name,
-  label: h.label,
-  rect: v4(h.rect),
-  cx: (h.rect[0]! + h.rect[2]!) / 2,
-  cy: (h.rect[1]! + h.rect[3]!) / 2,
-  depth: cfg.dof.idleFocus,
-  depthN: 0.3,
-  tol: h.depthTol,
-  edgeGlow: h.edgeGlow,
-  tex: closeupTex[h.closeup]!,
-  sound: h.sound,
-  volume: h.volume,
-  pushZoom: h.pushZoom,
-  pan: v2(panCfg[h.closeup] ?? [0, 0]),
-}))
+const CHANNELS = ['r', 'g', 'b']
+const hotspots: Hotspot[] = cfg.hotspots.map((h, i) => {
+  const [sheet, ch] = h.mask.split('.') as [string, string]
+  const sel = new Vector3()
+  sel.setComponent(CHANNELS.indexOf(ch), 1)
+  return {
+    name: h.name,
+    label: h.label,
+    rect: v4(h.rect),
+    bit: 1 << i,
+    selA: sheet === 'a' ? sel : new Vector3(),
+    selB: sheet === 'b' ? sel : new Vector3(),
+    cx: (h.rect[0]! + h.rect[2]!) / 2,
+    cy: (h.rect[1]! + h.rect[3]!) / 2,
+    depth: cfg.dof.idleFocus,
+    depthN: 0.3,
+    glow: h.glow,
+    tex: tex(art(h.closeup)),
+    sound: h.sound,
+    volume: h.volume,
+    pushZoom: h.pushZoom,
+    pan: v2(h.pan),
+    duck: h.duck,
+    rain: h.rain,
+  }
+})
 const byName = (n: string): Hotspot | null => hotspots.find((h) => h.name === n) ?? null
 
-/** Once, at load: the depth of each prop = the 75th percentile of the depth map inside its rect (props are nearer than the wall). */
-function measureDepths(img: HTMLImageElement): void {
+// Hit-test mask: one byte per plate pixel, one bit per hotspot. Filled once at load (cold path).
+let maskBits = new Uint8Array(0)
+let maskW = 1
+let maskH = 1
+
+function pixels(t: Texture): { data: Uint8ClampedArray; w: number; h: number } {
+  const img = t.image as HTMLImageElement
   const cv = document.createElement('canvas')
   cv.width = img.width
   cv.height = img.height
   const g = cv.getContext('2d', { willReadFrequently: true })!
   g.drawImage(img, 0, 0)
-  const data = g.getImageData(0, 0, img.width, img.height).data
-  for (const h of hotspots) {
-    const vals: number[] = []
-    const x0 = Math.floor(h.rect.x * img.width)
-    const x1 = Math.ceil(h.rect.z * img.width)
-    const y0 = Math.floor(h.rect.y * img.height)
-    const y1 = Math.ceil(h.rect.w * img.height)
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) vals.push(data[(y * img.width + x) * 4]!)
-    vals.sort((a, b) => a - b)
-    h.depth = (vals[Math.floor(vals.length * 0.75)] ?? 0) / 255
-    h.depthN = Math.min(h.depth, cfg.head.depthClamp) / cfg.head.depthClamp
-  }
+  return { data: g.getImageData(0, 0, img.width, img.height).data, w: img.width, h: img.height }
+}
+
+/** Once, at load: mask bits, each prop's centroid and depth (75th percentile of the depth map inside its mask). */
+function measureProps(): void {
+  const a = pixels(maskATex)
+  const b = pixels(maskBTex)
+  const d = pixels(depthTex)
+  maskW = a.w
+  maskH = a.h
+  maskBits = new Uint8Array(maskW * maskH)
+  hotspots.forEach((h, i) => {
+    const src = cfg.hotspots[i]!.mask.startsWith('a') ? a : b
+    const ch = CHANNELS.indexOf(cfg.hotspots[i]!.mask.slice(2))
+    const depths: number[] = []
+    let sx = 0
+    let sy = 0
+    for (let y = 0; y < maskH; y++) {
+      for (let x = 0; x < maskW; x++) {
+        const k = y * maskW + x
+        if (src.data[k * 4 + ch]! < 128) continue
+        maskBits[k]! |= h.bit
+        sx += x
+        sy += y
+        const dx = Math.min(d.w - 1, Math.floor((x * d.w) / maskW))
+        const dy = Math.min(d.h - 1, Math.floor((y * d.h) / maskH))
+        depths.push(d.data[(dy * d.w + dx) * 4]!)
+      }
+    }
+    if (depths.length === 0) return
+    h.cx = sx / depths.length / maskW
+    h.cy = sy / depths.length / maskH
+    depths.sort((p, q) => p - q)
+    h.depth = depths[Math.floor(depths.length * 0.75)]! / 255
+    h.depthN = Math.min(Math.min(h.depth, cfg.head.depthClamp) / cfg.head.depthClamp, cfg.head.nearCap)
+  })
 }
 
 // ------------------------------------------------------------------------------------------------ audio
@@ -420,9 +467,9 @@ function setHover(h: Hotspot | null): void {
   if (h) {
     shownHover = h
     hoverRect.copy(h.rect)
-    worldU['uHoverDepth']!.value = h.depth
-    worldU['uHoverTol']!.value = h.tol
-    worldU['uHoverEdge']!.value = h.edgeGlow
+    ;(worldU['uSelA']!.value as Vector3).copy(h.selA)
+    ;(worldU['uSelB']!.value as Vector3).copy(h.selB)
+    worldU['uHoverGain']!.value = h.glow
     labelEl.textContent = h.label
     labelW = labelEl.offsetWidth
     sound.play('ui_hover', cfg.audio.hover)
@@ -452,12 +499,13 @@ function enterCloseup(h: Hotspot): void {
   setState('closeup')
   worldU['tImage']!.value = h.tex
   worldU['uImageMix']!.value = 1
-  imageAspect = CLOSEUP_ASPECT
+  imageAspect = aspectOf(h.tex, 1365 / 768)
   fitCover()
   flash = cfg.push.flash
   zoomBlur = 0
   sound.play(h.sound, h.volume)
-  sound.duck(cfg.audio.duckCloseup)
+  sound.duck(h.duck)
+  sound.rain(h.rain)
   newsShown = false
   confirmShown = false
 }
@@ -478,6 +526,7 @@ function back(): void {
   hideOverlays()
   sound.play('ui_back', cfg.audio.ui)
   sound.duck(1)
+  sound.rain(1)
   worldU['uImageMix']!.value = 0
   const z = active.pushZoom * cfg.push.pullFrom
   tweenCam(active.cx, active.cy, z, 0.5, 0.5, cfg.head.baseZoom, cfg.push.pullDuration, EASE_OUT)
@@ -488,9 +537,10 @@ function back(): void {
 function confirmJack(): void {
   if (state !== 'closeup' && state !== 'room') return
   hideOverlays()
-  active = byName('headset')
+  active = byName(cfg.jackConfirm.hotspot)
   sound.play('ui_confirm', cfg.audio.ui)
   sound.play('jack_in', cfg.audio.jack)
+  sound.rain(1)
   worldU['uImageMix']!.value = 0
   const [x, y] = cfg.jack.target as [number, number]
   tweenCam(x, y, cfg.jack.startZoom, x, y, cfg.jack.endZoom, cfg.jack.slamAt, EASE_EXPO)
@@ -502,7 +552,7 @@ function enterNet(): void {
   setState('net')
   worldU['tImage']!.value = netTex
   worldU['uImageMix']!.value = 1
-  imageAspect = NET_ASPECT
+  imageAspect = aspectOf(netTex, 1376 / 768)
   fitCover()
   flashHold = true
   flash = 1
@@ -528,7 +578,11 @@ function pick(sx: number, sy: number): Hotspot | null {
     // a prop is drawn shifted by the parallax of its own depth
     const qx = px - look.x * (h.depthN - cfg.head.parallaxPivot)
     const qy = py - look.y * (h.depthN - cfg.head.parallaxPivot)
-    if (qx > h.rect.x && qx < h.rect.z && qy > h.rect.y && qy < h.rect.w) return h
+    if (qx <= h.rect.x || qx >= h.rect.z || qy <= h.rect.y || qy >= h.rect.w) continue
+    if (maskBits.length === 0) return h // masks not read yet: the rect will do
+    const mx = Math.min(maskW - 1, Math.max(0, Math.floor(qx * maskW)))
+    const my = Math.min(maskH - 1, Math.max(0, Math.floor(qy * maskH)))
+    if (maskBits[my * maskW + mx]! & h.bit) return h
   }
   return null
 }
@@ -670,11 +724,11 @@ function updateState(dt: number): void {
       const c = cfg.closeups
       const settle = easeOutCubic(clamp01(stateT / c.settle))
       const drift = easeInOutSine(clamp01((stateT - c.settle) / c.driftTime))
-      const dz = active.name === 'tablet' ? cfg.tablet.driftZoom : c.driftZoom
+      const dz = active.name === cfg.tablet.hotspot ? cfg.tablet.driftZoom : c.driftZoom
       imageView.z = c.startZoom + (c.zoom - c.startZoom) * settle + dz * drift
       imageView.x = 0.5 + active.pan.x * drift + head.x * cfg.head.closeupLookPan[0]! / imageView.z
       imageView.y = 0.5 + active.pan.y * drift + head.y * cfg.head.closeupLookPan[1]! / imageView.z
-      if (active.name === 'tablet') {
+      if (active.name === cfg.tablet.hotspot) {
         if (!newsShown && stateT >= cfg.tablet.delay) {
           newsShown = true
           newsEl.style.display = 'block'
@@ -684,7 +738,7 @@ function updateState(dt: number): void {
         }
         if (newsShown) updateNews()
       }
-      if (active.name === 'headset' && !confirmShown && stateT >= cfg.headsetConfirm.delay) {
+      if (active.name === cfg.jackConfirm.hotspot && !confirmShown && stateT >= cfg.jackConfirm.delay) {
         confirmShown = true
         confirmEl.style.display = 'block'
         void confirmEl.offsetWidth
@@ -791,15 +845,25 @@ function frame(): void {
   plateView.z = cam.z * (1 + cfg.head.breathZoom * breath * calm)
   plateView.x = cam.x + (cfg.head.breathSway[0]! * Math.sin(time.value * breathW * 0.5 + 1.3) * calm + head.x * cfg.head.lookPan[0]!) / cam.z
   plateView.y = cam.y + (cfg.head.breathSway[1]! * breath * calm + head.y * cfg.head.lookPan[1]!) / cam.z
+  // keep the view inside the picture (a push toward the window would otherwise run off its left edge)
+  const hx = plateFit.x / plateView.z / 2
+  const hy = plateFit.y / plateView.z / 2
+  plateView.x = Math.min(Math.max(plateView.x, hx), 1 - hx)
+  plateView.y = Math.min(Math.max(plateView.y, hy), 1 - hy)
   look.set(-head.x * cfg.head.parallax[0]! * calm, -head.y * cfg.head.parallax[1]! * calm)
 
   dust.visible = (worldU['uImageMix']!.value as number) < 1
-  steam.visible = state === 'closeup' && active?.name === 'noodles'
+  steam.visible = state === 'closeup' && active?.name === cfg.steam.hotspot
 
   postU['uGlitch']!.value = Math.min(1, glitchBase + glitchKick)
   postU['uFlash']!.value = flash
   postU['uFade']!.value = fade
   postU['uZoomBlur']!.value = zoomBlur
+  // radial blur streams out of the prop we move toward (the view may be clamped at the picture's edge)
+  const zc = postU['uZoomCenter']!.value as Vector2
+  if (active && (state === 'push' || state === 'pull')) {
+    zc.set((active.cx - plateView.x) * plateView.z / plateFit.x + 0.5, 0.5 - (active.cy - plateView.y) * plateView.z / plateFit.y)
+  } else zc.set(0.5, 0.5)
 
   renderer.info.reset()
   renderer.setRenderTarget(sceneRT)

@@ -4,7 +4,7 @@
   },
   "head": {
     "baseZoom": 1.08,
-    "depthClamp": 0.45,
+    "depthClamp": 1.0,
     "parallaxPivot": 0.25,
     "parallax": [0.03, 0.018],
     "lookPan": [0.008, 0.006],
@@ -12,31 +12,48 @@
     "breathPeriod": 4.8,
     "breathZoom": 0.005,
     "breathSway": [0.0022, 0.0032],
-    "closeupLookPan": [0.006, 0.004]
+    "closeupLookPan": [0.006, 0.004],
+    "nearCap": 0.85,
+    "edgeFade": 0.14,
+    "edgeStrength": 0.25
   },
   "dof": {
-    "idleFocus": 0.125,
+    "idleFocus": 0.27,
     "idleAperture": 0.3,
     "hoverAperture": 1.0,
-    "blurGain": 5.0,
-    "deadZone": 0.03,
+    "blurGain": 2.3,
+    "deadZone": 0.065,
     "maxLod": 2.6,
     "focusHalfLife": 0.12
   },
   "hover": {
     "color": [1.0, 0.82, 0.55],
-    "rimPx": 5.0,
+    "rimPx": 3.0,
     "lift": 0.3,
     "rim": 0.9,
     "dim": 0.16,
     "fadeHalfLife": 0.06,
     "labelOffset": [18, -22]
   },
+  "assets": {
+    "plate": "FP4-room-fp.jpg",
+    "depth": "FP4-room-fp-depth.png",
+    "masksA": "FP4-room-fp-masks-a.png",
+    "masksB": "FP4-room-fp-masks-b.png",
+    "net": "NN1-net-corridor.jpg",
+    "newsPhoto": "N1-news-layoffs.jpg"
+  },
   "hotspots": [
-    { "name": "water", "label": "Drink water", "rect": [0.905, 0.565, 0.968, 0.83], "depthTol": 0.07, "edgeGlow": 0, "closeup": "water", "sound": "water_drink", "volume": 0.85, "pushZoom": 2.4 },
-    { "name": "noodles", "label": "Eat", "rect": [0.43, 0.085, 0.61, 0.335], "depthTol": 0.05, "edgeGlow": 0, "closeup": "noodles", "sound": "eat", "volume": 0.85, "pushZoom": 2.0 },
-    { "name": "tablet", "label": "Read the news", "rect": [0.585, 0.78, 0.785, 0.935], "depthTol": 0.06, "edgeGlow": 0, "closeup": "tablet", "sound": "tablet_on", "volume": 0.7, "pushZoom": 2.2 },
-    { "name": "headset", "label": "Go online", "rect": [0.85, 0.09, 0.985, 0.43], "depthTol": 0.3, "edgeGlow": 1, "closeup": "headset", "sound": "glitch", "volume": 0.3, "pushZoom": 2.0 }
+    { "name": "water", "label": "Drink water", "rect": [0.905, 0.565, 0.968, 0.83], "mask": "a.b", "glow": 1.0,
+      "closeup": "CU1c-water.jpg", "sound": "water_drink", "volume": 0.85, "pushZoom": 2.4, "pan": [0.012, -0.01], "duck": 0.5, "rain": 1.0 },
+    { "name": "noodles", "label": "Eat", "rect": [0.435, 0.08, 0.61, 0.32], "mask": "b.r", "glow": 1.0,
+      "closeup": "CU2c-noodles.jpg", "sound": "eat", "volume": 0.85, "pushZoom": 2.0, "pan": [-0.008, -0.012], "duck": 0.5, "rain": 1.0 },
+    { "name": "tablet", "label": "Read the news", "rect": [0.585, 0.775, 0.79, 0.94], "mask": "a.g", "glow": 1.0,
+      "closeup": "CU3c-tablet.jpg", "sound": "tablet_on", "volume": 0.7, "pushZoom": 2.2, "pan": [0.0, 0.0], "duck": 0.5, "rain": 1.0 },
+    { "name": "vr", "label": "Jack in", "rect": [0.485, 0.68, 0.625, 0.85], "mask": "b.g", "glow": 1.0,
+      "closeup": "CU4c-vr.jpg", "sound": "glitch", "volume": 0.3, "pushZoom": 2.2, "pan": [0.0, 0.012], "duck": 0.5, "rain": 1.0 },
+    { "name": "window", "label": "Look outside", "rect": [0.0, 0.02, 0.235, 0.68], "mask": "a.r", "glow": 0.45,
+      "closeup": "CU5-window.jpg", "sound": "", "volume": 0, "pushZoom": 1.9, "pan": [0.01, 0.008], "duck": 1.0, "rain": 1.8 }
   ],
   "regions": {
     "window": [0.0, 0.025, 0.232, 0.68],
@@ -46,13 +63,16 @@
       [0.511, 0.417, 0.694, 0.654],
       [0.696, 0.484, 0.801, 0.7]
     ],
-    "lamp": [0.848, 0.5625]
+    "lamp": [0.847, 0.565]
   },
   "rain": {
     "scale": 2.2,
     "speed": 0.2,
     "refraction": 18.0,
-    "fogLod": 1.3,
+    "fogLod": 1.1,
+    "dropAmount": 0.55,
+    "maskFeatherLod": 2.5,
+    "maskRange": [0.55, 0.95],
     "neonFlicker": 0.55
   },
   "screensFx": {
@@ -88,25 +108,22 @@
     "zoom": 1.06,
     "settle": 0.45,
     "driftZoom": 0.06,
-    "driftTime": 14,
-    "pan": {
-      "water": [0.012, -0.01],
-      "noodles": [-0.008, -0.012],
-      "tablet": [0.0, 0.0],
-      "headset": [0.0, 0.012]
-    }
+    "driftTime": 14
   },
   "tablet": {
-    "screen": [[0.41, 0.423], [0.7, 0.419], [0.674, 0.736], [0.35, 0.701]],
+    "hotspot": "tablet",
+    "screen": [[0.482, 0.445], [0.736, 0.484], [0.634, 0.827], [0.418, 0.71]],
     "delay": 0.55,
     "driftZoom": 0.025
   },
-  "headsetConfirm": {
+  "jackConfirm": {
+    "hotspot": "vr",
     "delay": 0.45
   },
   "steam": {
+    "hotspot": "noodles",
     "count": 70,
-    "origin": [0.49, 0.6],
+    "origin": [0.5, 0.64],
     "spread": 0.07,
     "rise": 0.38,
     "life": 3.2,
@@ -114,7 +131,7 @@
     "opacity": 0.32
   },
   "jack": {
-    "target": [0.603, 0.535],
+    "target": [0.601, 0.535],
     "startZoom": 1.4,
     "endZoom": 9.0,
     "slamAt": 1.565,

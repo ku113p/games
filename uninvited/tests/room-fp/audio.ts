@@ -50,6 +50,7 @@ export class Sound {
   private master: GainNode | null = null
   private ambient: GainNode | null = null
   private ambientFilter: BiquadFilterNode | null = null
+  private rainGain: GainNode | null = null
   private readonly raw = new Map<string, Promise<ArrayBuffer>>()
   private readonly groups = new Map<string, AudioBuffer[]>()
   ready = false
@@ -83,14 +84,14 @@ export class Sound {
       }),
     )
     this.ready = true
-    this.loop('rain_window_loop', this.cfg.rain)
+    this.rainGain = this.loop('rain_window_loop', this.cfg.rain)
     this.loop('room_hum_loop', this.cfg.hum)
   }
 
-  private loop(name: string, vol: number): void {
+  private loop(name: string, vol: number): GainNode | null {
     const ctx = this.ctx
     const buf = this.groups.get(name)?.[0]
-    if (!ctx || !buf || !this.ambient) return
+    if (!ctx || !buf || !this.ambient) return null
     const src = ctx.createBufferSource()
     src.buffer = buf
     src.loop = true
@@ -99,6 +100,7 @@ export class Sound {
     g.gain.linearRampToValueAtTime(vol, ctx.currentTime + 2) // fade the room in
     src.connect(g).connect(this.ambient)
     src.start()
+    return g
   }
 
   /** Play a one-shot; a group name (e.g. "glitch") picks a random variant. */
@@ -113,6 +115,14 @@ export class Sound {
     g.gain.value = vol
     src.connect(g).connect(this.master)
     src.start(ctx.currentTime + delay)
+  }
+
+  /** Rain loop level relative to its config volume (e.g. louder while looking out of the window). */
+  rain(k: number): void {
+    const ctx = this.ctx
+    if (!ctx || !this.rainGain) return
+    this.rainGain.gain.cancelScheduledValues(ctx.currentTime)
+    this.rainGain.gain.setTargetAtTime(this.cfg.rain * k, ctx.currentTime, this.cfg.duckTime)
   }
 
   /** Duck the ambient bed (gain multiplier) and optionally muffle it (low-pass, Hz). */

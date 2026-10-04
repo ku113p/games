@@ -49,14 +49,19 @@ export const WORLD_FRAG = /* glsl */ `
   uniform vec4 uRain;
   uniform float uNeon;
   uniform vec4 uScreenFx;
+  uniform sampler2D tMaskA;     // R window glass, G tablet, B water bottle
+  uniform sampler2D tMaskB;     // R noodles, G VR headset
+  uniform vec3 uSelA;           // which mask channel is hovered (one-hot over A then B)
+  uniform vec3 uSelB;
   uniform vec4 uHoverRect;
   uniform float uHover;
-  uniform float uHoverDepth;
-  uniform float uHoverTol;
+  uniform float uHoverGain;
   uniform vec3 uHoverColor;
   uniform float uRimPx;
-  uniform vec3 uHoverFx; // x lift, y rim, z dim of everything else
-  uniform float uHoverEdge;
+  uniform vec3 uHoverFx;        // x lift, y rim, z dim of everything else
+  uniform vec4 uEdge;           // parallax: x near cap, y edge fade width, z strength at the frame edge
+  uniform vec3 uRainMask;       // x feather lod, y/z smoothstep range
+  uniform float uDropAmount;
   varying vec2 vUv;
   ${COMMON}
 
@@ -126,18 +131,22 @@ export const WORLD_FRAG = /* glsl */ `
             textureLod(tPlate, t + o2, lod).rgb + textureLod(tPlate, t - o2, lod).rgb) * 0.25;
   }
 
-  float hoverMatch(vec2 p) {
-    return 1.0 - S(uHoverTol * 0.55, uHoverTol, abs(depthAt(p) - uHoverDepth));
+  float propMask(vec2 p) {
+    vec2 t = tc(p);
+    return dot(textureLod(tMaskA, t, 0.0).rgb, uSelA) + dot(textureLod(tMaskB, t, 0.0).rgb, uSelB);
   }
 
   vec3 room(vec2 s) {
     vec2 ip = screenToImage(s, uPlateView, uPlateFit);
-    // depth parallax: find the source point q with q + look * (depth(q) - pivot) = ip (3 fixed-point steps)
+    // depth parallax: find the source point q with q + look * (depth(q) - pivot) = ip (3 fixed-point steps).
+    // Very near depths are capped and the strength fades toward the frame edges, so foreground at the border does not stretch.
+    float edgeDist = min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y));
+    vec2 lk = uLook * mix(uEdge.z, 1.0, S(0.0, uEdge.y, edgeDist));
     vec2 q = ip;
     float rd = 0.0;
     for (int i = 0; i < 3; i++) {
       rd = depthAt(q);
-      q = ip - uLook * (min(rd, uDepthClamp) / uDepthClamp - uPivot);
+      q = ip - lk * (min(min(rd, uDepthClamp) / uDepthClamp, uEdge.x) - uPivot);
     }
     q = clamp(q, vec2(0.001), vec2(0.999));
     rd = depthAt(q);
@@ -147,34 +156,41 @@ export const WORLD_FRAG = /* glsl */ `
     float lod = coc * uMaxLod;
     vec2 t = tc(q);
 
-    // rain on the window glass
+    // rain on the window glass only (the glass mask, feathered inward: not on the plant or the monitor in front)
+    float glass = 0.0;
     float dropMask = 0.0;
     if (inRect(q, uWindow)) {
-      vec2 wl = (q - uWindow.xy) / (uWindow.zw - uWindow.xy);
-      float feather = S(0.0, 0.04, wl.x) * S(1.0, 0.94, wl.x) * S(0.0, 0.03, wl.y) * S(1.0, 0.97, wl.y);
-      vec2 ruv = vec2(q.x * 1.7778, 1.0 - q.y) * uRain.x;
-      float rt = uTime * uRain.y;
-      vec2 c = drops(ruv, rt) * feather;
-      // normal from finite differences (smooth; dFdx would show the 2x2 pixel quads)
-      float e = 1.5 * uTexel.y * uRain.x;
-      vec2 n = vec2(drops(ruv + vec2(e, 0.0), rt).x * feather - c.x, -(drops(ruv + vec2(0.0, e), rt).x * feather - c.x));
-      t += n * uRain.z * uTexel;
-      float clear = max(S(0.1, 0.2, c.x), c.y * 0.8);
-      lod = mix(max(lod, uRain.w * feather), lod * 0.3, clear);
-      dropMask = c.x;
+      glass = S(uRainMask.y, uRainMask.z, textureLod(tMaskA, t, uRainMask.x).r);
+      if (glass > 0.01) {
+        vec2 ruv = vec2(q.x * 1.7778, 1.0 - q.y) * uRain.x;
+        float rt = uTime * uRain.y;
+        vec2 c = drops(ruv, rt);
+        // normal from finite differences (smooth; dFdx would show the 2x2 pixel quads)
+        float e = 1.5 * uTexel.y * uRain.x;
+        vec2 n = vec2(drops(ruv + vec2(e, 0.0), rt).x - c.x, -(drops(ruv + vec2(0.0, e), rt).x - c.x));
+        float k = glass * uDropAmount;
+        t += n * uRain.z * uTexel * k;
+        float clear = max(S(0.1, 0.2, c.x), c.y * 0.8) * k;
+        lod = mix(lod, mix(max(lod, uRain.w), lod * 0.3, clear), glass);
+        dropMask = c.x * k;
+      }
     }
 
     vec3 col = blurTap(t, lod);
 
-    if (inRect(q, uWindow)) {
-      // neon signs behind the glass: saturated bright pixels flicker now and then, per sign-ish band
+    if (glass > 0.01) {
+      // neon signs live BEHIND the glass: mask and flicker band come from the refracted coordinate,
+      // band edges are soft, and the drop highlights go on after the flicker
+      vec2 qr = vec2(t.x, 1.0 - t.y);
       float sat = max(col.r, max(col.g, col.b)) - min(col.r, min(col.g, col.b));
       float neonMask = S(0.2, 0.5, sat) * S(0.35, 0.75, max(col.r, max(col.g, col.b)));
-      float band = floor(q.x * 9.0 + q.y * 4.0);
+      float f = qr.x * 9.0 + qr.y * 4.0;
+      float band = floor(f);
+      float soft = S(0.0, 0.25, fract(f)) * S(1.0, 0.75, fract(f));
       float event = step(0.93, hash1(band * 7.13 + floor(uTime * 2.5)));
       float stutter = step(0.45, hash1(band + floor(uTime * 26.0)));
       float buzz = 0.96 + 0.04 * sin(uTime * 100.0 + band);
-      col *= mix(1.0, buzz * (1.0 - event * stutter * uNeon), neonMask);
+      col *= mix(1.0, buzz * (1.0 - event * stutter * soft * uNeon), neonMask * glass);
       col += dropMask * vec3(0.05, 0.05, 0.07);
     }
 
@@ -200,30 +216,21 @@ export const WORLD_FRAG = /* glsl */ `
     float warm = clamp((col.r - col.b) * 2.5, 0.0, 1.0);
     col *= mix(1.0, uLampLevel, exp(-ld * uLamp.z) * warm);
 
-    // hover: soft glow + rim on the pixels of the hovered prop (rect ellipse x depth match); the rest dims a little
+    // hover: glow inside the prop's mask, a rim from the mask's edge; everything else dims a little
     if (uHover > 0.002) {
-      vec4 hr = uHoverRect;
-      vec2 hl = (q - hr.xy) / (hr.zw - hr.xy);
-      float ell = 1.0 - S(0.8, 1.05, length((hl - 0.5) * 2.0));
       float mask = 0.0;
-      if (ell > 0.0) {
-        float m = hoverMatch(q);
-        vec2 o = uRimPx * uTexel * vec2(1.0, -1.0);
-        float avg = (hoverMatch(q + vec2(o.x, 0.0)) + hoverMatch(q - vec2(o.x, 0.0)) +
-                     hoverMatch(q + vec2(0.0, o.y)) + hoverMatch(q - vec2(0.0, o.y)) +
-                     hoverMatch(q + o * 0.7) + hoverMatch(q - o * 0.7)) / 6.0;
-        float rim = clamp(abs(avg - m) * 2.5, 0.0, 1.0) * ell;
-        if (uHoverEdge > 0.0) {
-          // props the depth map cannot separate from the wall (the headset): outline the picture's own edges instead
-          vec2 t0 = tc(q);
-          vec3 L = vec3(0.3, 0.55, 0.15);
-          float gx = dot(textureLod(tPlate, t0 + vec2(o.x, 0.0), 0.5).rgb - textureLod(tPlate, t0 - vec2(o.x, 0.0), 0.5).rgb, L);
-          float gy = dot(textureLod(tPlate, t0 + vec2(0.0, o.x), 0.5).rgb - textureLod(tPlate, t0 - vec2(0.0, o.x), 0.5).rgb, L);
-          rim = max(rim, S(0.1, 0.3, length(vec2(gx, gy))) * ell * ell * uHoverEdge);
-        }
+      vec4 hr = uHoverRect;
+      vec2 pad = uRimPx * 2.0 * uTexel;
+      if (q.x > hr.x - pad.x && q.x < hr.z + pad.x && q.y > hr.y - pad.y && q.y < hr.w + pad.y) {
+        mask = propMask(q);
+        vec2 o = uRimPx * uTexel;
+        float avg = (propMask(q + vec2(o.x, 0.0)) + propMask(q - vec2(o.x, 0.0)) +
+                     propMask(q + vec2(0.0, o.y)) + propMask(q - vec2(0.0, o.y)) +
+                     propMask(q + o * 0.7) + propMask(q - o * 0.7) +
+                     propMask(q + vec2(o.x, -o.y) * 0.7) + propMask(q - vec2(o.x, -o.y) * 0.7)) / 8.0;
+        float rim = clamp(abs(avg - mask) * 2.5, 0.0, 1.0);
         float pulse = 0.8 + 0.2 * sin(uTime * 4.0);
-        mask = m * ell;
-        col += uHover * (mask * (col * uHoverFx.x + uHoverColor * 0.04) + rim * uHoverColor * uHoverFx.y * pulse);
+        col += uHover * uHoverGain * (mask * (col * uHoverFx.x + uHoverColor * 0.04) + rim * uHoverColor * uHoverFx.y * pulse);
       }
       col *= 1.0 - uHover * uHoverFx.z * (1.0 - mask);
     }
@@ -263,6 +270,7 @@ export const DUST_VERT = /* glsl */ `
   uniform vec3 uLamp;
   uniform float uLampLevel;
   uniform float uPxScale;
+  uniform float uDepthClamp;
   varying float vAlpha;
   varying float vSoft;
   ${COMMON}
@@ -276,7 +284,7 @@ export const DUST_VERT = /* glsl */ `
                              t * uSpeed * (0.3 + aSeed.z) + cos(t * 0.17 + aSeed.w * 6.28) * 0.01);
     p = a0 + fract(p) * span;
     float depthN = 0.55 + aSeed.w * 0.35;           // motes float between the screens and the viewer
-    float depthRaw = depthN * 0.45;
+    float depthRaw = depthN * uDepthClamp;
     vec2 ip = p + uLook * (depthN - uPivot);
     vec2 s = imageToScreen(ip, uPlateView, uPlateFit);
     gl_Position = vec4(s.x * 2.0 - 1.0, 1.0 - s.y * 2.0, 0.0, 1.0);
@@ -368,6 +376,7 @@ export const POST_FRAG = /* glsl */ `
   uniform float uFlash;
   uniform float uFade;
   uniform float uZoomBlur;
+  uniform vec2 uZoomCenter;     // screen uv of the prop we push toward
   uniform float uAberration;
   uniform float uVignette;
   uniform float uGrain;
@@ -408,7 +417,7 @@ export const POST_FRAG = /* glsl */ `
       col = vec3(0.0);
       for (int i = 0; i < 8; i++) {
         float k = 1.0 - float(i) * uZoomBlur / 8.0;
-        col += splitTap(0.5 + dc * k, ca);
+        col += splitTap(uZoomCenter + (uv - uZoomCenter) * k, ca);
       }
       col /= 8.0;
     } else {

@@ -13,11 +13,12 @@ The jam requires listing every asset we did not create. Add a row the moment an 
 | L1, L2 | Recraft V4 Vector via OpenRouter | 2026-10-04 |
 | NN2, NN3, OP2, OP3, OP5 | Microsoft MAI-Image-2.6-flash via OpenRouter | 2026-10-04 |
 | NN1, O3, O4, OP4 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
-| FP2 | Microsoft MAI-Image-2.6 via OpenRouter | 2026-10-04 |
-| CU1-CU4, KA2, K2 | Microsoft MAI-Image-2.6-flash via OpenRouter | 2026-10-04 |
+| KA2, K2, CU1c-CU4c | Microsoft MAI-Image-2.6-flash via OpenRouter | 2026-10-04 |
+| FP4 (edits of an earlier MAI-Image-2.6 plate), CU5 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
 | H1-H4, H6 | Microsoft MAI-Image-2.6-flash via OpenRouter | 2026-10-04 |
 | H5 | Google Gemini 3.1 Flash Image via OpenRouter | 2026-10-04 |
-| FP2-room-fp-depth | Depth Anything V2 Small (Apache-2.0) through transformers.js, run locally | 2026-10-04 |
+| FP4-room-fp-depth | Depth Anything V2 Small (Apache-2.0) through transformers.js, run locally | 2026-10-04 |
+| FP4-room-fp-masks-a/b | SlimSAM (Segment Anything, Apache-2.0) through transformers.js, run locally | 2026-10-04 |
 
 ## Concept art (`concept-art/`, reference only)
 
