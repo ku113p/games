@@ -6,7 +6,9 @@
 // (the low-HP muffle) -> a DynamicsCompressor used as a limiter -> destination. Each sound group has a voice limit (the
 // oldest voice is dropped), the frequent ones get a +-5% random pitch, derez plays at most once per 80 ms, and sounds
 // with a position are panned by their azimuth relative to the camera (StereoPanner, no HRTF). The drone hum and the
-// camera servo are a few loop voices (the nearest sources), each panned. All numbers: config.json audio.mixer.
+// camera servo are a few loop voices (the nearest sources), each panned. Space: one shared ConvolverNode (a synthesized short, dark
+// impulse response, no files) is fed by a per-voice send (audio.mixer.send, by group or bus); a positioned sound farther than
+// mixer.far.fromM from the listener is also lowpassed by its distance and sent a little wetter. All numbers: config.json audio.mixer.
 import cfgAll from '../config.json'
 import jump from '../audio/sfx/jump.mp3'
 import dash from '../audio/sfx/dash.mp3'
@@ -21,6 +23,10 @@ import derez from '../audio/sfx/derez.mp3'
 import rifleShotV1 from '../audio/sfx/rifle_shot_v1.mp3'
 import rifleShotV2 from '../audio/sfx/rifle_shot_v2.mp3'
 import rifleShotV3 from '../audio/sfx/rifle_shot_v3.mp3'
+import rifleShotV4 from '../audio/sfx/rifle_shot_v4.mp3'
+import rifleShotV5 from '../audio/sfx/rifle_shot_v5.mp3'
+import hitTick from '../audio/sfx/hit_tick.mp3'
+import killPop from '../audio/sfx/kill_pop.mp3'
 import rifleEmpty from '../audio/sfx/rifle_empty.mp3'
 import bulletImpactV1 from '../audio/sfx/bullet_impact_v1.mp3'
 import bulletImpactV2 from '../audio/sfx/bullet_impact_v2.mp3'
@@ -154,6 +160,10 @@ const FILES: Record<string, string> = {
   rifle_shot_v1: rifleShotV1,
   rifle_shot_v2: rifleShotV2,
   rifle_shot_v3: rifleShotV3,
+  rifle_shot_v4: rifleShotV4,
+  rifle_shot_v5: rifleShotV5,
+  hit_tick: hitTick,
+  kill_pop: killPop,
   rifle_empty: rifleEmpty,
   bullet_impact_v1: bulletImpactV1,
   bullet_impact_v2: bulletImpactV2,
@@ -219,6 +229,7 @@ const FILES: Record<string, string> = {
 }
 
 const M = cfgAll.audio.mixer
+const A_HEAR = cfgAll.audio.hearDist
 
 export type LoopName = 'drone_hum_loop' | 'camera_servo_loop' | 'alarm_3_loop' | 'worm_skitter_loop'
 /** The loops that have one voice per source (the nearest few), each panned. */
@@ -264,6 +275,9 @@ const POLICY: Record<string, Policy> = {
   sound_camera_ping: P('enemy'),
   motion_sensor_trip: P('enemy'),
   voice_may: P('ui'),
+  // the confirmation cues: always identical (no pitch jitter), never stacked
+  hit_tick: P('ui', undefined, false, M.gapSec.hit_tick),
+  kill_pop: P('ui', undefined, false, M.gapSec.kill_pop),
 }
 const DEFAULT_PLAYER = P('player')
 const DEFAULT_ENEMY = P('enemy')
@@ -299,6 +313,9 @@ export class Sound {
   ctx: AudioContext | null = null
   private master: GainNode | null = null
   private lowpass: BiquadFilterNode | null = null
+  /** The shared reverb: the send bus feeds a convolver, its return goes to the master (scaled with the sfx volume and the hack duck). */
+  private reverbIn: GainNode | null = null
+  private reverbOut: GainNode | null = null
   private readonly buses = new Map<BusName, GainNode>()
   /** The ui/voice bus: the hack overlay and the warden's live sounds play here (so they share the master volume). */
   bus: GainNode | null = null
@@ -359,6 +376,7 @@ export class Sound {
       this.buses.set(name, g)
     }
     this.bus = this.buses.get('ui') ?? null
+    this.buildReverb(ctx)
     this.applyGains()
     for (const fn of this.ctxFns) fn()
     this.ctxFns = []
@@ -383,6 +401,45 @@ export class Sound {
     this.ready = true
     for (const fn of this.readyFns) fn()
     this.readyFns = []
+  }
+
+  /** One convolver for the whole game with a synthesized impulse response: stereo decaying noise, darker as it fades, after a short pre-delay. */
+  private buildReverb(ctx: AudioContext): void {
+    if (typeof ctx.createConvolver !== 'function' || !this.master) return
+    const R = M.reverb
+    const rate = ctx.sampleRate
+    const len = Math.max(1, Math.round(R.sec * rate))
+    const pre = Math.round(R.preDelaySec * rate)
+    const ir = ctx.createBuffer(2, len, rate)
+    let seed = 0x9e3779b9
+    const rnd = (): number => {
+      // mulberry32: a deterministic IR, the same every run
+      seed = (seed + 0x6d2b79f5) | 0
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch)
+      let lp = 0
+      for (let i = pre; i < len; i++) {
+        const t = (i - pre) / rate
+        const k = (i - pre) / Math.max(1, len - pre) // 0 -> 1 over the tail
+        // a one-pole lowpass whose cutoff falls from lowpassHz to darkHz
+        const hz = R.lowpassHz * Math.pow(R.darkHz / R.lowpassHz, k)
+        const a = 1 - Math.exp((-2 * Math.PI * hz) / rate)
+        lp += a * (rnd() * 2 - 1 - lp)
+        d[i] = lp * Math.exp((-t * 6.9) / R.sec) * (1 - Math.exp(-t / 0.006))
+      }
+    }
+    const conv = ctx.createConvolver()
+    conv.normalize = true
+    conv.buffer = ir
+    const input = ctx.createGain()
+    const out = ctx.createGain()
+    input.connect(conv).connect(out).connect(this.master)
+    this.reverbIn = input
+    this.reverbOut = out
   }
 
   /** Runs fn as soon as the context and the buses exist (before the SFX are decoded), now if they already do. */
@@ -414,6 +471,7 @@ export class Sound {
     this.master.gain.setTargetAtTime(this.volume * this.volumes.master, now, 0.03)
     const sfx = this.volumes.sfx
     const world = sfx * this.hackDuck
+    this.reverbOut?.gain.setTargetAtTime(M.reverb.return * world, now, 0.05)
     for (const [name, g] of this.buses) {
       const v = name === 'music' ? this.volumes.music : name === 'ui' ? sfx : world
       g.gain.setTargetAtTime(M.bus[name] * v, now, 0.05)
@@ -548,11 +606,36 @@ export class Sound {
     const g = ctx.createGain()
     g.gain.value = vol
     const bus = this.buses.get(pol.bus) as GainNode
-    if (x !== null && typeof ctx.createStereoPanner === 'function') {
-      const pan = ctx.createStereoPanner()
-      pan.pan.value = this.panOf(x, z)
-      src.connect(g).connect(pan).connect(bus)
-    } else src.connect(g).connect(bus)
+    // the space: the send by group (or bus); a far positioned sound is darker (lowpass by distance) and a little wetter
+    const sends = M.send as Record<string, number>
+    let send = (pol.group ? sends[pol.group] : undefined) ?? sends[name] ?? sends[pol.bus] ?? 0
+    let node: AudioNode = g
+    src.connect(g)
+    if (x !== null) {
+      const dist = Math.hypot(x - this.lx, z - this.lz)
+      const far = Math.max(0, Math.min(1, (dist - M.far.fromM) / Math.max(1, A_HEAR - M.far.fromM)))
+      if (far > 0.01 && typeof ctx.createBiquadFilter === 'function') {
+        const lp = ctx.createBiquadFilter()
+        lp.type = 'lowpass'
+        lp.frequency.value = M.far.nearHz * Math.pow(M.far.farHz / M.far.nearHz, far)
+        lp.Q.value = 0.5
+        node.connect(lp)
+        node = lp
+        send += M.far.sendBoost * far
+      }
+      if (typeof ctx.createStereoPanner === 'function') {
+        const pan = ctx.createStereoPanner()
+        pan.pan.value = this.panOf(x, z)
+        node.connect(pan)
+        node = pan
+      }
+    }
+    node.connect(bus)
+    if (send > 0.001 && this.reverbIn) {
+      const sg = ctx.createGain()
+      sg.gain.value = send
+      node.connect(sg).connect(this.reverbIn)
+    }
     // the voice limit: past it, the oldest of the group fades out
     const key = pol.group ?? name
     const limit = pol.group ? M.voiceLimit[pol.group] : M.voiceLimit.default

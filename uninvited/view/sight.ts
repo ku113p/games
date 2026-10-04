@@ -1,7 +1,7 @@
 // Where the security can actually see: for every camera and drone a fan of rays is cast over the level on the CPU and
 // written into one small texture, one row per device. The floor fans and the cone volumes read it, so neither leaks
 // through walls or past cover. The rays are world-locked: a sweeping camera only needs a new fan when it turns past the
-// margin, a drone when it moves. No allocations after the build.
+// margin, a drone when it moves (at most updateHz times a second and recastsPerFrame a frame). No allocations after the build.
 //
 // Each ray stores four distances (0..1 of the range, RGBA):
 //   R  end of the near visible stretch      G, B  start and end of the far visible stretch      A  the first wall
@@ -50,6 +50,8 @@ export interface Sight {
   readonly texture: DataTexture
   /** The occlusion fan of a device at eye (x, y, z), recast when needed. spread from fanSpread(). */
   fan(key: number, x: number, y: number, z: number, yaw: number, spread: number, range: number): Fan
+  /** The same fan as a one-off into out (FAN_RAYS * 4 bytes, the texture's layout), touching no slot: for the exposure map. */
+  probe(out: Uint8Array, x: number, y: number, z: number, yaw: number, spread: number, range: number): void
   /** Once a frame before the fan() calls: the red walls (closed ones block); a wall opening or closing recasts all fans. */
   setWalls(walls: readonly SightWall[]): void
   /** Once a frame after all fan() calls: advances the clock, uploads changed rows. */
@@ -83,6 +85,10 @@ export function createSight(g: Grid): Sight {
   for (let i = 0; i < MAX_FANS; i++) slots.push({ fan: { v: (i + 0.5) / MAX_FANS, ox: 0, oz: 0, yaw: 0, spread: 0 }, oy: 0, range: 1, last: -1, valid: false })
   const margin = K.marginDeg * DEG
   const minGap = 1 / Math.max(1, K.updateHz)
+  // the throttled recasts (a moving device) per frame: the rest wait for the next frame, so a crowd of moving devices does not
+  // all recast in the same frame (the forced ones - a turn past the margin, a new range - always go)
+  const perFrame = Math.max(1, K.recastsPerFrame)
+  let budget = perFrame
   const step = K.sightStep
   let clock = 0
   let dirty = false
@@ -232,23 +238,14 @@ export function createSight(g: Grid): Sight {
 
   const byte = (d: number, range: number): number => Math.max(0, Math.min(255, Math.round((d / range) * 255)))
 
-  function recast(i: number, s: Slot, x: number, y: number, z: number, yaw: number, spread: number, range: number): void {
-    const f = s.fan
-    f.ox = x
-    f.oz = z
-    f.yaw = yaw
-    f.spread = spread
-    s.oy = y
-    s.range = range
-    s.last = clock
-    s.valid = true
+  /** Casts one fan (FAN_RAYS rays across [yaw - spread, yaw + spread]) from the eye at (x, y, z) into out at offset `row`. */
+  function fill(out: Uint8Array, row: number, x: number, y: number, z: number, yaw: number, spread: number, range: number): void {
     near.length = 0
     const reach = range + 2
     for (const b of g.blocks) {
       if (b.maxX < x - reach || b.minX > x + reach || b.maxZ < z - reach || b.minZ > z + reach) continue
       near.push(b)
     }
-    const row = i * FAN_RAYS * 4
     for (let k = 0; k < FAN_RAYS; k++) {
       const a = yaw - spread + (2 * spread * k) / (FAN_RAYS - 1)
       const dx = Math.sin(a)
@@ -260,10 +257,10 @@ export function createSight(g: Grid): Sight {
       const nearEnd = n > 0 ? (segs[1] as number) : 0
       const farStart = n > 1 ? (segs[2] as number) : nearEnd
       const farEnd = n > 1 ? (segs[3] as number) : nearEnd
-      data[o] = byte(nearEnd, range)
-      data[o + 1] = byte(farStart, range)
-      data[o + 2] = byte(farEnd, range)
-      data[o + 3] = byte(wall, range)
+      out[o] = byte(nearEnd, range)
+      out[o + 1] = byte(farStart, range)
+      out[o + 2] = byte(farEnd, range)
+      out[o + 3] = byte(wall, range)
       shadowed[k] = n > 1 ? 1 : 0
     }
     // a ray without a shadow next to one with a shadow: put its (empty) shadow where the neighbour's is, so the
@@ -274,17 +271,33 @@ export function createSight(g: Grid): Sight {
       if (nb < 0) continue
       const o = row + k * 4
       const q = row + nb * 4
-      const mid = Math.round(((data[q] as number) + (data[q + 1] as number)) / 2)
-      if (mid >= (data[o] as number)) continue // the neighbour's shadow lies beyond this ray's reach
-      data[o + 2] = data[o] as number
-      data[o] = mid
-      data[o + 1] = mid
+      const mid = Math.round(((out[q] as number) + (out[q + 1] as number)) / 2)
+      if (mid >= (out[o] as number)) continue // the neighbour's shadow lies beyond this ray's reach
+      out[o + 2] = out[o] as number
+      out[o] = mid
+      out[o + 1] = mid
     }
+  }
+
+  function recast(i: number, s: Slot, x: number, y: number, z: number, yaw: number, spread: number, range: number): void {
+    const f = s.fan
+    f.ox = x
+    f.oz = z
+    f.yaw = yaw
+    f.spread = spread
+    s.oy = y
+    s.range = range
+    s.last = clock
+    s.valid = true
+    fill(data, i * FAN_RAYS * 4, x, y, z, yaw, spread, range)
     dirty = true
   }
 
   return {
     texture,
+    probe(out, x, y, z, yaw, spread, range): void {
+      fill(out, 0, x, y, z, yaw, spread, range)
+    },
     fan(key, x, y, z, yaw, spread, range): Fan {
       if (key < 0 || key >= MAX_FANS) return NO_FAN
       const s = slots[key] as Slot
@@ -293,8 +306,11 @@ export function createSight(g: Grid): Sight {
       if (turn > Math.PI) turn = Math.PI * 2 - turn
       const moved = Math.abs(x - f.ox) + Math.abs(z - f.oz) + Math.abs(y - s.oy)
       const must = !s.valid || range !== s.range || spread !== f.spread || moved > K.moveSnap || turn > margin * 0.6
-      const may = clock - s.last >= minGap && (moved > 0.01 || turn > margin * 0.25)
-      if (must || may) recast(key, s, x, y, z, yaw, spread, range)
+      const may = budget > 0 && clock - s.last >= minGap && (moved > 0.01 || turn > margin * 0.25)
+      if (must || may) {
+        if (!must) budget--
+        recast(key, s, x, y, z, yaw, spread, range)
+      }
       return f
     },
     setWalls(next): void {
@@ -311,6 +327,7 @@ export function createSight(g: Grid): Sight {
     },
     flush(dt: number): void {
       clock += dt
+      budget = perFrame
       if (dirty) {
         texture.needsUpdate = true
         dirty = false

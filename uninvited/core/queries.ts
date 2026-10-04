@@ -2,10 +2,13 @@
 // Hot path: no allocations - results are numbers, strings, or written into caller-owned objects.
 import type { WormState } from './state'
 import type { WardenState } from './state'
-import { wardenLook } from './rules/wardens'
+import { takedownTarget, wardenLook } from './rules/wardens'
 import type { BoltState, ShardState, CheckpointState, DroneState, Gate, GameState, GateState, LaserState, ScanLink, Vec3, RedWallState, SensorState, Sim, SoundCameraState, TerminalState, VideoCameraState } from './state'
 import type { HackSession } from './hack/index'
+import { wavesNeeded } from './rules/alarm'
 import { heroColor, isSadEnding, type Rgb } from './rules/progress'
+import { abilityUnlocked, cooldownLengthSec, hackBonusSec } from './rules/may'
+import { hackParams } from './hack/generate'
 import { nearestInteractable, type Interactable } from './rules/terminals'
 import { inCover } from './rules/detection'
 import { laserOn } from './rules/devices'
@@ -13,6 +16,7 @@ import { wormWindupProgress } from './rules/worms'
 import type { Block, Grid } from './grid'
 
 export { pickTarget } from './rules/combat'
+export { sweepYaw } from './rules/devices'
 export type { Rgb } from './rules/progress'
 export type { Interactable } from './rules/terminals'
 
@@ -27,7 +31,8 @@ export function heroAnim(s: GameState, sim: Sim): HeroAnim {
   if (p.shootTime > 0) return 'shoot'
   if (p.dashTime > 0) return 'dash'
   if (p.hitTime > 0) return 'hit'
-  if (s.hack !== null) return p.crouched ? 'hackCrouched' : 'hack'
+  // the takedown overrides the warden's systems: the hero uses the hack pose
+  if (s.hack !== null || p.takedownTime > 0) return p.crouched ? 'hackCrouched' : 'hack'
   if (!p.grounded) return 'jump'
   if (p.crouched) return 'crouch'
   if (p.speed > sim.cfg.player.walkSpeed + 0.4) return 'run'
@@ -130,7 +135,7 @@ export function alarmDecayFraction(s: GameState, sim: Sim): number {
 export function waveInfo(s: GameState, sim: Sim, out: { wave: number; cleared: number; needed: number; firewallDown: boolean; active: boolean }): void {
   out.wave = s.alarm.wave
   out.cleared = s.alarm.wavesCleared
-  out.needed = sim.cfg.alarm.firewallAfterWaves
+  out.needed = wavesNeeded(s, sim)
   out.firewallDown = s.alarm.firewallDown
   out.active = s.alarm.waveActive
 }
@@ -284,7 +289,8 @@ export function scanWarning(s: GameState): boolean {
 const interactOut = { index: -1 }
 
 /** What the E prompt says right now. */
-export function interactPrompt(s: GameState, sim: Sim): Interactable {
+export function interactPrompt(s: GameState, sim: Sim): Interactable | 'takedown' {
+  if (takedownTarget(s, sim) >= 0) return 'takedown'
   return nearestInteractable(s, sim, interactOut)
 }
 
@@ -307,16 +313,22 @@ export function wardenLookYaw(s: GameState, i: number): number {
 }
 
 /** Each warden's round as walked (floor points, a loop) for network vision; empty for a warden on a post. Cold path (allocates). */
+/** Each warden's stops as authored (static): where it stands, how long, and the yaw it faces (NaN = any); a post has one. */
+export function wardenStops(sim: Sim): readonly (readonly Readonly<{ x: number; y: number; z: number; waitSec: number; look: number }>[])[] {
+  return sim.wardenRoutes.map((r) => r.stops)
+}
+
 export function wardenRoutes(sim: Sim): readonly (readonly Readonly<Vec3>[])[] {
   return sim.wardenRoutes.map((r) => r.line)
 }
 
 /** What a warden's body does right now, for its animation. */
-export type WardenAnim = 'idle' | 'walk' | 'search' | 'run' | 'scan' | 'check' | 'suspicious' | 'alert' | 'strike' | 'recover' | 'aim' | 'hit' | 'death' | 'paused'
+export type WardenAnim = 'idle' | 'walk' | 'search' | 'run' | 'scan' | 'check' | 'suspicious' | 'alert' | 'strike' | 'recover' | 'aim' | 'hit' | 'death' | 'paused' | 'down'
 
 export function wardenAnim(s: GameState, i: number): WardenAnim {
   const w = s.wardens[i]
   if (!w || !w.alive) return 'death'
+  if (w.down > 0) return 'down'
   if (w.pausedTime > 0 || w.controlled) return 'paused'
   if (w.strike > 0) return 'strike'
   if (w.recover > 0) return 'recover'
@@ -337,11 +349,24 @@ export function wardenAnim(s: GameState, i: number): WardenAnim {
   }
 }
 
+/**
+ * 0..1 how far down a taken-down warden is: it powers down over takedown.sec (0 to 1), stays at 1, and in the last
+ * takedown.rebootSec it stands back up (1 to 0). 0 when it is not down.
+ */
+export function wardenDownness(s: GameState, sim: Sim, i: number): number {
+  const w = s.wardens[i]
+  const t = sim.cfg.warden.takedown
+  if (!w || w.down <= 0) return 0
+  const into = t.downSec - w.down
+  return Math.max(0, Math.min(1, into / t.sec, w.down / t.rebootSec))
+}
+
 /** 0..1 how far a warden is into its strike windup, aim, recovery or flinch (for the view's telegraphs). */
 export function wardenActionProgress(s: GameState, sim: Sim, i: number): number {
   const w = s.wardens[i]
   const c = sim.cfg.warden
   if (!w) return 0
+  if (w.down > 0) return wardenDownness(s, sim, i)
   if (w.strike > 0) return 1 - w.strike / c.strikeWindupSec
   if (w.recover > 0) return 1 - w.recover / c.strikeRecoverSec
   if (w.aim > 0) return 1 - w.aim / c.shotAimSec
@@ -423,6 +448,49 @@ export function artifactPos(sim: Sim): Readonly<{ x: number; y: number; z: numbe
 export function mayMet(s: GameState): boolean {
   return s.mayMet === true
 }
+
+/** One of May's actives (slot 0 = key 1 distraction, 1 = key 2 pause a camera), for the HUD. */
+export interface AbilitySlot {
+  unlocked: boolean
+  /** Seconds until it is ready (0 = ready) and the full cooldown, s. */
+  cooldown: number
+  cooldownLength: number
+}
+
+export function abilitySlot(s: GameState, sim: Sim, slot: number, out: AbilitySlot): AbilitySlot {
+  out.unlocked = abilityUnlocked(s, slot)
+  out.cooldown = s.may.cd[slot] ?? 0
+  out.cooldownLength = cooldownLengthSec(s, sim, slot)
+  return out
+}
+
+/** Unspent points. */
+export function mayPoints(s: GameState): number {
+  return s.may.points
+}
+
+/** The hacking time of the easiest and the hardest terminal with May's bonus, s (the HUD says it is shorter without upgrades). */
+export function hackTimeRange(s: GameState, sim: Sim, out: { min: number; max: number }): void {
+  const bonus = sim.cfg.terminal.timeBonusSec + hackBonusSec(s, sim)
+  out.min = hackParams(0, sim.cfg.hack).timeSec + bonus
+  out.max = hackParams(1, sim.cfg.hack).timeSec + bonus
+}
+
+export {
+  anyAffordable,
+  buyState,
+  effectAt,
+  hackBonusSec,
+  maxCharges,
+  maxRank,
+  nextCost,
+  pauseLengthSec,
+  rankOf,
+  shieldRechargeSec,
+  shieldWaitSec,
+  UPGRADE_IDS,
+} from './rules/may'
+export type { BuyState } from './rules/may'
 
 export function artifactTaken(s: GameState): boolean {
   return s.artifactTaken

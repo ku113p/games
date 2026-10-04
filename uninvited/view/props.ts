@@ -43,6 +43,7 @@ import {
   videoCameras,
 } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
+import { inView } from './cull'
 import { palette, type Materials } from './look'
 import { buildNetVision, type NetVision } from './netvision'
 import { fanSpread, NO_FAN, type Sight } from './sight'
@@ -480,7 +481,10 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
       if (!c.alive) continue
       v.pivot.rotation.y = c.yaw
       v.pivot.rotation.x = VC.pitchDeg * DEG
-      const fan = sight.fan(i, c.pos.x, c.pos.y, c.pos.z, c.yaw, CAM_SPREAD, VC.range)
+      // the view range shows only in network vision and only where the camera can see it (no fan casts otherwise)
+      const seen = scanK > 0 && inView(c.pos.x, c.pos.y, c.pos.z, VC.range)
+      v.cone.mesh.visible = seen
+      const fan = seen ? sight.fan(i, c.pos.x, c.pos.y, c.pos.z, c.yaw, CAM_SPREAD, VC.range) : NO_FAN
       if (c.pausedTime > 0) {
         tmpColor.copy(palette.paused)
         v.cone.set(tmpColor, 0.25, time, fan)

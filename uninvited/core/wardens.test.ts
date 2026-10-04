@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { attack, toggleCrouch } from './commands'
+import { attack, interact, toggleCrouch } from './commands'
 import { buildGrid } from './grid'
 import type { EntityDef } from './level'
 import { raiseAlarm } from './rules/alarm'
@@ -7,8 +7,8 @@ import { damageTarget } from './rules/combat'
 import { makeNoise } from './rules/detection'
 import { unlockTerminal } from './rules/terminals'
 import { findPath } from './rules/walk'
-import { wardenLook } from './rules/wardens'
-import { securityStatus, suspicionSources, wardenAnim, type SuspicionSource } from './queries'
+import { canTakedown, wardenLook } from './rules/wardens'
+import { interactPrompt, securityStatus, suspicionSources, wardenAnim, wardenDownness, type SuspicionSource } from './queries'
 import { placePlayer, run, setup, testLevel, type Fixture } from './testing'
 
 const HALL = [
@@ -133,14 +133,15 @@ describe('wardens notice, check and give up', () => {
     expect(f.s.alarm.stage).toBeGreaterThanOrEqual(1)
     expect(securityStatus(f.s)).toBe('detected')
     // from range it shoots (holds its distance); close up (about 3 m) it switches to melee
-    const shots = run(f, 4)
+    const shots = [...seen, ...run(f, 4)]
     expect(shots).toContain('wardenAiming')
     expect(shots).toContain('wardenFired')
-    expect(shots).not.toContain('wardenStrike')
+    // it shoots first; stepping in for the melee comes after a shot (closing in), never before
+    if (shots.includes('wardenStrike')) expect(shots.indexOf('wardenFired')).toBeLessThan(shots.indexOf('wardenStrike'))
     f.s.player.invuln = 0
     placePlayer(f, 6, 2)
     const fight = run(f, 6)
-    expect(fight).toContain('wardenStrike')
+    expect([...shots, ...fight]).toContain('wardenStrike')
     expect(fight).toContain('wardenStruck')
     expect(f.s.player.hp).toBeLessThan(f.sim.cfg.player.maxHp)
   })
@@ -251,7 +252,7 @@ describe('wardens notice, check and give up', () => {
   })
 
   test('deterministic: the same seed walks the same round', () => {
-    const route: EntityDef = { kind: 'warden', id: 'w', at: [2, 1], route: [{ at: [2, 1] }, { at: [10, 1] }, { at: [10, 4], waitSec: 2 }, { at: [3, 4] }] }
+    const route: EntityDef = { kind: 'warden', id: 'w', at: [2, 1], route: [{ at: [2, 1] }, { at: [10, 1], waitSec: 8 }, { at: [10, 2] }, { at: [3, 2] }] }
     const trace = (seed: number): string => {
       const f = setup(HALL, [route], undefined, seed)
       park(f)
@@ -263,7 +264,128 @@ describe('wardens notice, check and give up', () => {
       return out.join(';')
     }
     expect(trace(5)).toBe(trace(5))
-    expect(trace(5)).not.toBe(trace(6)) // the pauses vary with the seed
+    expect(trace(5)).not.toBe(trace(6)) // the waits vary a little with the seed
+  })
+})
+
+/** A post warden facing south at cell [6, 4]; the player parked `dz` metres along z from it (negative = behind it). */
+function takedownFixture(dz: number, extra: Partial<EntityDef> = {}): Fixture {
+  const f = setup(HALL, [{ kind: 'warden', id: 'w', at: [6, 4], post: 's', ...extra } as EntityDef])
+  const w = f.s.wardens[0]
+  if (!w) throw new Error('no warden')
+  f.s.player.pos.x = w.pos.x
+  f.s.player.pos.z = w.pos.z + dz
+  f.s.player.pos.y = w.pos.y
+  return f
+}
+
+describe('the non-lethal takedown (E from behind)', () => {
+  test('from behind, close: a silent 0.6 s action locks the hero, the warden goes down, no alarm, no kill', () => {
+    const f = takedownFixture(-1.2)
+    const w = f.s.wardens[0] as (typeof f.s.wardens)[number]
+    expect(canTakedown(f.s, f.sim, 0)).toBe(true)
+    expect(interactPrompt(f.s, f.sim)).toBe('takedown')
+    const ev = interact(f.s, f.sim).map((e) => e.type)
+    expect(ev).toContain('wardenDowned')
+    expect(f.s.player.takedownTime).toBeCloseTo(0.6)
+    expect(wardenAnim(f.s, 0)).toBe('down')
+    // the hero is locked while it lasts
+    const before = f.s.player.pos.z
+    f.intent.moveForward = 1
+    const seen = run(f, 0.4)
+    expect(f.s.player.pos.z).toBeCloseTo(before, 3)
+    expect(seen).not.toContain('noise')
+    expect(wardenDownness(f.s, f.sim, 0)).toBeGreaterThan(0.5)
+    run(f, 0.3)
+    expect(wardenDownness(f.s, f.sim, 0)).toBe(1)
+    f.intent.moveForward = 0
+    expect(f.s.player.takedownTime).toBe(0)
+    expect(w.alive).toBe(true)
+    expect(w.mode).not.toBe('alert')
+    expect(f.s.alarm.stage).toBe(0)
+    expect(f.s.run.kills).toBe(0)
+    expect(f.s.run.takedowns).toBe(1)
+  })
+
+  test('refused from the front, from the side beyond the arc, too far, when alerted, and for a heavy', () => {
+    expect(canTakedown(takedownFixture(1.2).s, takedownFixture(1.2).sim, 0)).toBe(false) // in front of it
+    const side = takedownFixture(0)
+    const sw = side.s.wardens[0]
+    if (!sw) throw new Error('no warden')
+    side.s.player.pos.x = sw.pos.x + 1.2 // right at its side: 90 deg off the back, outside the 55 deg half arc
+    expect(canTakedown(side.s, side.sim, 0)).toBe(false)
+    expect(canTakedown(takedownFixture(-2.2).s, takedownFixture(-2.2).sim, 0)).toBe(false) // too far
+    const alerted = takedownFixture(-1.2)
+    const aw = alerted.s.wardens[0]
+    if (!aw) throw new Error('no warden')
+    aw.mode = 'alert'
+    expect(canTakedown(alerted.s, alerted.sim, 0)).toBe(false)
+    expect(interact(alerted.s, alerted.sim).map((e) => e.type)).not.toContain('wardenDowned')
+    const heavy = takedownFixture(-1.2, { heavy: true })
+    expect(canTakedown(heavy.s, heavy.sim, 0)).toBe(false)
+    expect(interactPrompt(heavy.s, heavy.sim)).toBe('none')
+  })
+
+  test('it stays down for downSec, sees nothing meanwhile, then reboots and walks its round unaware', () => {
+    const f = takedownFixture(-1.2)
+    const w = f.s.wardens[0] as (typeof f.s.wardens)[number]
+    const down = f.sim.cfg.warden.takedown.downSec
+    interact(f.s, f.sim)
+    // park the hero in front of it, in plain view: a downed warden does not notice
+    f.s.player.pos.z = w.pos.z + 3
+    run(f, 1)
+    f.s.player.takedownTime = 0
+    run(f, down - 3)
+    expect(w.down).toBeGreaterThan(0)
+    expect(w.sees).toBe(false)
+    expect(w.suspicion).toBe(0)
+    expect(f.s.alarm.stage).toBe(0)
+    expect(wardenAnim(f.s, 0)).toBe('down')
+    const seen = run(f, 2.2)
+    expect(seen).toContain('wardenRebooted')
+    expect(w.down).toBe(0)
+    expect(w.mode).not.toBe('alert')
+    expect(wardenAnim(f.s, 0)).not.toBe('down')
+  })
+
+  test('an alarm of stage 2 or more wakes it: it reboots within rebootSec', () => {
+    const f = takedownFixture(-1.2)
+    const w = f.s.wardens[0] as (typeof f.s.wardens)[number]
+    interact(f.s, f.sim)
+    run(f, 1)
+    raiseAlarm(f.s, f.sim, 'scan', 0, 0, 0)
+    expect(f.s.alarm.stage).toBeGreaterThanOrEqual(1)
+    run(f, 3)
+    expect(w.down).toBeGreaterThan(0) // stage 1 does not
+    f.s.alarm.stage = 2
+    const seen = run(f, f.sim.cfg.warden.takedown.rebootSec + 0.3)
+    expect(seen).toContain('wardenRebooted')
+    expect(w.down).toBe(0)
+  })
+
+  test('a hit wakes a downed warden and it fights; another warden that sees a downed one turns suspicious', () => {
+    const f = takedownFixture(-1.2)
+    const w = f.s.wardens[0] as (typeof f.s.wardens)[number]
+    interact(f.s, f.sim)
+    run(f, 1)
+    f.sim.cfg.combat.sword.damage = 10
+    attack(f.s, f.sim, Math.atan2(w.pos.x - f.s.player.pos.x, w.pos.z - f.s.player.pos.z), 0)
+    run(f, 0.1)
+    expect(w.down).toBe(0)
+    expect(w.mode).toBe('alert')
+
+    const g = setup(HALL, [
+      { kind: 'warden', id: 'a', at: [6, 4], post: 's' },
+      { kind: 'warden', id: 'b', at: [6, 1], post: 's' }, // looks south at a, 6 m away
+    ])
+    const a = g.s.wardens[0] as (typeof g.s.wardens)[number]
+    const b = g.s.wardens[1] as (typeof g.s.wardens)[number]
+    placePlayer(g, 12, 6)
+    toggleCrouch(g.s, g.sim)
+    a.down = 30
+    run(g, 0.5)
+    expect(b.mode).toBe('suspicious')
+    expect(b.lastKnown.z).toBeCloseTo(a.pos.z)
   })
 })
 
@@ -284,6 +406,40 @@ describe('wardens on the HUD', () => {
     expect(suspicionSources(f.s, out)).toBe(1)
     expect(out[0]?.level).toBe(1)
     expect(out[0]?.spotted).toBe(true)
+  })
+})
+
+describe('deterministic rounds', () => {
+  test('a stop without a wait is walked straight through: no random pauses, over a full loop and more', () => {
+    const f = setup(HALL, [{ kind: 'warden', id: 'w', at: [2, 1], route: [{ at: [2, 1] }, { at: [10, 1] }, { at: [10, 2] }, { at: [2, 2] }] }])
+    park(f)
+    const w = f.s.wardens[0] as (typeof f.s.wardens)[number]
+    let stopped = 0
+    run(f, 43, 1 / 20, () => {
+      if (f.s.time > 1 && w.act !== 'walk') stopped++
+    })
+    expect(stopped).toBe(0)
+  })
+
+  test('a waiting stop lasts waitSec within waitVary, and the head sweeps about 30 deg while walking, 55 at a stop', () => {
+    const f = setup(HALL, [{ kind: 'warden', id: 'w', at: [2, 1], route: [{ at: [2, 1] }, { at: [10, 1], waitSec: 6 }] }])
+    park(f)
+    const w = f.s.wardens[0] as (typeof f.s.wardens)[number]
+    const c = f.sim.cfg.warden
+    let walkMax = 0
+    let scanMax = 0
+    let from = -1
+    let len = 0
+    run(f, 60, 1 / 60, () => {
+      if (w.act === 'walk' && from < 0) walkMax = Math.max(walkMax, Math.abs(w.head))
+      else if (w.act === 'scan') scanMax = Math.max(scanMax, Math.abs(w.head))
+      if (w.act !== 'walk' && from < 0) from = f.s.time
+      if (w.act === 'walk' && from >= 0 && len === 0) len = f.s.time - from
+    })
+    expect(len).toBeGreaterThan(6 * (1 - c.waitVary) - 0.1)
+    expect(len).toBeLessThan(6 * (1 + c.waitVary) + 0.1)
+    expect(walkMax).toBeGreaterThan(c.walkScanDeg * 0.017453 * 0.8)
+    expect(walkMax).toBeLessThan((c.walkScanDeg + 3) * 0.017453)
   })
 })
 

@@ -12,7 +12,7 @@ Digital Audio (kenney.nl, CC0 1.0) and processed with ffmpeg by `tools/sfx/libra
 **`build.ts` never writes them** (their recipes are filtered out of `sounds.ts`); rebuild them with
 `bun tools/sfx/library.ts [word]` (sources unzipped to `tools/sfx/kenney/<pack>/Audio/`, gitignored, or `KENNEY_DIR`).
 
-150 files, 99.4 s of audio in total. Format: MP3 (libmp3lame, VBR -q:a 4), 44.1 kHz mono.
+154 files, 99.8 s of audio in total. Format: MP3 (libmp3lame, VBR -q:a 4), 44.1 kHz mono.
 
 ## Rebuild
 
@@ -96,7 +96,9 @@ Voices: one syllable per typed character (or every second character), random var
 | `heal_tick` | 0.25 s | Gentle bright blip, one per heal tick. |
 | `sword_swing_v1..v3` | 0.25-0.31 s | Sword swing: band-passed air noise with a fast filter sweep and pitch-bend (a swish), plus a faint energy hum (synth) |
 | `sword_hit_v1..v3` | 0.14-0.16 s | Sword hit on a robot or worm: metal impact, soft body and an energy crackle (Kenney Impact + Digital) |
-| `rifle_shot_v1..v3` | 0.24-0.26 s | Rifle shot: sci-fi laser with a low punch (Kenney Sci-Fi + Digital) |
+| `rifle_shot_v1..v5` | 0.18-0.19 s | Rifle shot in layers: a bright crack, a 300-1500 Hz zap body, a 90->45 Hz sub thump with saturated harmonics, a servo chk at +60-90 ms and a short dark city slap (Kenney Sci-Fi + Digital + synth) |
+| `hit_tick` | 0.01 s | Hit confirmation tick (UI): one 10 ms bright 3-4 kHz click with a tiny ring, identical for every enemy (synth) |
+| `kill_pop` | 0.16 s | Kill confirmation (UI): a bright pop with a short 55 Hz thump, identical for every enemy (synth) |
 | `bullet_impact_v1..v3` | 0.09-0.10 s | Rifle hit: metal tick, a sharp spark and a short plate ring (Kenney Impact + Digital) |
 | `player_hit_v1..v3` | 0.18 s | You are hit: a sharp crunchy transient (1-3 kHz, bit-crushed) over a short low thump, with a falling digital zip (synth) |
 | `player_hurt_v1..v2` | 0.23-0.27 s | You are hurt: a short falling digital stab over a glitch (Kenney Digital + Interface) |

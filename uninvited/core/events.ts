@@ -47,6 +47,10 @@ export type GameEvent =
   | { type: 'wardenAlerted'; index: number }
   /** A warden lost the player (or checked a cue) and goes back to its round. */
   | { type: 'wardenGaveUp'; index: number }
+  /** The player took a warden down from behind (non-lethal, silent): it powers off and stays down for a while. */
+  | { type: 'wardenDowned'; index: number }
+  /** A downed warden reboots and goes back to its round, unaware. */
+  | { type: 'wardenRebooted'; index: number }
   /** A warden raises its arm for a melee strike (the telegraph); `wardenStruck` when it lands (`hit`: it caught you). */
   | { type: 'wardenStrike'; index: number }
   | { type: 'wardenStruck'; index: number; hit: boolean }
@@ -96,3 +100,11 @@ export type GameEvent =
   | { type: 'artifactTaken' }
   /** Johnny met May (a terminal with `meetsMay` was solved for the first time): the view plays the meeting. */
   | { type: 'mayMet' }
+  /** A checkpoint paid May's points: `gained` now, `total` unspent. */
+  | { type: 'mayPoints'; gained: number; total: number }
+  | { type: 'upgradeBought'; id: string; rank: number }
+  /** An active (slot 0 = key 1 distraction, 1 = key 2 pause a camera) was used; (x, y, z) is the ping or the paused device. */
+  | { type: 'abilityUsed'; slot: number; x: number; y: number; z: number }
+  | { type: 'abilityFailed'; slot: number; reason: 'cooldown' | 'noTarget' }
+  /** The shield took a hit whole. */
+  | { type: 'shieldAbsorbed' }

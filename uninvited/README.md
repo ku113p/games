@@ -15,7 +15,13 @@ bun run test:hack   # the hacking mini-game on its own: http://localhost:3327/
 ```
 
 `?nolock` in the URL skips the pointer lock (handy for automated screenshots). `window.__game` exposes a few debug
-hooks (`state`, `sim`, `place(col, row, yaw, pitch)`, `hold(key, on)`, `press(key)`).
+hooks (`state`, `sim`, `place(col, row, yaw, pitch)`, `hold(key, on)`, `press(key)`, `scene(id)`, `meeting()`).
+
+### Scenes (`core/flow.ts`)
+
+The game opens on the title, then runs title -> prologue -> room -> level 1 -> Jim's notes -> room -> level 2 and 3 (placeholder cards) -> ending.
+The scene is saved ("Continue" on the title). `?scene=<id>` jumps to a scene (`title`, `prologue`, `room1`, `l1`, `notes`, `room2`, `l2`, `l3`,
+`ending`); `?level=<id>` plays that level directly with the old start screen. Story cards: `view/story-data.ts` (shot lists), texts `story.*`.
 
 ### Benchmark (`?bench=`)
 
@@ -26,6 +32,17 @@ appears at the end (the JSON is copied; "Download JSON" saves it). `?bench=all` 
 not part of it. Headless: `bun tools/bench.ts [scenario] [--level l1|slice] [--url http://localhost:3330] [--compare]`
 (JSON in `bench/results/`, gitignored; headless Chrome is software GL, so read counts and trends only - the real numbers are
 the ones from the browser on a real GPU). Without `?bench` none of it is loaded. Thresholds: `docs/roles/09-producer.md`.
+
+### Camera log (`?camlog`)
+
+`http://localhost:3330/?camlog` (add `&nolock&level=l1` for headless runs) records, every frame, the camera rig's yaw and pitch, the
+camera position and its real forward vector, the hero's facing and the boom length (`view/camlog.ts`). A frame where the rig yaw,
+the view axis or the hero's facing turns by more than 60 deg is a flip: it is printed with `console.warn("[camlog] camera|hero flip ...")`
+and kept in `__camlog.flips` with the stack of the yaw write (if any), the core events of that frame and the mode. `__camlog.frames`
+holds the last 600 frames, `__camlog.maxStep` the biggest one-frame turns seen. "camera" = the rig or the view axis turned,
+"hero" = only the body turned (a dash, a shot or a swing sets the facing at once). Without the flag nothing is created.
+To drive it headless: replace `requestAnimationFrame` with a fixed 1/60 s stepper, stub `__game.view.renderer.render`, and use
+`__game.hold/press/place/alarm`.
 
 ## Controls
 
@@ -41,7 +58,8 @@ the ones from the browser on a real GPU). Without `?bench` none of it is loaded.
 | LMB | attack: a 3-swing sword combo (click on, the third swing is a wide finisher; an early click is kept for 0.12 s) or rifle fire; a dash cancels a swing |
 | RMB (hold) | aim - the camera eases in over the right shoulder, a crosshair, slower mouse, walk speed, the rifle drawn (a sword comes back on release) and pointing at the crosshair, with a tighter spread |
 | Q / wheel | sword <-> rifle |
-| E | hack a terminal / take the artifact |
+| E | hack a terminal / take the artifact / "override" (a silent takedown of an unaware warden from behind, within 1.6 m) |
+| 1 / 2 | May's abilities once bought: 1 distraction signal (a noise ping at the aimed point; wardens and drones go to look), 2 pause a camera or drone (aim at it) |
 | F3 | show / hide the frame-rate overlay (fps, frame time) |
 | Tab (hold) | network vision - terminal links, drone routes, camera cones through walls, sensor zones, your noise ring; an overheat meter warns before it calls the security |
 | Esc | pause (the pause screen has Settings and Tips) |
@@ -53,14 +71,19 @@ During a hack: arrows + Enter (or click a lit code), Esc to abort.
 
 `?level=<id>` in the URL picks the level (registry: `levels/index.ts`); the default is **l1**, the slice is `?level=slice`.
 
-**Level 1, Jim's computer (`levels/l1.ts`)** - the tutorial, ~4.4 slices. A start ledge 2 m over the void (T0 is the meeting with May - she appears,
-speaks three lines and opens
-the red wall D1 at the end of a light bridge), arena 1 "the plaza" (a camera on the north slab, hex cover, a high drone, warden 1 on the
-west street where the exit is), the roofed passage P1 (C1, a motion sensor), arena 2 "the river" (a balcony 2 m up, a void river with a
-drone along it, a low bridge with a laser grid and a high bridge, warden 2 on the north bank; T1 pauses the laser and the drone), P2 (C2, a
-sound camera), arena 3 "the core" (C3 on the entry terrace, the landmark tower with Jim's notes in a roofed vault behind the red wall
-D2, two cameras at its foot and a drone circling it - T2 pauses all three; T3 on the east terrace behind the posted warden 3 opens D2;
-warden 4 walks the south ring). Spawn gates in slab sides, floor and roof hatches and sky portals surround every arena.
+**Level 1, Jim's computer (`levels/l1.ts`)** - the tutorial, 56 x 60 cells, ~4-5 min quiet. A start ledge 2 m over the void (T0 is the meeting with May,
+who opens the red wall D1 at the end of a light bridge), the **stealth primer yard** (a 2 m vantage over the plaza; a warden walks a loop below, a
+4 m server block is the hide spot; inside the primer zone a stealth slip never raises the alarm stage), arena 1 "the plaza" (a camera on the west wall, a lane of
+server blocks, an elevated east terrace, a finding marker), the roofed passage P1 (C1, a motion sensor), arena 2 "the river" (a balcony, a void river with a
+drone, a high bridge, a low bridge with a laser, warden 2 on the north bank; T1 pauses the laser, the drone and the warden and opens D3), arena 3 "the core" (C3
+on the entry terrace, the artifact in a roofed vault behind the red wall D2, a camera over the vault door, warden 3 posted at T3, which opens D2; a lane of
+blocks and a high road). Three checkpoints: C1 in P1, C2 on the north bank, C3 on the entry terrace. **Each arena has its own firewall:** a lockdown is fought in
+the arena you stand in (its gates, its 2 waves), then the firewall opens only that arena's red walls (A1 none, A2 D3, A3 D2).
+
+**Level format additions** (`core/level.ts`): `arenas: [{ id, from, to, walls: [wall ids], waves? }]` (cell rectangles; the lockdown arena, its spawn gates and the
+walls its firewall opens; `waves` overrides `alarm.firewallAfterWaves`; a level without arenas keeps all gates / all walls), `primers: [{ id, from, to }]` (zones where the
+alarm stage never rises), and the entity `{ kind: 'finding', id, at, textKey? }` (a story marker, no rule yet). `bun tools/coverage-scan.ts l1 [--sec 90] [--map] [--legs]`
+runs the real sim with a parked player and prints how much of each arena the cameras, drones and wardens ever see, and the timing windows of a route's legs.
 
 ## The slice level (`levels/slice.ts`)
 

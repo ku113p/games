@@ -229,3 +229,5 @@ gates only the shake, kick and hit-stop.
    scale for 0.8 s; the file taken as a 2.5 s crane up and back under the end screen.
 5. **Establishing glance on the first arena entry (S, needs the designer's yes):** standing still on a vantage at alarm 0, the yaw
    eases toward a `lookHint` over 1.2 s; any mouse movement cancels it; it plays once per arena.
+
+**Status 2026-10-05:** Top 1 (DOOM-to-over-the-shoulder shot feel) is **done**: view punch 1.6 deg + 0.4 deg yaw, push 0.12, FOV punch -1.2 / +2 on a kill, rotational trauma shake with the per-event budget and cap 0.8, muzzle flash always on, dash/sprint FOV capped at 70, "reduce shake/flash" scales it down. Also done: look pitch to -1.2 rad with the boom decoupled, and the boom collision (second-shortest ray, a few frames to pull in, 0.3 s hold). Framing zones and the key-moment beats are still open.

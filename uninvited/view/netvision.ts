@@ -57,10 +57,13 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`
 
+// A thin spine with small chevrons pointing along the route, evenly spaced and drifting slowly forward. Distances are in
+// metres (vS along the route, vSide * uHalf across it), so the width and the spacing stay the same on every bend.
 const ROUTE_FRAG = /* glsl */ `
 uniform vec3 uColor;
 uniform float uTime;
 uniform float uFade;
+uniform float uHalf;
 uniform float uOn[${MAX_ROUTES}];
 varying float vS;
 varying float vSide;
@@ -70,12 +73,14 @@ void main() {
   float on = 0.0;
   for (int k = 0; k < ${MAX_ROUTES}; k++) if (k == i) on = uOn[k];
   if (on <= 0.0) discard;
-  // chevrons pointing along the patrol direction, a faint dotted spine between them
-  float q = fract((vS - abs(vSide) * 0.16) / 0.8 - uTime * 0.7);
-  float chev = smoothstep(0.0, 0.03, q) * (1.0 - smoothstep(0.1, 0.16, q));
-  float spine = (1.0 - smoothstep(0.08, 0.2, abs(vSide))) * step(0.5, fract(vS / 0.25)) * 0.25;
-  float edge = 1.0 - smoothstep(0.75, 1.0, abs(vSide));
-  gl_FragColor = vec4(uColor * (chev + spine) * edge * uFade * on, 1.0);
+  float lat = abs(vSide) * uHalf;
+  // the chevron's arms trail behind its tip: the stroke sits where s + |lat| is a multiple of the spacing
+  float p = fract((vS + lat) / ${N.chevronSpacing.toFixed(2)} - uTime * 0.35);
+  float d = min(p, 1.0 - p) * ${N.chevronSpacing.toFixed(2)};
+  float chev = 1.0 - smoothstep(${(N.chevronStroke * 0.4).toFixed(3)}, ${N.chevronStroke.toFixed(3)}, d);
+  float spine = (1.0 - smoothstep(0.012, 0.035, lat)) * 0.3;
+  float edge = 1.0 - smoothstep(0.8, 1.0, abs(vSide));
+  gl_FragColor = vec4(uColor * (chev * edge + spine) * uFade * on, 1.0);
 }`
 
 const ZONE_VERT = /* glsl */ `
@@ -132,6 +137,9 @@ function overlayMat(frag: string, vert: string, color: Color, extra: Record<stri
     depthTest: !xray,
     blending: AdditiveBlending,
     side: DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   })
 }
 
@@ -160,7 +168,9 @@ export function buildNetVision(s: GameState, sim: Sim): NetVision {
     links.push({ mesh, mat })
   }
 
-  // ---- patrol routes: chevron ribbons on the floor, one geometry for all drones
+  // ---- patrol routes: a ribbon per drone on the floor, all in one geometry. The waypoints are joined by straight runs with
+  // rounded corners (a quadratic bend of up to N.routeCorner m, never more than half a run), so a route turns where it really
+  // turns and never kinks at a cell corner. Built once.
   const routes = dronePatrolRoutes(s)
   const pos: number[] = []
   const aS: number[] = []
@@ -168,35 +178,91 @@ export function buildNetVision(s: GameState, sim: Sim): NetVision {
   const aDrone: number[] = []
   const idx: number[] = []
   const W = N.routeWidth / 2
+  const smooth = (r: readonly { x: number; z: number }[]): { x: number; z: number }[] => {
+    const out: { x: number; z: number }[] = []
+    const n = r.length
+    for (let k = 0; k < n; k++) {
+      const a = r[(k + n - 1) % n] as { x: number; z: number }
+      const c = r[k] as { x: number; z: number }
+      const b = r[(k + 1) % n] as { x: number; z: number }
+      const l0 = Math.hypot(c.x - a.x, c.z - a.z)
+      const l1 = Math.hypot(b.x - c.x, b.z - c.z)
+      if (l0 < 0.05 || l1 < 0.05) continue
+      const ix = (c.x - a.x) / l0
+      const iz = (c.z - a.z) / l0
+      const ox = (b.x - c.x) / l1
+      const oz = (b.z - c.z) / l1
+      if (Math.abs(ix * oz - iz * ox) < 0.02 && ix * ox + iz * oz > 0) {
+        out.push({ x: c.x, z: c.z }) // straight on
+        continue
+      }
+      const cut = Math.min(N.routeCorner, l0 / 2, l1 / 2)
+      const p0x = c.x - ix * cut
+      const p0z = c.z - iz * cut
+      const p2x = c.x + ox * cut
+      const p2z = c.z + oz * cut
+      const steps = 8
+      for (let t = 0; t <= steps; t++) {
+        const u = t / steps
+        const q = 1 - u
+        out.push({ x: q * q * p0x + 2 * q * u * c.x + u * u * p2x, z: q * q * p0z + 2 * q * u * c.z + u * u * p2z })
+      }
+    }
+    return out
+  }
   for (let d = 0; d < routes.length && d < MAX_ROUTES; d++) {
     const r = routes[d]
     if (!r || r.length < 2) continue
-    let arc = 0
-    const n = r.length
-    for (let k = 0; k < n; k++) {
-      const a = r[k] as { x: number; z: number }
-      const b = r[(k + 1) % n] as { x: number; z: number }
-      const len = Math.hypot(b.x - a.x, b.z - a.z)
-      if (len < 0.05) continue
-      const tx = (b.x - a.x) / len
-      const tz = (b.z - a.z) / len
-      const steps = Math.max(1, Math.ceil(len / 0.5))
-      for (let st = 0; st < steps; st++) {
-        const base = pos.length / 3
-        for (const t of [st / steps, (st + 1) / steps]) {
-          const x = a.x + (b.x - a.x) * t
-          const z = a.z + (b.z - a.z) * t
-          const y = floorHeightAt(g, x, z) + 0.045
-          for (const side of [-1, 1]) {
-            pos.push(x - tz * W * side, y, z + tx * W * side)
-            aS.push(arc + len * t)
-            aSide.push(side)
-            aDrone.push(d)
-          }
+    const pts = smooth(r)
+    const n = pts.length
+    if (n < 2) continue
+    // resample at an even spacing (the bends are dense, the runs sparse), arc length measured along the loop
+    let total = 0
+    for (let k = 0; k < n; k++) total += Math.hypot((pts[(k + 1) % n] as { x: number }).x - (pts[k] as { x: number }).x, (pts[(k + 1) % n] as { z: number }).z - (pts[k] as { z: number }).z)
+    const count = Math.max(8, Math.round(total / 0.25))
+    const step = total / count
+    // a whole number of chevrons round the loop, so the pattern is seamless where it closes
+    const cs = Math.max(1, Math.round(total / N.chevronSpacing)) * N.chevronSpacing
+    const arcScale = cs / total
+    const samples: { x: number; z: number }[] = []
+    let k = 0
+    let segStart = 0
+    for (let i = 0; i < count; i++) {
+      const want = i * step
+      for (;;) {
+        const a = pts[k % n] as { x: number; z: number }
+        const b = pts[(k + 1) % n] as { x: number; z: number }
+        const len = Math.hypot(b.x - a.x, b.z - a.z)
+        if (want <= segStart + len || k > n * 2) {
+          const t = len > 1e-6 ? Math.min(1, Math.max(0, (want - segStart) / len)) : 0
+          samples.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t })
+          break
         }
-        idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
+        segStart += len
+        k++
       }
-      arc += len
+    }
+    const base0 = pos.length / 3
+    for (let i = 0; i <= count; i++) {
+      const c = samples[i % count] as { x: number; z: number }
+      const a = samples[(i + count - 1) % count] as { x: number; z: number }
+      const b = samples[(i + 1) % count] as { x: number; z: number }
+      let tx = b.x - a.x
+      let tz = b.z - a.z
+      const tl = Math.hypot(tx, tz) || 1
+      tx /= tl
+      tz /= tl
+      const y = floorHeightAt(g, c.x, c.z) + 0.045
+      for (const side of [-1, 1]) {
+        pos.push(c.x - tz * W * side, y, c.z + tx * W * side)
+        aS.push(i * step * arcScale)
+        aSide.push(side)
+        aDrone.push(d)
+      }
+    }
+    for (let i = 0; i < count; i++) {
+      const q = base0 + i * 2
+      idx.push(q, q + 2, q + 1, q + 1, q + 2, q + 3)
     }
   }
   const routeGeo = new BufferGeometry()
@@ -207,7 +273,7 @@ export function buildNetVision(s: GameState, sim: Sim): NetVision {
   routeGeo.setIndex(idx)
   const routeOn: number[] = []
   for (let i = 0; i < MAX_ROUTES; i++) routeOn.push(0)
-  const routeMat = overlayMat(ROUTE_FRAG, ROUTE_VERT, palette.security.clone().multiplyScalar(N.routeStrength), { uOn: { value: routeOn } })
+  const routeMat = overlayMat(ROUTE_FRAG, ROUTE_VERT, palette.security.clone().multiplyScalar(N.routeStrength), { uOn: { value: routeOn }, uHalf: { value: W } })
   const routeMesh = new Mesh(routeGeo, routeMat)
   routeMesh.visible = false
   routeMesh.renderOrder = 6

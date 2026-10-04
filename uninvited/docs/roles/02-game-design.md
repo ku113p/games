@@ -50,7 +50,7 @@ the source of truth: where the review below says something else, DESIGN.md wins 
   8 rifle shots; strike 30 with a 0.7 s windup; bolt 14). Worms crush by mass (hp 45: one swing, 3 shots). Turrets: **one type, ET1,
   used sparingly** - L1 arena 3 and the L3 finale only.
 - **Non-lethal takedown** (DESIGN 8): sneak up behind a warden, press E - an override powers it down for a while, no noise, no kill;
-  it reboots later or wakes at an alarm. It does not count as a kill for the story. This is the Hacker's "aggressive" verb.
+  it reboots later or wakes at an alarm. It does not count as a kill for the story. This is the Hacker's "aggressive" verb. *Built 2026-10-05.*
 - **May's tree, simplified** (DESIGN 10): 2 actives on keys 1-2 - **pause a camera**, **distraction signal**; 3 passives - **shield/regen**,
   **more charges**, **more hack time**. Points come from checkpoints (1 each, 9 total); **every upgrade costs points so you cannot buy
   everything**. Not upgrading is a **visible rule** (shorter hack and pause), not hidden enemy scaling. Cut: "take over a sentry",
@@ -106,11 +106,12 @@ passage-arena rhythm and checkpoints after arenas. Spawn gates, the drone's 0.7 
      still sets `underAlarm = alarm.stage >= 3` at the moment of passing.
 3. **The paths are unequal in verbs; no quiet takedown.** The Hacker has only Tab, terminals and crouch; the Breaker is a failure
    state, not a choice; sneaking up behind a warden leads nowhere.
-   - *Decided:* non-lethal takedown from behind + 2 Hacker actives. *Status: open* (none built). Shards gave the Breaker its own
+   - *Decided:* non-lethal takedown from behind + 2 Hacker actives. *Status: takedown built (2026-10-05, E from behind, `warden.takedown`); the 2 Hacker actives (distraction key 1, camera pause key 2) built 2026-10-05.* Shards gave the Breaker its own
      reward: *done*.
 4. **May's tree is a choice without choice** (9 points for 9 items; hidden scaling; no healing).
-   - *Decided:* 5 items with costs, visible rule, take-over and turret cut. *Status: open* (no abilities code; costs not fixed - see the
-     proposal above). Healing: shards *done*, checkpoint full heal *open*.
+   - *Decided:* 5 items with costs, visible rule, take-over and turret cut. *Status: built 2026-10-05* (DESIGN 10 "May's progression - as built":
+     1 point per checkpoint, 7 upgrades / 15 points, distraction free at T0, pause 2, shield, charges, hack time; upgrade screen with the "NOW" rules panel;
+     `core/may.test.ts`). Healing: shards *done*, checkpoint full heal *done*.
 5. **The first 5 minutes** (2-4 minutes of clicking before play; the first obstacle is a hack; the first hint omits Tab; ~10 mechanics
    in L1).
    - *Status: open.* The T0 hack before stealth is decided by the story (meeting May) - keep it, but make it pressure-free.
@@ -163,7 +164,7 @@ passage-arena rhythm and checkpoints after arenas. Spawn gates, the drone's 0.7 
 **Status of earlier items.** Counter cascade: **fixed** (`alarm.ts` sets `segmentFight` on a wave spawn, `progress.ts` reads and clears it).
 Checkpoint full heal: **fixed**. Drone hp 40: **fixed**. Readability and hints: **partly** (lens glow, look beams, enemy rim/aura/halo,
 two-tier hints, Tab card; the forced cone reveal is open). Scope: **partly** (L1 built but still the 8-10 min layout; no L2/L3, scenes,
-choice, endings). Takedown, distraction, camera pause, May's tree: **open** (no code). Sound camera still in L1 P2. The wave numbers
+choice, endings). Takedown, distraction, camera pause, May's tree: **built 2026-10-05** (the Hacker's actives are on keys 1-2; the tree is tuned to ~60 % of its price per run). Sound camera still in L1 P2. The wave numbers
 above (9/15/18) are outdated: `config.json` and DESIGN 9 have packs 5+3, 5+4+3, 6+5+4 = 9/16/19.
 
 **Measured (bots, 8 seeds, L1).** Loud 8/8 in 115-205 s (min HP 14-105, 57 kills); sloppy loud 5/8; quiet 8/8 in 368-393 s with 0 alarms.
@@ -184,7 +185,7 @@ monotonous, unclear where to slip through, guards scurry everywhere and fast". S
 - The edge line is free and the interior pays nothing.
 
 **Top 5 (2026-10-05):**
-1. Active stealth (**M**): takedown (E from behind, 0.6 s, down 45 s, no noise, not a kill) + May's distraction ping (key 1, 15 m,
+1. Active stealth (**M**): takedown (*built 2026-10-05*: E from behind, 0.6 s, down 45 s, no noise, not a kill) + May's distraction ping (key 1, 15 m,
    12-15 s cooldown); given at the T0 meeting.
 2. Readable, rewarding interior; L1 cut to ~5 min (**S-M**):
    - guard numbers: crouch 2.0, drone patrol 1.4 with 3.5 s stops and a 26 deg / 10 m cone, wardens scan 30 deg while walking

@@ -8,11 +8,12 @@ import { updateDrones } from './rules/drones'
 import { updateFall } from './rules/fall'
 import { updateShards } from './rules/shards'
 import { updateWorms } from './rules/worms'
-import { updateWardens } from './rules/wardens'
+import { startTakedown, updateWardens } from './rules/wardens'
 import { updateGates } from './rules/gates'
 import { playerFrozen, setAim as setAimRule, updatePlayer, type Intent } from './rules/movement'
 import { updateCheckpoints } from './rules/progress'
 import { updateScan } from './rules/scan'
+import { buyUpgrade as buyUpgradeRule, updateMay, useAbility as useAbilityRule } from './rules/may'
 import { cancelHack as cancelHackRule, hackPick as hackPickRule, interact as interactRule, updateHack } from './rules/terminals'
 import type { GameState, Sim } from './state'
 import { emit } from './util'
@@ -51,6 +52,7 @@ export function tick(s: GameState, sim: Sim, dt: number, intent: Intent): readon
   updateShards(s, sim, step)
   updateAlarm(s, sim, step)
   updateCheckpoints(s, sim)
+  updateMay(s, sim, step)
   sim.noiseCount = 0
   return sim.events
 }
@@ -129,9 +131,21 @@ export function switchMode(s: GameState, sim: Sim): readonly GameEvent[] {
   return sim.events
 }
 
-/** E: hack the terminal in front of you, or take the artifact. */
+/** Key 1 / 2 (slot 0 / 1): May's distraction signal / pause a camera, aimed like the rifle (the aim yaw and pitch). */
+export function useAbility(s: GameState, sim: Sim, slot: number, aimYaw: number, aimPitch: number): readonly GameEvent[] {
+  useAbilityRule(s, sim, slot, aimYaw, aimPitch)
+  return sim.events
+}
+
+/** Buys the next rank of one of May's upgrades (the upgrade screen). */
+export function buyUpgrade(s: GameState, sim: Sim, id: string): readonly GameEvent[] {
+  buyUpgradeRule(s, sim, id)
+  return sim.events
+}
+
+/** E: take a warden down from behind, or hack the terminal in front of you, or take the artifact. */
 export function interact(s: GameState, sim: Sim): readonly GameEvent[] {
-  interactRule(s, sim)
+  if (!startTakedown(s, sim)) interactRule(s, sim)
   return sim.events
 }
 

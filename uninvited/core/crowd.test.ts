@@ -169,7 +169,7 @@ describe('attack tokens', () => {
     w.suspicion = 1
     const first: string[] = run(f, 4)
     expect(first).toContain('wardenFired')
-    expect(first).not.toContain('wardenStrike')
+    if (first.includes('wardenStrike')) expect(first.indexOf('wardenFired')).toBeLessThan(first.indexOf('wardenStrike')) // it shoots first, then steps in
     w.pos.x = f.s.player.pos.x
     w.pos.z = f.s.player.pos.z - 2.6
     w.yaw = 0

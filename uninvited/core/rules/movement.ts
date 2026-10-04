@@ -25,9 +25,9 @@ export function createIntent(): Intent {
   return { moveForward: 0, moveRight: 0, run: false, crouchHold: false, lookYaw: 0, aimPitch: 0, scan: false }
 }
 
-/** The player cannot act: dead, done, or standing at a terminal while hacking. */
+/** The player cannot act: dead, done, standing at a terminal while hacking, or in the middle of a takedown. */
 export function playerFrozen(s: GameState): boolean {
-  return s.phase !== 'playing' || s.hack !== null
+  return s.phase !== 'playing' || s.hack !== null || s.player.takedownTime > 0
 }
 
 export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent): void {
@@ -38,6 +38,7 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   p.dashBuffer -= dt
   p.dashCooldown -= dt
   p.invuln -= dt
+  if (p.takedownTime > 0) p.takedownTime = Math.max(0, p.takedownTime - dt)
   p.attackCooldown -= dt
   p.switchCooldown -= dt
   p.slashTime -= dt

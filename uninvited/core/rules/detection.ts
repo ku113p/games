@@ -63,7 +63,7 @@ export function makeNoise(s: GameState, sim: Sim, radius: number): void {
   makeNoiseAt(sim, p.pos.x, p.pos.y + 1, p.pos.z, radius)
 }
 
-export function makeNoiseAt(sim: Sim, x: number, y: number, z: number, radius: number): void {
+export function makeNoiseAt(sim: Sim, x: number, y: number, z: number, radius: number, lure = false): void {
   if (radius <= 0) return
   if (sim.noiseCount >= sim.noises.length) return
   const n = sim.noises[sim.noiseCount++]
@@ -72,5 +72,6 @@ export function makeNoiseAt(sim: Sim, x: number, y: number, z: number, radius: n
   n.y = y
   n.z = z
   n.radius = radius
+  n.lure = lure
   emit(sim, { type: 'noise', x, y, z, radius })
 }

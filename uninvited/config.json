@@ -1,4 +1,5 @@
 {
+  "input": { "maxMovePx": 250, "lockSettleMs": 60 },
   "sim": { "maxDt": 0.05, "maxEvents": 256 },
   "world": {
     "tops": { "1": 0.5, "2": 1.1, "3": 1.6, "4": 2.4, "5": 3.2, "6": 4.5, "7": 6, "8": 8, "9": 11, "a": 14, "b": 18, "c": 24, "d": 32 },
@@ -6,7 +7,7 @@
     "fall": { "depth": 6, "fadeSec": 0.55, "damage": 20, "safeMargin": 0.8 }
   },
   "player": {
-    "walkSpeed": 2.6, "runSpeed": 6.4, "crouchSpeed": 1.5,
+    "walkSpeed": 2.6, "runSpeed": 6.4, "crouchSpeed": 2.0,
     "groundAccel": 64, "groundDecel": 80, "airAccel": 4, "turnRate": 30,
     "jumpSpeed": 7.2, "gravity": 22, "maxFall": 24, "coyoteSec": 0.1, "jumpBufferSec": 0.12, "inputBufferSec": 0.12,
     "dashSpeed": 11, "dashSec": 0.2, "dashCooldownSec": 0.8, "dashTapSec": 0.25, "dashInvulnerable": true,
@@ -29,11 +30,12 @@
   "laser": { "damage": 20, "hp": 80, "tripCooldownSec": 1.2, "height": 2.4 },
   "drone": {
     "hp": 40, "hover": 3.5, "overMax": 2.4, "clearance": 0.8, "radius": 0.55,
-    "patrolSpeed": 2.2, "searchSpeed": 3.2, "chaseSpeed": 4.6, "turnRate": 3.2,
-    "range": 12, "halfAngleDeg": 32, "pitchDeg": 22,
-    "waypointPauseSec": 2.2, "lookAroundSec": 3.5, "keepDist": 7, "loseSec": 4,
+    "patrolSpeed": 1.4, "searchSpeed": 3.2, "chaseSpeed": 4.6, "turnRate": 3.2,
+    "range": 10, "halfAngleDeg": 26, "pitchDeg": 22,
+    "waypointPauseSec": 3.5, "lookAroundSec": 3.0, "keepDist": 7, "loseSec": 4,
     "fireIntervalSec": 3.0, "fireWindupSec": 1.0, "aimSec": 0.9, "boltSpeed": 8, "boltDamage": 5, "boltLifeSec": 3,
     "hearFactor": 0.8, "maxExtra": 10,
+    "standoff": { "ringMin": 7, "ringMax": 12, "heightMin": 3.5, "heightMax": 5, "maxElevDeg": 33, "clearRadius": 4, "slideSpeed": 6.5, "strafeSpeed": 0.12, "seekStrafeSpeed": 0.9, "alertRange": 16 },
     "spawnSec": 1.0, "gateExitSec": 1.0, "gateDepth": 1.5, "gateOut": 1.2, "gateStaggerSec": 1.0
   },
   "worm": {
@@ -45,14 +47,16 @@
   "warden": {
     "hp": 200, "rifleFactor": 1.25, "radius": 0.4, "eyeHeight": 1.85, "chestHeight": 1.35, "hitRadius": 0.6,
     "range": 10, "halfAngleDeg": 21, "pitchDeg": 12, "closeDist": 1.6, "closeHalfAngleDeg": 60,
-    "patrolSpeed": 1.15, "investigateSpeed": 1.45, "searchSpeed": 1.75, "alertSpeed": 3.3,
+    "patrolSpeed": 1.15, "investigateSpeed": 1.45, "searchSpeed": 1.75, "alertSpeed": 3.3, "runSpeed": 4.0,
     "turnRate": 1.6, "alertTurnRate": 2.6, "headTurnRate": 1.0, "headMaxDeg": 70,
-    "pauseChance": 0.3, "pauseSec": [1.2, 2.8], "postActSec": [4, 8], "waitVary": 0.3,
-    "scanDeg": 55, "scanPeriodSec": 5, "glanceDeg": 35,
+    "postActSec": [4, 8], "waitVary": 0.1,
+    "scanDeg": 55, "scanPeriodSec": 5, "walkScanDeg": 30, "walkScanPeriodSec": 4, "glanceDeg": 35,
+    "takedown": { "reach": 1.6, "arcDeg": 110, "sec": 0.6, "downSec": 45, "rebootSec": 1.5, "noticeCooldownSec": 20, "wakeAlarmStage": 2 },
     "suspiciousSec": 1.6, "investigateLookSec": 4.5, "searchLookSec": 3, "loseSec": 5, "keen": 1.5, "hearFactor": 0.9,
     "strikeRange": 1.7, "strikeReach": 2.3, "strikeArcDeg": 100, "strikeWindupSec": 0.7, "strikeRecoverSec": 0.8, "strikeDamage": 35,
     "holdDist": 6, "meleeDist": 3, "shotMinDist": 3.2, "shotAimSec": 1.1, "shotIntervalSec": 1.9, "shotFirstSec": 0.7, "boltSpeed": 9, "boltDamage": 18,
     "heavy": { "hp": 300, "speedFactor": 0.7, "shieldHalfDeg": 65, "strikeDamageFactor": 1.3 },
+    "pursuit": { "radius": 30, "runFarDist": 9, "closeInCooldownSec": 0.6 },
     "hitAnimSec": 0.35, "knockback": 3.5, "bumpSuspicion": 0.6, "repathSec": 1.0
   },
   "alarm": {
@@ -70,11 +74,29 @@
     "lifeSec": 6, "magnetDist": 1.5, "magnetSpeed": 9, "pickupDist": 0.5, "heal": 2, "bigHeal": 15, "charges": 1, "bigCharges": 5,
     "wormDrops": 1, "droneDrops": 2, "wardenDrops": 4, "heavyDrops": 8, "finisherKills": 2, "max": 48
   },
-  "scan": { "warnAt": 0.7, "maxSec": 6, "cooldownSec": 1.5, "overheatCooldownSec": 6 },
+  "scan": { "warnAt": 0.7, "maxSec": 10, "cooldownSec": 1.5, "overheatCooldownSec": 6 },
   "terminal": { "interactRadius": 1.7, "pauseSec": 30, "timeBonusSec": 0 },
   "checkpoint": { "radius": 2.7 },
   "artifact": { "radius": 1.8 },
   "ending": { "sadAt": 4, "totalCheckpoints": 9 },
+  "progression": {
+    "pointsPerCheckpoint": 1,
+    "items": {
+      "distract": { "costs": [0] },
+      "pause": { "costs": [2] },
+      "pauseTime": { "costs": [1, 1], "requires": "pause" },
+      "cooldown": { "costs": [1, 2] },
+      "shield": { "costs": [2, 1] },
+      "charges": { "costs": [1, 1] },
+      "hackTime": { "costs": [1, 1, 1] }
+    },
+    "distract": { "range": 15, "noiseRadius": 12, "cooldownSec": 14 },
+    "pause": { "range": 18, "aimDeg": 7, "baseSec": 8, "pauseTimeSec": 4, "cooldownSec": 18 },
+    "cooldownFactor": [1, 0.75, 0.55],
+    "shield": { "rechargeSec": [30, 15] },
+    "chargesPerRank": 15,
+    "hackTimeSec": 4
+  },
   "physics": { "halfHeight": 0.55, "crouchHalfHeight": 0.2, "offset": 0.02, "autostep": 0.36, "autostepMinWidth": 0.15, "snapToGround": 0.35, "maxSlopeDeg": 50, "redWallThickness": 0.4 },
   "view": {
     "pixelRatioMax": 1.5,
@@ -83,10 +105,10 @@
     "far": 1500,
     "camera": {
       "distance": 4.3, "crouchDistance": 3.5, "pivotHeight": 1.6, "crouchPivotHeight": 1.1, "shoulder": 0.55,
-      "sensitivity": 0.0022, "minPitch": -0.45, "maxPitch": 1.15, "startPitch": 0.22,
+      "sensitivity": 0.0022, "minPitch": -1.2, "floorClearance": 0.35, "pullInRate": 22, "pullInSlack": 0.3, "releaseHoldSec": 0.3, "lookUpCloseness": 0.45, "lookUpCloseRange": 0.6, "maxPitch": 1.15, "startPitch": 0.22,
       "followLerp": 32, "followLerpY": 16, "aimRange": 60,
       "collisionRadius": 0.28, "collisionPad": 0.14, "minDistance": 0.25, "easeOutRate": 2.5,
-      "sprintFov": 7, "sprintFovRate": 5, "bobHeight": 0.035, "bobSide": 0.022, "bobStride": 0.95,
+      "sprintFov": 7, "sprintFovRate": 5, "fovMax": 70, "bobHeight": 0.035, "bobSide": 0.022, "bobStride": 0.95,
       "aim": { "distance": 2.6, "crouchDistance": 2.2, "shoulder": 0.85, "pivotDrop": 0.04, "fov": 50, "sensitivity": 0.55, "easeSec": 0.1 }
     },
     "bloom": { "strength": 0.45, "radius": 0, "threshold": 0.9, "factors": [1.0, 0.35, 0.1, 0.03, 0.0], "scale": 1 },
@@ -109,7 +131,7 @@
       "alarmWaveLen": 9, "alarmWaveSpeed": 9, "alarmLow": 0.15, "alarmDim": 0.35
     },
     "city": {
-      "edgeRadius": 0.022, "edgeIntensity": 0.85, "cornerIntensity": 0.55, "lineMinPx": 1.1, "lineFogKeep": 0.55,
+      "edgeRadius": 0.022, "edgeIntensity": 0.35, "cornerIntensity": 0.25, "lineMinPx": 1.1, "lineFogKeep": 0.55,
       "cornerMinDrop": 2.5, "cornerShare": 0.5, "cornerMaxLen": 30,
       "slabTones": ["#10202c", "#0e2428", "#171b2c"], "slabSheen": 0.03, "voidFade": 0.12, "coverInset": 0.06, "bridgeDeck": 0.35, "roofThickness": 0.7,
       "chamfer": 0.12, "coverChamfer": 0.09, "skirt": [0.45, 0.1], "bay": [2.4, 4.2], "tier": 3.2,
@@ -117,10 +139,10 @@
       "crownMin": 6.5, "crownShare": 0.7, "crownInset": 0.5, "crownHeight": [0.55, 1.2],
       "hexRadius": 0.62, "hexGap": 0.08, "hexRise": 2.6, "hexBevel": 0.08, "hexTones": ["#12303a", "#16283f", "#1c2433"], "hexAccent": 0.12, "hexSeam": 0.5,
       "coverHexShare": 0.3, "coverHexRadius": 0.4, "coverPlate": 0.16, "coverSeam": 0.3, "coverGlow": 0.5, "coverTop": 0.05,
-      "curb": [0.14, 0.09], "railHeight": 0.42, "railInset": 0.2, "railPostEvery": 1.8, "railIntensity": 0.45, "railRadius": 0.016,
+      "curb": [0.14, 0.09], "railHeight": 0.42, "railInset": 0.2, "railPostEvery": 1.8, "railIntensity": 0.3, "railRadius": 0.016,
       "slitMax": 1, "slitDepth": 1.0, "slitBarEvery": 0.5, "slitGlow": 0.55,
-      "routeTurn": 3, "routeEdge": 0.9, "routeCorner": 0.9, "routeSplit": 12, "routeChevronEvery": 3.4, "routeIntensity": 1.5, "spurIntensity": 0.8, "routeRadius": 0.02,
-      "footLine": 0.35
+      "routeTurn": 3, "routeEdge": 0.9, "routeCorner": 0.9, "routeSplit": 12, "routeChevronEvery": 3.4, "routeIntensity": 3.4, "spurIntensity": 0.8, "routeRadius": 0.05,
+      "footLine": 0.15
     },
     "skyline": {
       "skyRadius": 1200, "farRadius": 560, "clearance": 30, "lot": 14, "riverAbove": 26,
@@ -138,8 +160,14 @@
       "packetEvery": 7, "packetSpeed": [2.5, 5.5], "packetGlow": 1.5, "packetSize": [0.025, 0.02, 0.3], "packetLift": 0.02,
       "motes": 260, "moteBox": 36, "moteSize": 0.04, "moteMaxPx": 3, "moteGlow": 1.4, "moteRise": 0.12
     },
+    "stealthLight": {
+      "enabled": true, "texelsPerMeter": 2, "poseSpacing": 1.5, "maxPoses": 45, "cameraPoses": 18, "budgetMs": 2, "fadeSec": 0.4,
+      "linkGap": 3.2, "footReach": 1.1, "safeBelow": 0.16,
+      "litFrom": 0.02, "litTo": 0.3, "litLift": 1.0, "litColor": [0.25, 0.85, 1.0], "litFill": 0.05, "litGrid": 0.18, "darkDim": 0.55,
+      "footlight": 0.5, "footGlow": 0.1, "footLineWidth": 0.02, "heroHiddenLines": 0.4, "heroFadeRate": 6
+    },
     "cones": {
-      "rays": 48, "updateHz": 20, "marginDeg": 10, "moveSnap": 0.3, "sightStep": 0.1,
+      "rays": 48, "updateHz": 20, "recastsPerFrame": 3, "marginDeg": 10, "moveSnap": 0.3, "sightStep": 0.1,
       "floorFill": 0.025, "floorRays": 0.22, "floorRim": 0.45, "floorRings": 0.08,
       "lineWidth": 0.018, "raysPerRadian": 14, "ringGap": 2.4, "ringSpeed": 1.2,
       "volumeFill": 0.004, "volumeEdge": 0.03, "volumeNear": [1.0, 5.0],
@@ -157,37 +185,53 @@
     },
     "juice": {
       "hitStopSec": 0.04, "killHitStopSec": 0.055, "killHitStopStepSec": 0.005, "hitStopMaxSec": 0.07, "rifleKillHitStopSec": 0.03, "hurtHitStopSec": 0.04,
-      "kickRate": 16, "kickHitPush": 0.1, "kickHitPitch": 0.012, "kickKillPush": 0.18, "kickKillPitch": 0.02, "kickHurtPush": 0.2, "kickHurtPitch": 0.03,
-      "kickShotPush": 0.05, "kickShotPitch": 0.014,
-      "muzzleFlashSec": 0.06, "muzzleFlashSize": 0.2, "muzzleLight": 5, "tracerWidth": 0.05, "tracerGlow": 2.4,
+      "kickRate": 12, "kickHitPush": 0.1, "kickHitPitch": 0.012, "kickKillPush": 0.18, "kickKillPitch": 0.02, "kickHurtPush": 0.2, "kickHurtPitch": 0.03,
+      "kickShotPush": 0.12, "shotPunchPitchDeg": 1.6, "shotPunchYawDeg": 0.4,
+      "fovPunch": { "shotDeg": -1.2, "shotMaxDeg": -3, "killDeg": 2, "inRate": 14, "outRate": 9 },
+      "trauma": {
+        "shot": 0.12, "swordHit": 0.25, "swordKill": 0.4, "rifleKill": 0.3, "heavy": 0.55, "hurt": 0.35, "dash": 0.1, "land": 0.15, "firewall": 0.6, "death": 0.8,
+        "cap": 0.8, "decay": 1.6, "pitchDeg": 1.5, "yawDeg": 1.5, "rollDeg": 2
+      },
+      "reducedPunch": 0.3, "reducedFlash": 0.6,
+      "muzzleFlashSec": 0.07, "muzzleFlashSize": 0.35, "muzzleStarSize": 0.9, "muzzleLight": 10,
+      "tracerWidth": 0.06, "tracerGlow": 2.4, "tracerLen": 2.2, "tracerSpeed": 190, "tracerMinSec": 0.05, "tracerMaxSec": 0.1,
+      "streakSec": 0.045, "scorchSize": 0.32, "scorchSec": 0.8, "scorchGlow": 1.1, "starSec": 0.14, "starSize": 0.9,
+      "bloom": { "perShot": 0.5, "max": 1.2, "decayRate": 9, "scale": 0.45 },
       "trailSec": 0.2, "trailGlow": 0.9, "trailInner": 0.5, "killFlashSize": 0.9, "killFlashSec": 0.14,
-      "shakeDecay": 7, "shakeHit": 0.22, "shakeKill": 0.5, "shakeHurt": 0.45, "shakeLand": 0.18, "shakeDash": 0.08, "shakeShot": 0.04,
-      "glitchKill": 0.7, "glitchAlarm": 0.55, "glitchWall": 1.0, "glitchHurt": 0.35, "glitchDecay": 3.5
+      "shakeDecay": 7, "shakeLand": 0.18,
+      "glitchKill": 0.7, "glitchKillSmall": 0.25, "glitchAlarm": 0.55, "glitchWall": 1.0, "glitchHurt": 0.35, "glitchDecay": 3.5
     },
-    "fx": { "sparks": 700, "trailPoints": 32, "flashes": 12, "tracers": 24, "tracerSec": 0.08, "noiseRings": 8, "noiseRingSec": 0.6 },
+    "fx": { "sparks": 700, "trailPoints": 32, "flashes": 12, "tracers": 24, "scorches": 24, "stars": 20, "noiseRings": 8, "noiseRingSec": 0.6 },
     "footstep": { "walkStride": 0.7, "runStride": 0.95, "crouchStride": 0.55 },
-    "hud": { "toastSec": 2.8, "hintsAfterSec": 8 },
+    "hud": { "toastSec": 2.8, "hintsAfterSec": 8, "bannerSec": 3, "unseenSec": 1.4 },
+    "unseen": { "dist": 4, "coneDeg": 55, "holdSec": 0.4, "cooldownSec": 10 },
     "heroLight": { "intensity": 6, "distance": 9, "height": 2.6, "back": 1.6 },
+    "heroTurnRate": 22,
     "heroAim": {
       "smoothSec": 0.08, "pitchMaxDeg": 65, "yawMaxDeg": 70, "minReach": 1.0,
       "yawShare": [0.2, 0.3, 0.35, 0.15], "pitchShare": [0.25, 0.3, 0.3, 0.15],
-      "look": { "yawMaxDeg": 28, "pitchMaxDeg": 18, "share": 0.4, "smoothSec": 0.15 }
+      "look": { "yawMaxDeg": 28, "pitchMaxDeg": 18, "share": 0.4, "smoothSec": 0.15 },
+      "recoilDeg": 4.5, "recoilRate": 22, "gunKick": 0.07
     },
     "droneAim": { "chest": 1.15, "wide": 0.05, "thin": 0.012 },
     "worms": { "segments": 7, "spacing": 0.27, "headRadius": 0.25, "tailRadius": 0.09, "wiggle": 0.16, "wiggleStride": 0.55, "rearUp": 0.5, "deathSec": 0.5 },
-    "netVision": { "linkRadius": 0.022, "linkStrength": 0.8, "routeWidth": 0.36, "routeStrength": 0.35, "zoneHeight": 2.4, "noiseStrength": 0.5 }
+    "netVision": { "linkRadius": 0.022, "linkStrength": 0.8, "routeWidth": 0.4, "routeCorner": 1.2, "chevronSpacing": 1.1, "chevronStroke": 0.07, "routeStrength": 0.5, "zoneHeight": 2.4, "noiseStrength": 0.5 }
   },
   "audio": {
-    "master": 0.75, "droneHum": 0.32, "cameraServo": 0.22, "alarmLoop": 0.32, "hearDist": 16, "hack": 1.0, "wormSkitter": 0.5,
+    "master": 0.75, "droneHum": 0.32, "cameraServo": 0.22, "alarmLoop": 0.18, "hearDist": 16, "hack": 1.0, "wormSkitter": 0.25,
     "hits": {
-      "playerHit": 1.0, "playerHurt": 0.5, "playerHitLowHp": 0.35,
+      "rifle": 1.0, "hitTick": 0.5, "killPop": 0.8, "wormHitBlade": 0.7, "playerHit": 1.6, "playerHurt": 0.5, "playerHitLowHp": 0.35,
       "droneHit": 0.75, "droneHitBlade": 0.6, "droneKill": 1.0, "droneKillDerez": 0.55,
-      "wormHit": 0.8, "wormKill": 0.85, "wormWindup": 0.7, "wormBite": 0.8, "wormSpawn": 0.85
+      "wormHit": 0.8, "wormKill": 0.85, "wormWindup": 1.0, "wormBite": 0.8, "wormSpawn": 0.85
     },
     "mixer": {
       "limiter": { "thresholdDb": -10, "kneeDb": 6, "ratio": 8, "attackSec": 0.003, "releaseSec": 0.15 },
       "bus": { "player": 1.0, "enemy": 0.85, "ui": 1.0, "music": 0.55, "ambience": 0.8 },
       "voiceLimit": { "kill": 4, "footstep": 3, "hit": 5, "shot": 4, "glitch": 3, "derez": 3, "default": 10, "total": 36 },
+      "send": { "shot": 0.2, "hit": 0.3, "kill": 0.4, "derez": 0.4, "glitch": 0.25, "enemy": 0.25, "player": 0, "ui": 0, "music": 0, "ambience": 0 },
+      "reverb": { "sec": 1.3, "preDelaySec": 0.02, "lowpassHz": 5000, "darkHz": 1500, "return": 0.7 },
+      "far": { "fromM": 7, "nearHz": 14000, "farHz": 2500, "sendBoost": 0.3 },
+      "gapSec": { "hit_tick": 0.03, "kill_pop": 0.05 },
       "derezGapSec": 0.08, "glitchGapSec": 0.05,
       "pitchJitter": 0.05,
       "pan": { "width": 0.85, "minDist": 1.5 },
@@ -200,7 +244,7 @@
       "suspicion": { "gain": 0.09, "hzMin": 180, "hzMax": 560, "above": 0.04, "smoothSec": 0.12 },
       "spottedGain": 0.5, "clearGain": 0.35, "stingGapSec": 3,
       "waveRiserSec": 2.0, "waveRiserGain": 0.5, "waveClearedGain": 0.5,
-      "footstep": { "floor": 0.18, "crouch": 0.14, "ceil": 1.0 }
+      "footstep": { "floor": 0.10, "crouch": 0.14, "ceil": 0.55 }
     },
     "music": {
       "bpm": 120, "beatsPerBar": 4, "xfadeSec": 1.2, "holdSec": 6, "startBars": 1,
@@ -212,15 +256,18 @@
   },
   "may": {
     "perWordSec": 0.35, "baseSec": 1.2, "gapSec": 0.7, "maxWaitSec": 20, "endHoldMaxSec": 9,
-    "meeting": { "introSec": 0.8, "perWordSec": 0.2, "baseSec": 0.6, "skipAfterSec": 1.0, "outroSec": 0.25 },
+    "meeting": { "introSec": 0.8, "perWordSec": 0.35, "baseSec": 1.2, "skipAfterSec": 1.0, "outroSec": 0.25 },
     "voice": { "volume": 0.5, "syllableSec": 0.105, "commaPauseSec": 0.16, "stopPauseSec": 0.32, "pitch": 1.0, "pitchJitter": 0.1, "stopDrop": 0.09 },
     "watch": { "tickSec": 0.25, "cameraDist": 18, "wardenDist": 20, "coneDeg": 40 },
     "glyph": { "size": 0.5, "lift": 0.16, "flickerSec": 0.07, "px": 128 },
     "screenGlitchSec": 0.7,
     "deathEvery": 3
   },
+  "story": {
+    "perWordSec": 0.35, "baseSec": 1.2, "minShotSec": 2.5, "crossfadeSec": 0.7, "clickGuardSec": 0.4, "fadeInSec": 0.6, "panZoom": 0.06
+  },
   "tips": {
-    "promptMinSec": 3, "promptMaxShows": 2, "promptGapSec": 1.2, "promptFadeSec": 0.4, "cardGapSec": 25, "quietCardAfterSec": 1.5, "cardPercent": 58
+    "promptMinSec": 3, "promptMaxShows": 2, "promptGapSec": 1.2, "promptFadeSec": 0.4, "cardGapSec": 25, "cardPercent": 58
   },
   "hack": {
     "codes": ["1C", "BD", "55", "E9", "7A", "FF"],

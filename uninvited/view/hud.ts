@@ -7,6 +7,7 @@ import texts from '../texts/en.json'
 import type { SettingsHandle } from './settings'
 import { buildSettingsPanel, SETTINGS_CSS } from './settings-ui'
 import { TIPS_CFG, type CardId, type Tips } from './tips'
+import { createHitMarks, type HitMarks } from './hitmarks'
 
 type TextKey = Exclude<keyof typeof texts, 'controls'>
 
@@ -90,7 +91,7 @@ export interface HudState {
   scanWarnAt?: number
   /** Past the warning point while scanning. */
   scanWarning?: boolean
-  prompt: 'none' | 'terminal' | 'artifact'
+  prompt: 'none' | 'terminal' | 'artifact' | 'takedown'
   wave: number
   wavesCleared: number
   wavesNeeded: number
@@ -104,6 +105,8 @@ export interface HudState {
 }
 
 export interface Hud {
+  /** The hit / kill / block markers and the crosshair bloom (view/hitmarks.ts), driven by the game view. */
+  readonly marks: HitMarks
   update(h: HudState): void
   toast(text: string, kind?: 'info' | 'alarm' | 'good'): void
   /** The contextual prompt (non-blocking, big, with keycaps): the text, or null to fade it out. It has no timer. */
@@ -119,7 +122,13 @@ export interface Hud {
   showPause(on: boolean): void
   showResume(on: boolean): void
   showDead(hasSave: boolean, onLoad: () => void, onRestart: () => void): void
-  showWon(stats: string, ending: string, onAgain: () => void): void
+  showWon(stats: string, ending: string, onAgain: () => void, buttonKey?: 'won.again' | 'won.continue'): void
+  /** The level title banner (3 s, non-blocking): the name and a one-line goal. */
+  banner(title: string, goal: string, sec: number): void
+  /** A short cyan UNSEEN flash under the security status: a watcher passed close by and did not notice you. */
+  unseen(sec: number): void
+  /** The bottom column (May's line above, the hint below, the meeting's skip hint): they cannot collide. */
+  stack: HTMLElement
   hideScreens(): void
   /** HUD size in percent (100, 125, 150). */
   setScale(pct: number): void
@@ -142,13 +151,13 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
 /** The trace meter and the traced banner (their styles live here, not in index.html). */
 const TRACE_CSS = `
 .hud-trace { position: absolute; left: 50%; top: 68%; width: 300px; margin-left: -150px; text-align: center;
-  font-size: 11px; letter-spacing: 0.3em; color: #9fefff; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+  font-size: clamp(12px, 1.4vh, 18px); letter-spacing: 0.3em; color: #9fefff; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 .hud-trace.on { opacity: 1; }
 .hud-trace-bar { position: relative; height: 5px; margin-top: 6px; background: rgba(120, 220, 255, 0.12);
   box-shadow: inset 0 0 0 1px rgba(120, 220, 255, 0.25); }
 .hud-trace-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #8ff0ff; box-shadow: 0 0 8px #4fe0ff; }
 .hud-trace-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #ff4a3a; box-shadow: 0 0 6px #ff3020; }
-.hud-trace.risk { color: #ff5a48; animation: traceRisk 0.45s steps(2, start) infinite; }
+.hud-trace.risk { color: #ff5a48; animation: traceRisk 0.5s steps(2, start) infinite; }
 .hud-trace.risk .hud-trace-fill { background: #ff3a2a; box-shadow: 0 0 10px #ff2010; }
 .hud-trace.risk .hud-trace-bar { box-shadow: inset 0 0 0 1px rgba(255, 70, 50, 0.6), 0 0 12px rgba(255, 40, 20, 0.5); }
 @keyframes traceRisk { 50% { opacity: 0.45; } }
@@ -162,10 +171,20 @@ const TRACE_CSS = `
 .hud-mark.spotted .hud-mark-track { stroke: rgba(255, 60, 40, 0.45); }
 .hud-mark.spotted .hud-mark-fill { stroke: #ff3a2a; filter: drop-shadow(0 0 6px #ff2010); }
 .hud-mark.spotted .hud-mark-tip { fill: #ff3a2a; }
-.hud-mark.spotted { animation: traceRisk 0.4s steps(2, start) infinite; }
-.hud-traced { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: 26px; letter-spacing: 0.32em;
+.hud-mark.spotted { animation: traceRisk 0.5s steps(2, start) infinite; }
+.hud-traced { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: clamp(26px, 3.6vh, 48px); letter-spacing: 0.32em;
   color: #ff4a3a; text-shadow: 0 0 14px #ff2010; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
-.hud-traced.on { opacity: 1; animation: traceRisk 0.3s steps(2, start) 4; }
+.hud-traced.on { opacity: 1; animation: traceRisk 0.5s steps(2, start) 3; }
+/* reduce shake / flash: nothing on the HUD blinks (the states keep their colours) */
+.hud.reduce-fx .hud-status.detected, .hud.reduce-fx .hud-top.alarm3 .hud-pip.on, .hud.reduce-fx .hud-mark.spotted, .hud.reduce-fx .hud-trace.risk, .hud.reduce-fx .hud-traced.on { animation: none; }
+.hud-banner { position: absolute; left: 0; right: 0; top: 24%; text-align: center; opacity: 0; pointer-events: none; }
+.hud-banner.on { animation: hudBanner var(--banner-sec, 3s) ease-in-out 1 forwards; }
+.hud-banner h3 { margin: 0; font-weight: 300; font-size: clamp(28px, 5vh, 64px); letter-spacing: 0.3em; text-transform: uppercase; color: var(--white); text-shadow: 0 0 22px var(--cyan), 0 2px 8px #000; }
+.hud-banner p { margin: 0.6em 0 0; font-size: clamp(16px, 2.4vh, 30px); letter-spacing: 0.08em; color: #bff7ff; text-shadow: 0 2px 8px #000; }
+@keyframes hudBanner { 0% { opacity: 0; } 15% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+.hud-unseen { margin-top: 0.5vh; font-size: clamp(12px, 1.6vh, 20px); letter-spacing: 0.4em; color: #8ff0ff; opacity: 0; text-shadow: 0 0 10px #4fe0ff; }
+.hud-unseen.on { animation: hudUnseen var(--unseen-sec, 1.4s) ease-out 1; }
+@keyframes hudUnseen { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
 `
 
 /** The "Esc again to abort" line over the hack overlay. */
@@ -177,13 +196,17 @@ const HACK_ESC_CSS = `
 
 /** The contextual prompt, the interact prompt, keycaps and the tutorial card. Font: about 2.6 % of the screen height, the card body 2.8 % like May's subtitles (the HUD size multiplies it). */
 const TIPS_CSS = `
-.hud-hint, .hud-prompt { position: absolute; left: 50%; transform: translateX(-50%); max-width: 88%; box-sizing: border-box; text-align: center;
+.hud-stack { position: absolute; left: 0; right: 0; bottom: 6vh; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.hud-hint, .hud-prompt { max-width: 88%; box-sizing: border-box; text-align: center;
   font-size: clamp(18px, 2.6vh, 34px); line-height: 1.35; padding: 0.35em 0.9em; color: var(--white); letter-spacing: 0.02em;
   background: rgba(0, 8, 14, 0.88); border: 1px solid rgba(111, 244, 255, 0.55); border-left: 0.2em solid var(--amber);
   box-shadow: 0 0 22px rgba(0, 0, 0, 0.7); opacity: 0; pointer-events: none; }
-.hud-hint { bottom: 9vh; transition: opacity ${TIPS_CFG.promptFadeSec}s; }
-.hud-prompt { top: 60%; border-left-color: var(--cyan); transition: opacity 0.15s; }
-.hud-hint.on, .hud-prompt.on { opacity: 1; }
+.hud-hint { position: static; order: 3; display: none; width: max-content; max-width: calc(44vw / var(--zoom, 1)); }
+.hud-hint.on { display: block; animation: hintIn ${TIPS_CFG.promptFadeSec}s ease-out 1; opacity: 1; }
+@keyframes hintIn { from { opacity: 0; } to { opacity: 1; } }
+/* the interact prompt is the top of the bottom column (May's line and the hint below it), far from the crosshair ring */
+.hud-prompt { position: static; order: 0; display: none; width: max-content; max-width: calc(44vw / var(--zoom, 1)); border-left-color: var(--cyan); }
+.hud-prompt.on { display: block; opacity: 1; }
 .who { display: inline-block; margin-right: 0.8em; padding: 0 0.5em; font-size: 0.7em; font-weight: 700; letter-spacing: 0.2em; color: #04141a; background: var(--cyan); vertical-align: 0.1em; }
 .hud-hint.by-may { border-left-color: var(--cyan); }
 .screen.card .who { display: block; width: fit-content; margin: 0 0 0.6em; }
@@ -226,6 +249,7 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
   css.textContent = TRACE_CSS + AIM_HIT_CSS + SETTINGS_CSS + HACK_ESC_CSS + TIPS_CSS
   document.head.appendChild(css)
   const hud = el('div', 'hud', root)
+  const stack = el('div', 'hud-stack', root)
 
   // top: status + alarm
   const top = el('div', 'hud-top', hud)
@@ -236,6 +260,7 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
   el('span', 'hud-alarm-label', alarmRow, t('hud.alarm'))
   const pips: HTMLElement[] = []
   for (let i = 0; i < 3; i++) pips.push(el('span', 'hud-pip', alarmRow))
+  const unseenEl = el('div', 'hud-unseen', top, t('hud.unseen'))
   const decay = el('div', 'hud-decay', top)
   const decayFill = el('div', 'hud-decay-fill', decay)
   const wave = el('div', 'hud-wave', top)
@@ -312,9 +337,14 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
   el('b', '', aimCross)
   let lastAim = -1
   const cross = el('div', 'hud-cross', hud)
-  const prompt = el('div', 'hud-prompt', hud)
+  const hitMarks = createHitMarks(hud, [cross, aimCross])
+  const prompt = el('div', 'hud-prompt', stack)
+  prompt.style.setProperty('zoom', String((settings?.values.hudScale ?? 100) / 100))
   const toastBox = el('div', 'hud-toasts', hud)
-  const hintBox = el('div', 'hud-hint', hud)
+  const hintBox = el('div', 'hud-hint', stack)
+  hintBox.style.setProperty('zoom', String((settings?.values.hudScale ?? 100) / 100))
+  stack.style.setProperty('--zoom', String((settings?.values.hudScale ?? 100) / 100))
+  const banner = el('div', 'hud-banner', hud)
 
   // screens
   const screens = el('div', 'screens', root)
@@ -402,7 +432,9 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
   }
 
   const api: Hud = {
+    marks: hitMarks,
     hackRoot,
+    stack,
     update(h: HudState): void {
       const hp = Math.round(h.hp * 100)
       if (hp !== last.hp) {
@@ -470,7 +502,7 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
         last.trace = traceKey
       }
       if (h.prompt !== last.prompt) {
-        renderKeys(prompt, h.prompt === 'terminal' ? t('prompt.terminal') : h.prompt === 'artifact' ? t('prompt.artifact') : '')
+        renderKeys(prompt, h.prompt === 'terminal' ? t('prompt.terminal') : h.prompt === 'artifact' ? t('prompt.artifact') : h.prompt === 'takedown' ? t('prompt.takedown') : '')
         prompt.classList.toggle('on', h.prompt !== 'none')
         last.prompt = h.prompt
       }
@@ -651,12 +683,27 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
       load.addEventListener('click', onLoad, { once: true })
       restart.addEventListener('click', onRestart, { once: true })
     },
-    showWon(stats: string, ending: string, onAgain: () => void): void {
+    banner(title: string, goal: string, sec: number): void {
+      banner.replaceChildren()
+      el('h3', '', banner, title)
+      if (goal) el('p', '', banner, goal)
+      banner.style.setProperty('--banner-sec', `${sec}s`)
+      banner.classList.remove('on')
+      void banner.offsetWidth
+      banner.classList.add('on')
+    },
+    unseen(sec: number): void {
+      unseenEl.style.setProperty('--unseen-sec', `${sec}s`)
+      unseenEl.classList.remove('on')
+      void unseenEl.offsetWidth
+      unseenEl.classList.add('on')
+    },
+    showWon(stats: string, ending: string, onAgain: () => void, buttonKey: 'won.again' | 'won.continue' = 'won.again'): void {
       const s = screen('won')
       el('h2', '', s, t('won.title'))
       el('p', '', s, stats)
-      el('p', 'note', s, ending)
-      const again = el('button', 'btn', s, t('won.again'))
+      if (ending) el('p', 'note', s, ending)
+      const again = el('button', 'btn', s, t(buttonKey))
       again.addEventListener('click', onAgain, { once: true })
     },
     hideScreens(): void {
@@ -665,6 +712,9 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
     },
     setScale(pct: number): void {
       hud.style.setProperty('zoom', String(pct / 100))
+      hintBox.style.setProperty('zoom', String(pct / 100))
+      prompt.style.setProperty('zoom', String(pct / 100))
+      stack.style.setProperty('--zoom', String(pct / 100))
     },
     reduceFlash(on: boolean): void {
       hud.classList.toggle('reduce-fx', on)

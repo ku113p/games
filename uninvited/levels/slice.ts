@@ -153,6 +153,8 @@ export const slice: LevelDef = {
   ],
   // the passage from the east corridor up to the hall is the one enclosed stretch: a breather under a roof
   roofs: [{ from: [22, 12], to: [24, 13], height: 4.2 }],
+  // One firewall arena: the whole slice; its lockdown opens the one red wall.
+  arenas: [{ id: 'slice', from: [0, 0], to: [31, 25], walls: ['wall1'] }],
   entities: [
     // 1. start corridor
     { kind: 'videoCamera', id: 'cam1', at: [5, 25], wall: 'e', sweep: [-55, 55], periodSec: 8 },

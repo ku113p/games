@@ -35,9 +35,11 @@ describe('the gunblade', () => {
   test('two sword hits kill a drone; a kill is loud and counted', () => {
     const f = setup(HALL, [...ONE_DRONE, { kind: 'spawn', at: [12, 1] }])
     droneAhead(f)
+    const home = { ...(f.s.drones[0]?.pos ?? { x: 0, y: 0, z: 0 }) }
     attack(f.s, f.sim, Math.PI, 0)
     expect(f.s.drones[0]?.mode).toBe('alert') // hitting it blows your cover
     run(f, 0.5)
+    Object.assign(f.s.drones[0]?.pos ?? {}, home) // a fighting drone slides out to its ring at once: put it back in reach for the second blow
     attack(f.s, f.sim, Math.PI, 0)
     const types = f.sim.events.map((e) => e.type)
     expect(f.s.drones[0]?.alive).toBe(false)

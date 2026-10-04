@@ -144,7 +144,7 @@ The river arena uses the void meaningfully - the one real choice. Checkpoints si
 | P3 | The first fight only comes from failure; sword and rifle are never taught safely | open |
 | P4 | Metrics: jump 1.18 m cannot reach 1.4 m cover or 2 m terraces; the high-bridge landing sits on warden2's line and under the river drone | in progress - low cover is 1.1 m and the format no longer promises climbing hex; the drone overlap is open |
 | P5 | The landmark may be hidden behind 4-12 m rings | done - the landmark is 95 m tall with a beam |
-| P6 | Guard density and windows are not set; "every cell watched" | open - no windows or safe-share check yet |
+| P6 | Guard density and windows are not set; "every cell watched" | open - no windows or safe-share check yet; the art side is built (2026-10-05): the floor is lit where watched and dark in blind spots, derived from the level (`view/exposure.ts`), so the lanes you author now show on screen |
 | P7 | T3 behind a posted warden, one approach, a dead end if seen | decided otherwise - the warden faces away from T3 and the takedown gives the tool; a second approach is still wanted |
 | P8 | The slice shows big blank dark walls; arenas are rectangles with 2-3 blocks | in progress - city kit with seams, windows and crowns |
 | P9 | No defined end after the artifact | done - taking the artifact wins the level |
@@ -210,7 +210,7 @@ from the top 5).
 - A lane is a straight chain of one prop (the 1.4 m server block) at <= 3 m spacing, <= 2 m gaps, between tall blocks that
   cut the main watcher's view. Tall = safe, waist-high = safe crouched, open floor = timed. No low cover on watched cells.
 - No free rim street: the arena edge either touches the inner blocks or carries the walking warden / the drone.
-- Patrols are loops with readable gaps: authored wardens without random pauses, a 20-30 s cycle with one >= 6 s window;
+- Patrols are loops with readable gaps: authored wardens without random pauses (*rule built 2026-10-05*: only `waitSec` stops, +-10 %, head sweep 30 deg walking / 55 deg at a stop), a 20-30 s cycle with one >= 6 s window;
   drones slower than walking (proposal 1.4 m/s) on straight back-and-forth lines.
 - A connector is <= 6-8 cells and has exactly one beat (checkpoint, sensor lesson, vista, May line, finding) or it is cut.
 - One identity, one threat, one set piece per arena; <= 50% ever-watched floor.
@@ -223,3 +223,9 @@ from the top 5).
 4. [M, game/combat owners] The takedown before L2/L3 content; a behind-the-back approach per warden. If it slips, cut wardens.
 5. [M] L2 and L3 as one arena + finale each with their own shape and twist (archive stacks with a top level; firewall ring),
    2-3 gates on one side as a combat front, bot-checked before the 10-08 freeze.
+
+**Status (2026-10-05, the rebuild).** Top 5 item 1 done: L1 rebuilt (56 x 60), 3 checkpoints with C1 in P1 ([27,24]), quiet path ~120 cells (was 201),
+quiet bot 8/8 208-263 s, 0 alarms; the loud bot 6-7 of 8, 130-220 s. P2, T2, cam3, drone0, drone2, warden4 and sensor2 are cut; A1's drone is cut too. One
+identity per arena (A1 the camera and a lane, A2 the river and T1's timed run, A3 the vault camera and posted warden 3). One elevated route per arena
+(A1 the east terrace, A2 the high bridge, A3 the high road). Firewall per arena and a stealth primer added (DESIGN section 4). Measured: A1 ~22% ever
+watched, A2 ~50%, A3 ~25%. Open: the loud bot is not slower than the quiet one (the Breaker pays two lockdowns; A1 has no wall), A2 is above the 50% target.

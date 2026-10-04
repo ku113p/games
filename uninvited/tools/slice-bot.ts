@@ -4,19 +4,20 @@
 //   bun tools/slice-bot.ts quiet [seeds] [normal|sloppy] [--level slice|l1]  - the Hacker: crouch-walk, wait for gaps, hack the terminals
 // The routes of each level are in tools/bot-routes.ts (default level: the slice).
 // The loud bot plays like a so-so human: it aims with a few degrees of error, reacts late, and dodges only half of
-// the shots it sees fired. The quiet bot waits whenever the next steps would be seen, and takes 25-40 s per hack.
+// the shots it sees fired. The quiet bot waits whenever the next steps would be seen, and takes 12-22 s (the easiest grid) to 27-37 s (difficulty 0.5) per hack.
 import { createRapierWorld, initPhysics } from '../adapters/physics-rapier'
 import cfgJson from '../config.json'
-import { attack, beginFrame, createIntent, hackPick, interact, moveTap, setAim, switchMode, tick, toggleCrouch, TAP_BACK, TAP_LEFT, TAP_RIGHT } from '../core/commands'
+import { attack, beginFrame, createIntent, hackPick, interact, moveTap, setAim, switchMode, tick, toggleCrouch, useAbility, TAP_BACK, TAP_LEFT, TAP_RIGHT } from '../core/commands'
 import type { GameConfig } from '../core/config'
 import type { GameEvent } from '../core/events'
 import { buildGrid, cellAt, CellKind, cellCenterX, cellCenterZ, floorHeightAt, hasFloor } from '../core/grid'
 import { solveHack } from '../core/hack/index'
 import { createRng, nextFloat, type Rng } from '../core/random'
+import { raiseAlarm } from '../core/rules/alarm'
 import { seeFactor } from '../core/rules/detection'
 import { sweepYaw } from '../core/rules/devices'
-import { wardenLook } from '../core/rules/wardens'
-import { createSim, createState, type GameState, type Sim } from '../core/state'
+import { canTakedown, wardenLook } from '../core/rules/wardens'
+import { createSim, createState, type GameState, type HackRun, type Sim } from '../core/state'
 import { levelById } from '../levels/index'
 import { ROUTES, type Step } from './bot-routes'
 
@@ -34,6 +35,8 @@ const REACT = SLOPPY ? 1.0 : 0.5
 const AIM_ERR = SLOPPY ? 9 : 6
 const DODGE = SLOPPY ? 0.2 : 0.5
 const DEG = Math.PI / 180
+/** The quiet bot pings a warden away after waiting this long at one step. */
+const DISTRACT_AFTER_SEC = Number(process.env['BOT_DISTRACT_AFTER'] ?? 20)
 
 await initPhysics()
 const grid = buildGrid(level, cfg.world)
@@ -46,10 +49,12 @@ interface Result {
   minHp: number
   alarms: number
   kills: number
+  takedowns: number
   waves: number
   hitsTaken: number
   shotsAtPlayer: number
   wormBites: number
+  pings: number
 }
 
 function cx(c: number): number {
@@ -152,6 +157,16 @@ if (process.env['BOT_MAP']) {
   }
 }
 
+/** Is a closed red wall within a few metres of (x, z)? */
+function closedWallNear(s: GameState, x: number, z: number, within = 7): boolean {
+  for (const w of s.walls) {
+    if (w.open) continue
+    const mid = (w.min + w.max) / 2
+    if (Math.hypot((w.alongX ? w.coord : mid) - x, (w.alongX ? mid : w.coord) - z) < within) return true
+  }
+  return false
+}
+
 function droneVisible(s: GameState, sim: Sim, i: number): boolean {
   const d = s.drones[i]
   if (!d || !d.active || !d.alive || d.spawnTime > 0) return false
@@ -180,7 +195,14 @@ function play(seed: number, route: Step[], loud: boolean): Result {
   let shots = 0
   let minHp = s.player.hp
   let hackWait = 0
+  let holding = 0
+  let chase = -1
+  let chaseT = 0
   let waiting = 0
+  /** The quiet bot's May: how long it has waited at this step, and which step that was (a long wait pings a warden away, key 1). */
+  let stepWait = 0
+  let stepWaitAt = -1
+  let pings = 0
   let camYaw = s.player.facing
   /** Per drone slot: game time from which the bot "knows" about it (Infinity = not noticed). */
   const knownAt: number[] = s.drones.map(() => Infinity)
@@ -192,12 +214,12 @@ function play(seed: number, route: Step[], loud: boolean): Result {
   const done = (won: boolean, why0: string): Result => {
     const why = firstAlarm ? `${why0} [first alarm: ${firstAlarm}]` : why0
     physics.dispose()
-    return { won, why, time: s.time, hp: s.player.hp, minHp, alarms: s.run.alarmsRaised, kills: s.run.kills, waves: s.alarm.wavesCleared, hitsTaken, shotsAtPlayer: shots, wormBites }
+    return { won, why, time: s.time, hp: s.player.hp, minHp, alarms: s.run.alarmsRaised, kills: s.run.kills, takedowns: s.run.takedowns, waves: s.alarm.wavesCleared, hitsTaken, shotsAtPlayer: shots, wormBites, pings }
   }
 
   let why = ''
   /** Would a crouched/standing player at (x, z) be seen by anyone in the next `ahead` seconds? */
-  function unsafe(x: number, z: number, ahead: number): boolean {
+  function unsafe(x: number, z: number, ahead: number, exact = false): boolean {
     const p = s.player
     const ox = p.pos.x
     const oz = p.pos.z
@@ -207,10 +229,10 @@ function play(seed: number, route: Step[], loud: boolean): Result {
     let seen = false
     for (const c of s.cameras) {
       if (!c.alive || c.pausedTime > 0) continue
-      for (let t = 0; t <= ahead && !seen; t += 0.25) {
+      for (let t = exact ? ahead : 0; t <= ahead && !seen; t += 0.25) {
         const yaw = sweepYaw(c.baseYaw, c.sweepA, c.sweepB, c.period, c.phase, vc.holdShare, s.time + t)
         const cp = Math.cos(vc.pitchDeg * DEG)
-        const f = seeFactor(s, sim, c.pos.x, c.pos.y, c.pos.z, Math.sin(yaw) * cp, -Math.sin(vc.pitchDeg * DEG), Math.cos(yaw) * cp, Math.cos((vc.halfAngleDeg + 8) * DEG), vc.range + 1)
+        const f = seeFactor(s, sim, c.pos.x, c.pos.y, c.pos.z, Math.sin(yaw) * cp, -Math.sin(vc.pitchDeg * DEG), Math.cos(yaw) * cp, Math.cos((vc.halfAngleDeg + (exact ? 0 : 8)) * DEG), vc.range + (exact ? 0 : 1))
         if (f > 0) { seen = true; why = 'cam' + s.cameras.indexOf(c) }
       }
     }
@@ -221,7 +243,7 @@ function play(seed: number, route: Step[], loud: boolean): Result {
       // a drone may turn: anything within its range and line of sight close by counts, its cone further out
       const dist = Math.hypot(d.pos.x - x, d.pos.z - z)
       const cp = Math.cos(dc.pitchDeg * DEG)
-      const cone = Math.cos((dist < 5 ? 179 : dc.halfAngleDeg + 25) * DEG)
+      const cone = Math.cos((exact ? dc.halfAngleDeg : dist < 5 ? 179 : dc.halfAngleDeg + 25) * DEG)
       const f = seeFactor(s, sim, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * cp, -Math.sin(dc.pitchDeg * DEG), Math.cos(d.yaw) * cp, cone, dc.range + 1)
       if (f > 0) { seen = true; why = 'drone' + s.drones.indexOf(d) }
     }
@@ -237,7 +259,7 @@ function play(seed: number, route: Step[], loud: boolean): Result {
       }
       const look = wardenLook(w)
       const cp = Math.cos(wc.pitchDeg * DEG)
-      const f = seeFactor(s, sim, w.pos.x, w.pos.y + wc.eyeHeight, w.pos.z, Math.sin(look) * cp, -Math.sin(wc.pitchDeg * DEG), Math.cos(look) * cp, Math.cos((wc.halfAngleDeg + 30) * DEG), wc.range + 1.5)
+      const f = seeFactor(s, sim, w.pos.x, w.pos.y + wc.eyeHeight, w.pos.z, Math.sin(look) * cp, -Math.sin(wc.pitchDeg * DEG), Math.cos(look) * cp, Math.cos((wc.halfAngleDeg + (exact ? 0 : 30)) * DEG), wc.range + (exact ? 0 : 1.5))
       if (f > 0) { seen = true; why = 'warden' + s.wardens.indexOf(w) }
     }
     p.pos.x = ox
@@ -245,13 +267,73 @@ function play(seed: number, route: Step[], loud: boolean): Result {
     return seen
   }
 
+  /**
+   * May's distraction signal (key 1) for the quiet bot, when a warden has kept the way blocked for a long while: aim at the
+   * nearest warden on its round (in sight, 4-14 m away) - the ping lands on the first surface behind it, so it walks off
+   * towards that to check. Returns true when the signal went out.
+   */
+  function pingWarden(): boolean {
+    if (!s.may.ranks['distract'] || s.may.cd[0]! > 0) return false
+    const p = s.player.pos
+    let best: (typeof s.wardens)[number] | undefined
+    let bd = 14
+    for (const w of s.wardens) {
+      if (!w.alive || w.down > 0 || w.heavy || (w.mode !== 'patrol' && w.mode !== 'return')) continue
+      const d = Math.hypot(w.pos.x - p.x, w.pos.z - p.z)
+      if (d < 4 || d >= bd || !sim.world.lineOfSight(p.x, p.y + cfg.combat.rifle.muzzleHeight, p.z, w.pos.x, w.pos.y + cfg.warden.chestHeight, w.pos.z)) continue
+      bd = d
+      best = w
+    }
+    if (!best) return false
+    const yaw = Math.atan2(best.pos.x - p.x, best.pos.z - p.z)
+    const pitch = Math.atan2(best.pos.y + cfg.warden.chestHeight - (p.y + cfg.combat.rifle.muzzleHeight), bd)
+    useAbility(s, sim, 0, yaw, pitch)
+    pings++
+    return true
+  }
+
   const last: GameEvent[] = [] // the events of the previous tick
   /** The next legs after `from` are out of every drone's reach and every camera's sweep for a while. */
   function wayClear(from: number): boolean {
+    if (route[from]?.exact) {
+      // the next two legs walked crouched from here: nobody sees a point of them at the moment we get there (the cameras'
+      // sweeps are read exactly, drones and wardens as they stand now)
+      const pp = s.player.pos
+      let px = pp.x
+      let pz = pp.z
+      let dd = 0
+      for (let k = from; k <= from + 2; k++) {
+        const w = route[k]
+        if (!w) break
+        const qx = cx(w.at[0])
+        const qz = cz(w.at[1])
+        const len = Math.hypot(qx - px, qz - pz)
+        for (let m = 0.5; m <= len; m += 0.5) {
+          const sx = px + ((qx - px) * m) / len
+          const sz = pz + ((qz - pz) * m) / len
+          if (unsafe(sx, sz, (dd + m) / cfg.player.crouchSpeed + 0.3, true)) {
+            if (process.env['BOT_EXACT'] && Math.floor(s.time * 60) % 600 === 0) console.log(`  exact t=${s.time.toFixed(1)} blocked at ${(sx / 2).toFixed(1)},${(sz / 2).toFixed(1)} by ${why}`)
+            return false
+          }
+        }
+        dd += len
+        px = qx
+        pz = qz
+      }
+      return true
+    }
+    const at = route[from]?.wardenAt
+    if (at) {
+      // a warden near that cell with its back to us (we are behind it)
+      for (const w of s.wardens) if (w.alive && Math.hypot(w.pos.x - cx(at[0]), w.pos.z - cz(at[1])) < 6 && (s.player.pos.x - w.pos.x) * Math.sin(w.yaw) + (s.player.pos.z - w.pos.z) * Math.cos(w.yaw) < -0.5) return true
+      return false
+    }
     // a warden nearby must be walking its round with its back to us
     const p = s.player.pos
-    for (const w of s.wardens) {
+    for (let wi = 0; wi < s.wardens.length; wi++) {
+      const w = s.wardens[wi] as (typeof s.wardens)[number]
       if (!w.alive || w.pausedTime > 0 || Math.hypot(w.pos.x - p.x, w.pos.z - p.z) > 24) continue
+      if (sim.wardenRoutes[wi]?.post) continue // a posted warden never walks: the checks of the next legs decide
       if (Math.hypot(w.pos.x - p.x, w.pos.z - p.z) > cfg.warden.range + 3) continue // far off: the checks of the next legs decide
       if (w.mode !== 'patrol' || w.act !== 'walk' || w.speed < 0.3) return false
       const off = Math.atan2(Math.sin(Math.atan2(p.x - w.pos.x, p.z - w.pos.z) - wardenLook(w)), Math.cos(Math.atan2(p.x - w.pos.x, p.z - w.pos.z) - wardenLook(w)))
@@ -311,8 +393,33 @@ function play(seed: number, route: Step[], loud: boolean): Result {
     if (!firstAlarm) for (const e of last) if (e.type === 'alarmRaised') firstAlarm = `${e.reason} t=${s.time.toFixed(0)} step ${step} at ${(p.pos.x / 2).toFixed(1)},${(p.pos.z / 2).toFixed(1)}`
     const target = route[step]
     if (!target) return done(false, 'route ended')
-    const tx = cx(target.at[0])
-    const tz = cz(target.at[1])
+    let tx = cx(target.at[0])
+    let tz = cz(target.at[1])
+    // a takedown chase (the quiet bot only): walk up behind the warden until E works, then on to the next step
+    let chaseEnded = false
+    if (chase >= 0) {
+      const cw = s.wardens[chase]
+      chaseT += DT
+      if (!cw || !cw.alive || cw.down > 0 || cw.mode === 'alert' || chaseT > 30) {
+        chase = -1
+        chaseEnded = true
+        step++
+        stuck = 0
+      } else if (Math.abs(Math.atan2(Math.sin(Math.atan2(p.pos.x - cw.pos.x, p.pos.z - cw.pos.z) - cw.yaw), Math.cos(Math.atan2(p.pos.x - cw.pos.x, p.pos.z - cw.pos.z) - cw.yaw))) < 100 * DEG && Math.hypot(cw.pos.x - p.pos.x, cw.pos.z - p.pos.z) < 9 && !canTakedown(s, sim, chase)) {
+        // it turned (or walks back) towards us: give up this try, back to the step and wait for the next round
+        chase = -1
+        chaseEnded = true
+      } else if (canTakedown(s, sim, chase)) {
+        interact(s, sim)
+        chase = -1
+        chaseEnded = true
+        step++
+        stuck = 0
+      } else {
+        tx = cw.pos.x - Math.sin(cw.yaw) * 1.0
+        tz = cw.pos.z - Math.cos(cw.yaw) * 1.0
+      }
+    }
     const dist = Math.hypot(tx - p.pos.x, tz - p.pos.z)
     let wx = tx - p.pos.x
     let wz = tz - p.pos.z
@@ -332,22 +439,60 @@ function play(seed: number, route: Step[], loud: boolean): Result {
     let sprint = loud
     let hold = false
 
+    // the lockdown of this arena opens its walls (alarm 3, two waves): wait next to the wall; a Breaker that has not caused
+    // a lockdown yet smashes something
+    const atWall = target.act === 'firewall' && closedWallNear(s, p.pos.x, p.pos.z, 10)
+    if (atWall) {
+      hold = true
+      holding += DT
+      if (holding > 8 && s.alarm.stage < 3 && Math.floor(holding / 4) !== Math.floor((holding - DT) / 4)) raiseAlarm(s, sim, 'camera', p.pos.x, p.pos.y, p.pos.z)
+    } else holding = 0
+
     // arrived?
-    if (dist < 0.7) {
-      if (target.act === 'firewall' && !s.alarm.firewallDown && s.walls.some((w) => !w.open)) hold = true
-      else if (target.act === 'hack' && s.terminals.some((t) => !t.done && t.cooldown <= 0 && Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z) < 1.7)) {
+    if (!atWall && dist < 0.7 && chase < 0 && !chaseEnded) {
+      if (target.act === 'hack' && s.terminals.some((t) => !t.done && t.cooldown <= 0 && Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z) < 1.7)) {
         interact(s, sim)
-        hackWait = 25 + nextFloat(rng) * 15
+        // a human takes longer on the harder grids (difficulty 0 = 5x5 with 3 codes)
+        hackWait = 12 + (sim.terminalLinks[(s.hack as HackRun | null)?.terminal ?? 0]?.difficulty ?? 0.3) * 30 + nextFloat(rng) * 10
       } else if (target.act === 'take') {
         interact(s, sim)
       } else if (target.quietWait && !wayClear(step)) {
         hold = true
         waiting += DT
+        stepWait = stepWaitAt === step ? stepWait + DT : 0
+        stepWaitAt = step
+        if (!loud && stepWait > DISTRACT_AFTER_SEC && pingWarden()) stepWait = 0
       } else {
-        if (target.act === 'crouch' && !p.crouched) toggleCrouch(s, sim)
-        if (target.act === 'stand' && p.crouched) toggleCrouch(s, sim)
-        step++
-        stuck = 0
+        if (target.takedown && !loud) {
+          // the nearest warden that is on its round: follow it and take it down from behind
+          let bi = -1
+          let bd = 40
+          for (let k = 0; k < s.wardens.length; k++) {
+            const cw = s.wardens[k]
+            if (!cw || !cw.alive || cw.heavy || cw.wave || cw.down > 0 || (cw.mode !== 'patrol' && cw.mode !== 'return')) continue
+            const d = Math.hypot(cw.pos.x - p.pos.x, cw.pos.z - p.pos.z)
+            if (d < bd) {
+              bd = d
+              bi = k
+            }
+          }
+          if (bi >= 0 && bd <= 11) {
+            chase = bi
+            chaseT = 0
+          } else if (bi >= 0 && waiting < 150) {
+            // too far to catch up before it stops: wait for its next leg away from us
+            hold = true
+            waiting += DT
+          }
+        }
+        if (!hold) {
+          if (target.act === 'crouch' && !p.crouched) toggleCrouch(s, sim)
+          if (target.act === 'stand' && p.crouched) toggleCrouch(s, sim)
+        }
+        if (chase < 0 && !hold) {
+          step++
+          stuck = 0
+        }
         if (DEBUG) console.log(`  [step ${step - 1} done at t=${s.time.toFixed(0)} waited ${waiting.toFixed(0)}]`)
       }
     }
@@ -467,7 +612,8 @@ function play(seed: number, route: Step[], loud: boolean): Result {
       }
     } else {
       // the quiet player: only go on when the next metre is unseen for a while
-      if (dist >= 0.7 && wx * wx + wz * wz > 0 && !target.dash) {
+      // (not while chasing a warden for a takedown: that is the one time it goes right up to one)
+      if (dist >= 0.7 && wx * wx + wz * wz > 0 && !target.dash && chase < 0) {
         const l = Math.hypot(wx, wz)
         const ax = p.pos.x + (wx / l) * Math.min(1.5, l)
         const az = p.pos.z + (wz / l) * Math.min(1.5, l)
@@ -597,7 +743,7 @@ function play(seed: number, route: Step[], loud: boolean): Result {
     intent.run = sprint && !p.crouched
     tick(s, sim, DT, intent)
   }
-  return done(false, `timed out at step ${step} (${route[step]?.at.join(',')}) at ${(s.player.pos.x / 2).toFixed(2)},${(s.player.pos.z / 2).toFixed(2)} after waiting ${waiting.toFixed(0)} s`)
+  return done(false, `[alarm ${s.alarm.stage} fw ${s.alarm.firewallDown} wave ${s.alarm.wave}/${s.alarm.wavesCleared} active ${s.alarm.waveActive} [drones ${s.drones.filter((d) => d.active && d.alive).map((d) => `${d.role}@${(d.pos.x / 2).toFixed(0)},${(d.pos.z / 2).toFixed(0)},${d.pos.y.toFixed(1)}`).join(' ')} worms ${s.worms.filter((w) => w.active && w.alive).map((w) => `${w.role}${w.mode}@${(w.pos.x / 2).toFixed(0)},${(w.pos.z / 2).toFixed(0)}`).join(' ')} wardens ${s.wardens.filter((w) => w.alive).map((w) => `${w.mode}@${(w.pos.x / 2).toFixed(0)},${(w.pos.z / 2).toFixed(0)}`).join(' ')}] walls ${s.walls.map((w) => (w.open ? 1 : 0)).join('')}] timed out at step ${step} (${route[step]?.at.join(',')}) at ${(s.player.pos.x / 2).toFixed(2)},${(s.player.pos.z / 2).toFixed(2)} after waiting ${waiting.toFixed(0)} s`)
 }
 
 const mode = ARGS[2] === 'quiet' ? 'quiet' : 'loud'
@@ -612,12 +758,12 @@ const seeds = Number(ARGS[3] ?? 8)
 const routes = ROUTES[level.id]
 if (!routes) throw new Error(`no bot routes for level ${level.id} (tools/bot-routes.ts)`)
 let wins = 0
-for (let seed = 1; seed <= seeds; seed++) {
+for (let seed = Number(process.env['BOT_SEED'] ?? 1); seed <= (process.env['BOT_SEED'] ? Number(process.env['BOT_SEED']) : seeds); seed++) {
   const r = mode === 'loud' ? play(seed, routes.loud, true) : play(seed, routes.quiet, false)
   if (r.won) wins++
   console.log(
     `${level.id} ${mode} seed ${seed}: ${r.won ? 'WON ' : 'LOST'} ${r.why} | ${r.time.toFixed(0)} s, hp ${r.hp.toFixed(0)} (min ${r.minHp.toFixed(0)}/${cfg.player.maxHp}), ` +
-      `alarms ${r.alarms}, kills ${r.kills}, waves cleared ${r.waves}, hits taken ${r.hitsTaken} (${r.wormBites} bites, ${r.shotsAtPlayer} shots)`,
+      `alarms ${r.alarms}, kills ${r.kills}, takedowns ${r.takedowns}, waves cleared ${r.waves}, hits taken ${r.hitsTaken} (${r.wormBites} bites, ${r.shotsAtPlayer} shots), pings ${r.pings}`,
   )
 }
 console.log(`${level.id} ${mode}: ${wins}/${seeds} won`)

@@ -3,12 +3,13 @@
 import { createRapierWorld, initPhysics } from './adapters/physics-rapier'
 import { createLocalStore } from './adapters/storage'
 import cfgJson from './config.json'
-import { attack, beginFrame, cancelHack, createIntent, hackPick, interact, jump, moveTap, setAim, switchMode, tick, toggleCrouch, TAP_BACK, TAP_FORWARD, TAP_LEFT, TAP_RIGHT } from './core/commands'
+import { attack, beginFrame, buyUpgrade, cancelHack, createIntent, hackPick, interact, jump, moveTap, setAim, switchMode, tick, toggleCrouch, useAbility, TAP_BACK, TAP_FORWARD, TAP_LEFT, TAP_RIGHT } from './core/commands'
 import type { GameConfig } from './core/config'
 import { buildGrid } from './core/grid'
 import { solveHack, type HackSession } from './core/hack/index'
-import { alarmStage, endingCounter, hackSession, phase, runStats } from './core/queries'
-import { applyLoadedState, parseSave, serializeState } from './core/save'
+import { alarmStage, anyAffordable, hackSession, phase, runStats } from './core/queries'
+import { isLevelScene, isSceneId, nextScene, parseFlow, serializeFlow, type AnyScene, type SceneId } from './core/flow'
+import { applyLoadedState, parseSave, patchSaveMay, serializeState } from './core/save'
 import { createSim, createState, type GameState } from './core/state'
 import { bindHackInput } from './input/hack'
 import { bindGameInput } from './input/keyboard-mouse'
@@ -19,12 +20,19 @@ import { createSettings } from './view/settings'
 import { hackOutcome } from './view/hack/outcome'
 import { createTips } from './view/tips'
 import { perfProbe } from './view/perf'
+import { createCamLog } from './view/camlog'
 import type { Bench, BenchCtx } from './view/bench'
 import { raiseAlarm } from './core/rules/alarm'
 import { cardSpec, t, type CardSpec } from './view/hud'
+import { createStory } from './view/story'
+import { STORY } from './view/story-data'
+import { createTitle } from './view/title'
+import { createUpgradeScreen } from './view/upgrades'
+import texts from './texts/en.json'
 
 const cfg: GameConfig = cfgJson
-const level = levelById(new URLSearchParams(location.search).get('level'))
+const params = new URLSearchParams(location.search)
+const level = levelById(params.get('level'))
 const SAVE_SLOT = `save.${level.id}`
 
 await initPhysics()
@@ -45,11 +53,46 @@ const view = createGameView(canvas, ui, state, sim, (ox, oy, oz, dx, dy, dz, max
 const input = bindGameInput(canvas)
 const intent = createIntent()
 const aim = { yaw: 0, pitch: 0 }
+/** May's upgrade screen (view/upgrades.ts): it opens at a checkpoint once the alarm is quiet, and later from the room (`openUpgrades(onClose)`). It runs in the 'card' mode (the game stands still). */
+const upgrades = createUpgradeScreen(ui, {
+  state: () => state,
+  sim,
+  buy: (id) => {
+    buyUpgrade(state, sim, id)
+    view.handle(sim.events, state, sim)
+    beginFrame(sim)
+  },
+  sfx: (k) => view.sound.play(k === 'buy' ? 'ui_confirm' : k === 'deny' || k === 'close' ? 'ui_back' : 'ui_hover', 0.6),
+})
+let upgradePending = false
+function openUpgrades(onClose: () => void): void {
+  mode = 'card'
+  input.setEnabled(false)
+  if (document.pointerLockElement) document.exitPointerLock()
+  view.hud.hideScreens()
+  upgrades.open(() => {
+    store.write(SAVE_SLOT, patchSaveMay(store.read(SAVE_SLOT), state.may) ?? serializeState(state)) // spent points stay spent after a death
+    onClose()
+  })
+}
 
-/** card: a tutorial card is open - the game is paused like on the pause screen (no sim, no input), the pointer is released. */
+/**
+ * The scene flow (core/flow.ts): title -> prologue -> room -> level 1 -> Jim's notes -> room -> level 2 / 3 (soon) -> ending.
+ * title / story: a scene without the game running (the sim stands still and nothing is drawn). `?level=<id>` and `?bench=` skip the
+ * flow and play that level with the old start screen.
+ * card: a tutorial card is open - the game is paused like on the pause screen (no sim, no input), the pointer is released. */
 /** meeting: May's entrance after the T0 hack (view/may.ts): the sim stands still and the input is locked until her three lines are done (Enter or a click skips). */
-type Mode = 'start' | 'playing' | 'paused' | 'hack' | 'resume' | 'card' | 'meeting' | 'dead' | 'won'
-let mode: Mode = 'start'
+type Mode = 'title' | 'story' | 'start' | 'playing' | 'paused' | 'hack' | 'resume' | 'card' | 'meeting' | 'dead' | 'won'
+const direct = params.has('level') || params.get('bench') !== null
+let mode: Mode = direct ? 'start' : 'title'
+const FLOW_SLOT = 'flow'
+/** The player came in through the flow (not a ?level jump): the end of the level goes on to Jim's notes. */
+let flowOn = false
+let sceneMusic: 'office' | 'room' | 'menu' | 'none' = 'none'
+/** The level title banner waits for the first frame of play. */
+let bannerPending = false
+/** A red wall was opened by a hack (D1 at T0): the Move quietly card is due once the meeting is over. */
+let quietDue = false
 let lockGrace = 0
 let endTimer = 0
 let hackView: HackView | null = null
@@ -64,8 +107,13 @@ let hackToast = ''
 let hackEscAt = -10
 const HACK_ESC_SEC = 2
 /** Headless screenshots cannot lock the pointer: ?nolock plays without it. */
-const benchName = new URLSearchParams(location.search).get('bench')
-const noLock = new URLSearchParams(location.search).has('nolock') || benchName !== null
+const benchName = params.get('bench')
+const noLock = params.has('nolock') || benchName !== null
+/** Dev: `?camlog` records the camera and the hero every frame and reports any turn over 60 deg (see view/camlog.ts, README). */
+const camLog = params.has('camlog') ? createCamLog(view.rig, view.renderer.camera) : null
+if (camLog) (window as unknown as Record<string, unknown>)['__camlog'] = camLog
+const story = createStory(ui)
+const title = createTitle(ui, settings)
 
 function lock(): void {
   lockGrace = 0.6
@@ -74,6 +122,11 @@ function lock(): void {
 
 function play(): void {
   view.hud.hideScreens()
+  if (bannerPending) {
+    bannerPending = false
+    const goal = (texts as unknown as Record<string, string>)[`goal.${level.id}`] ?? ''
+    view.hud.banner((texts as unknown as Record<string, string>)[level.nameKey] ?? '', goal, cfgJson.view.hud.bannerSec)
+  }
   mode = 'playing'
   input.setEnabled(true)
   lock()
@@ -100,9 +153,17 @@ function endMeeting(): void {
   play() // the Enter / click that skipped it (or the lock kept through the beat) allows the pointer lock
 }
 
+function scanEvents(): void {
+  for (const e of sim.events) if (e.type === 'wallOpened') quietDue = true
+}
+
 function flushEvents(): void {
+  scanEvents()
   view.handle(sim.events, state, sim)
-  for (const e of sim.events) if (e.type === 'checkpointReached') store.write(SAVE_SLOT, serializeState(state))
+  for (const e of sim.events) if (e.type === 'checkpointReached') {
+      store.write(SAVE_SLOT, serializeState(state))
+      upgradePending = true
+    }
   beginFrame(sim)
 }
 
@@ -180,6 +241,7 @@ function openHackUi(): void {
 
 function loadState(next: GameState): void {
   state = next
+  upgradePending = false
   applyLoadedState(state, sim)
   view.reset(state, sim)
   endTimer = 0
@@ -209,14 +271,97 @@ function showEnd(): void {
     const m = Math.floor(r.timeSec / 60)
     const sec = Math.floor(r.timeSec % 60)
     const stats = t('won.stats', { time: `${m}:${sec < 10 ? '0' : ''}${sec}`, alarms: r.alarmsRaised, kills: r.kills, broken: r.devicesBroken, deaths: r.deaths })
-    const red = endingCounter(state)
-    const ending = `${t('won.ending', { red, total: state.checkpoints.length })} ${r.alarmsRaised === 0 ? t('won.quiet') : red > 0 ? t('won.loud') : ''}`
+    // DESIGN 4: the counter is pressure, not a verdict - the end screen does not print it
+    const ending = r.alarmsRaised === 0 ? t('won.quiet') : ''
     store.clear(SAVE_SLOT)
-    view.hud.showWon(stats, ending, () => {
-      view.may.restart()
-      loadState(parseSave(levelStart, level.id) as GameState)
-    })
+    if (flowOn) writeFlow('notes')
+    view.hud.showWon(
+      stats,
+      ending,
+      flowOn
+        ? () => enterScene('notes')
+        : () => {
+            view.may.restart()
+            loadState(parseSave(levelStart, level.id) as GameState)
+          },
+      flowOn ? 'won.continue' : 'won.again',
+    )
   }
+}
+
+function writeFlow(id: SceneId): void {
+  store.write(FLOW_SLOT, serializeFlow(id))
+}
+
+function leaveGame(): void {
+  if (document.pointerLockElement) document.exitPointerLock()
+  input.setEnabled(false)
+  view.hud.hideScreens()
+  view.hud.setVisible(false)
+  view.hud.hint(null)
+}
+
+/** The title screen: Start begins a new run, Continue goes on from the saved scene. */
+function enterTitle(): void {
+  mode = 'title'
+  flowOn = false
+  sceneMusic = 'none'
+  story.hide()
+  leaveGame()
+  const saved = parseFlow(store.read(FLOW_SLOT))
+  const unlock = (): void => {
+    void view.sound.unlock().then(() => title.setSoundOn(view.sound.ctx !== null))
+  }
+  title.show({
+    hasContinue: saved !== null,
+    onAnyClick: unlock,
+    onStart: () => {
+      unlock()
+      store.clear(FLOW_SLOT)
+      store.clear(SAVE_SLOT)
+      enterScene('prologue')
+    },
+    onContinue: () => {
+      unlock()
+      enterScene(saved ?? 'prologue', true)
+    },
+  })
+}
+
+/** Runs a scene: a story card montage or the level. `resume`: take the level's checkpoint save when there is one. */
+function enterScene(id: AnyScene, resume = false): void {
+  if (id === 'title') {
+    if (flowOn) store.clear(FLOW_SLOT)
+    enterTitle()
+    return
+  }
+  flowOn = true
+  writeFlow(id)
+  title.hide()
+  if (isLevelScene(id)) {
+    story.hide()
+    view.hud.setVisible(true)
+    sceneMusic = 'none'
+    view.music.context = 'net'
+    const save = resume ? parseSave(store.read(SAVE_SLOT), level.id) : null
+    if (!save) {
+      store.clear(SAVE_SLOT)
+      view.may.restart()
+    }
+    bannerPending = true
+    loadState(save ?? (parseSave(levelStart, level.id) as GameState))
+    return
+  }
+  const spec = STORY[id]
+  if (!spec) {
+    enterScene(nextScene(id))
+    return
+  }
+  mode = 'story'
+  leaveGame()
+  sceneMusic = spec.music
+  if (spec.sting) view.music.sting(spec.sting)
+  story.play(spec, () => enterScene(nextScene(id)))
 }
 
 input.onUnlock(() => {
@@ -251,11 +396,20 @@ ui.addEventListener('click', () => {
   if (mode === 'meeting' && view.may.skipMeeting()) endMeeting()
 })
 
-view.hud.showStart(() => {
-  void view.sound.unlock()
-  view.sound.play('jack_in', 0.7)
-  play()
-})
+if (direct) {
+  view.hud.showStart(() => {
+    void view.sound.unlock()
+    view.sound.play('jack_in', 0.7)
+    bannerPending = true
+    play()
+  })
+} else {
+  view.hud.hideScreens()
+  enterTitle()
+  const first = params.get('scene')
+  if (first === 'title') enterTitle()
+  else if (first !== null && isSceneId(first)) enterScene(first)
+}
 
 let last = performance.now()
 let fps = 60
@@ -280,6 +434,19 @@ function frame(now: number): void {
   last = now
   fps += (1 / Math.max(raw, 1e-3) - fps) * 0.05
   lockGrace -= raw
+
+  // the scenes without the game: the story player and the music run, nothing else
+  if (mode === 'title' || mode === 'story') {
+    story.update(raw)
+    const mf = view.music.flags
+    mf.menu = mode === 'title' || sceneMusic === 'menu'
+    mf.paused = false
+    mf.hack = false
+    view.music.context = sceneMusic === 'office' ? 'office' : sceneMusic === 'room' ? 'room' : 'net'
+    view.music.update(raw)
+    input.consumePressed()
+    return
+  }
 
   // lost the pointer lock without pressing Esc (alt-tab, a lock that never came): pause
   if (mode === 'playing' && !noLock && !input.locked() && lockGrace <= 0) {
@@ -313,6 +480,8 @@ function frame(now: number): void {
     if (pressed.crouch % 2 === 1) toggleCrouch(state, sim)
     for (let i = 0; i < pressed.switchMode; i++) switchMode(state, sim)
     if (pressed.interact > 0) interact(state, sim)
+    if (pressed.ability1 > 0) useAbility(state, sim, 0, aim.yaw, aim.pitch)
+    if (pressed.ability2 > 0) useAbility(state, sim, 1, aim.yaw, aim.pitch)
     setAim(state, sim, held.aim)
     if (pressed.attack > 0 || held.attack) attack(state, sim, aim.yaw, aim.pitch, pressed.attack > 0)
   } else setAim(state, sim, false)
@@ -356,8 +525,12 @@ function frame(now: number): void {
     }
   }
 
+  scanEvents()
   view.handle(sim.events, state, sim)
-  for (const e of sim.events) if (e.type === 'checkpointReached') store.write(SAVE_SLOT, serializeState(state))
+  for (const e of sim.events) if (e.type === 'checkpointReached') {
+      store.write(SAVE_SLOT, serializeState(state))
+      upgradePending = true
+    }
 
   if (phase(state) !== 'playing' && (mode === 'playing' || mode === 'hack' || mode === 'resume')) {
     endTimer += raw
@@ -380,8 +553,16 @@ function frame(now: number): void {
   view.update(mode === 'paused' || mode === 'start' || mode === 'card' ? 0 : raw, state, sim, raw)
   // a card requested by what just happened (a first meeting): never in a hack, never at the end screens
   if (bench) bench.post()
+  camLog?.frame(mode, state.player.facing, state.player.pos, sim.events)
+  if (upgradePending && mode === 'playing' && phase(state) === 'playing' && !hackSession(state) && hackOutro <= 0 && alarmStage(state) === 0) {
+    upgradePending = false
+    if (anyAffordable(state, sim)) openUpgrades(play)
+  }
   if (!bench && mode === 'playing' && phase(state) === 'playing' && !hackSession(state) && hackOutro <= 0) {
-    const id = tips.take()
+    // Move quietly: when the first red wall opens (D1), once the meeting is over
+    const quiet = quietDue && tips.claim('quiet')
+    quietDue = false
+    const id = quiet ? 'quiet' : tips.take()
     if (id) openCard(cardSpec(id), play)
     else {
       const custom = view.guide.takeCard()
@@ -450,9 +631,28 @@ requestAnimationFrame(frame)
     if (!hackSession(state)) beginHackOutro()
     flushEvents()
   },
+  /** Debug / the room: opens May's upgrade screen. */
+  openUpgrades: () => openUpgrades(play),
   start(): void {
     void view.sound.unlock()
+    if (mode === 'title' || mode === 'story') {
+      story.hide()
+      title.hide()
+      view.hud.setVisible(true)
+      view.music.context = 'net'
+    }
     play()
+  },
+  /** Jumps to a scene (screenshots, `?scene=`). */
+  scene(id: AnyScene): void {
+    if (id === 'title') enterTitle()
+    else enterScene(id)
+  },
+  story,
+  /** Debug: May's meeting now (screenshots). */
+  meeting(): void {
+    state.mayMet = true
+    startMeeting()
   },
   /** Feet on a plan cell, looking along yaw (radians) with a camera pitch. */
   place(col: number, row: number, yaw: number, pitch = 0.22): void {

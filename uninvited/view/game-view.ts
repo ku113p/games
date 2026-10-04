@@ -4,7 +4,9 @@ import { AdditiveBlending, Color, DoubleSide, PointLight, Vector3, type Material
 import cfgAll from '../config.json'
 import type { GameEvent } from '../core/events'
 import {
+  abilitySlot,
   alarmDecayFraction,
+  pauseLengthSec,
   alarmStage,
   charges,
   dashReady,
@@ -14,6 +16,7 @@ import {
   hpFraction,
   interactPrompt,
   isCrouched,
+  isInCover,
   isGrounded,
   isHiddenInNiche,
   isRunning,
@@ -65,10 +68,12 @@ import { buildSkyline, type Skyline } from './skyline'
 import { buildDrones, type DroneViews } from './drones'
 import { buildWorms, type WormViews } from './worms'
 import { createFx, type Fx } from './fx'
-import { createHero, type HeroAim, type HeroView } from './hero'
+import { createHero, setHeroHidden, type HeroAim, type HeroView } from './hero'
 import { setConesFade } from './cone'
 import { createPerfOverlay } from './perf'
+import { createAbilityHud, type AbilityHudState } from './abilities'
 import { createMay, type MayView } from './may'
+import { createUnseen, type Watcher } from './unseen'
 import type { QueueStore } from './may-queue'
 import { createHud, MAX_MARKS, t, type CardSpec, type Hud, type HudMark, type HudState, type PromptSpec } from './hud'
 import { createMaterials, palette } from './look'
@@ -76,12 +81,15 @@ import { buildProps, type Props } from './props'
 import { REFLECT_LAYER } from './reflect'
 import { createRenderer, type Renderer } from './renderer'
 import { buildWardens, WARDEN_KEY, type WardenViews } from './wardens'
+import { createExposure, lanesEnabled, type Exposure } from './exposure'
+import { inView, setCullView } from './cull'
 import { createSight, DRONE_KEY, fanSpread, type Sight } from './sight'
 import { createPickups } from './pickups'
 import { createSpawnGates } from './spawn-gates'
 
 const V = cfgAll.view
 const J = V.juice
+const T = J.trauma
 const A = cfgAll.audio
 const H = cfgAll.audio.hits
 const M = cfgAll.audio.mixer
@@ -150,6 +158,8 @@ export interface GameView {
   readonly music: Music
   readonly rig: CameraRig
   readonly renderer: Renderer
+  /** The stealth lighting's exposure map (debug and screenshots: the texture, the build cost). */
+  readonly exposure: Exposure
   /** Seconds the simulation should stay frozen (hit-stop). main.ts reads and counts it down. */
   hitStop: number
   handle(events: readonly GameEvent[], s: GameState, sim: Sim): void
@@ -162,6 +172,7 @@ export interface GameView {
 }
 
 const heroColor = new Color()
+let hiddenK = 0
 const rgb: Rgb = { r: 1, g: 1, b: 1 }
 const WHITE_SCALE = 2.5
 const red: Rgb = { r: palette.heroRed.r / WHITE_SCALE, g: palette.heroRed.g / WHITE_SCALE, b: palette.heroRed.b / WHITE_SCALE }
@@ -178,6 +189,11 @@ const sparkWhite = new Color(2.5, 2.6, 2.8)
 const sparkCyan = palette.seam
 const sparkRed = palette.security
 const sparkWorm = new Color(...cfgAll.view.colors.worm)
+/** Enemy contact colours (overdriven, never white: white is the hero's) and the shield's. */
+const starRed = new Color(sparkRed.r * 1.3, sparkRed.g * 2.5, sparkRed.b * 2.5)
+const starWorm = new Color(sparkWorm.r * 1.2, sparkWorm.g * 2.5, sparkWorm.b * 1.4)
+const sparkShield = new Color(0.5, 1.3, 3.2)
+const impactDir = new Vector3()
 const DEG = Math.PI / 180
 const CAM_SPREAD = fanSpread(cfgAll.videoCamera.halfAngleDeg * DEG, cfgAll.videoCamera.pitchDeg * DEG)
 const DRONE_SPREAD = fanSpread(cfgAll.drone.halfAngleDeg * DEG, cfgAll.drone.pitchDeg * DEG)
@@ -207,7 +223,8 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   let pickState: GameState = s
   const pickFn = (ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number): number => pickTarget(pickState, sim, ox, oy, oz, dx, dy, dz, max)
   const sight: Sight = createSight(grid)
-  const city: City = buildCity(grid, mats, sight, r.mirror, s)
+  const exposure: Exposure = createExposure(grid, sight, s, sim)
+  const city: City = buildCity(grid, mats, sight, r.mirror, s, exposure)
   r.scene.add(city.root)
   const skyline: Skyline = buildSkyline(grid, landmarks(sim))
   r.scene.add(skyline.root)
@@ -232,17 +249,27 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   // and a cold rim light beyond the hero (seen from the camera) that draws the suit's and the coat's silhouette
   const rimLight = new PointLight(0x7fe8ff, V.light.heroRim, V.light.heroRimDistance, 1.4)
   r.scene.add(rimLight)
-  const fx: Fx = createFx()
+  const fx: Fx = createFx(r.camera)
   r.scene.add(fx.root)
   // a muzzle flash lights the hero's surroundings for a few frames (always in the scene, so the light count never changes)
   const muzzleLight = new PointLight(0x9fdcff, 0, 7, 1.6)
   r.scene.add(muzzleLight)
+  // the mirror pass must see the same lights as the main pass: a different light set makes three re-resolve (and re-hash, with
+  // allocations) the program of every lit material, twice a frame
+  r.scene.traverse((o) => {
+    if ((o as { isLight?: boolean }).isLight) o.layers.enable(REFLECT_LAYER)
+  })
   const hud = createHud(uiRoot, V.hud.toastSec, settings, tips)
   const perf = createPerfOverlay(uiRoot)
+  // May's two actives (keys 1-2): slots with cooldown rings, hidden until bought
+  const abilities = createAbilityHud(uiRoot)
+  const abil: AbilityHudState = { slots: [{ unlocked: false, cooldown: 0, cooldownLength: 1 }, { unlocked: false, cooldown: 0, cooldownLength: 1 }], pauseSec: 0 }
   const sound = new Sound(A.master)
   const music = new Music(sound)
   const cues = new Cues(sound)
-  const may: MayView = createMay(uiRoot, r.scene, hero, sound, store ?? null, settings)
+  const may: MayView = createMay(uiRoot, r.scene, hero, sound, store ?? null, settings, Math.random, hud.stack)
+  const unseen = createUnseen()
+  const watchers: Watcher[] = []
   const cueState: CueState = { playing: false, suspicion: 0, spotted: false, alarm: 0, hp: 1, waveIn: -1 }
   /** Settings: reduced shake and flash (no hit-stop, camera kick, flashes). */
   let reduceFx = false
@@ -257,9 +284,12 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     rig.sensitivity = v.sensitivity
     rig.invertY = v.invertY
     reduceFx = v.reduceFx
+    rig.reduced = v.reduceFx
+    hud.marks.setReduced(v.reduceFx)
     hud.setScale(v.hudScale)
     hud.reduceFlash(v.reduceFx)
     may.setScale(v.hudScale)
+    abilities.setScale(v.hudScale)
     may.setReduced(v.reduceFx)
   })
 
@@ -301,19 +331,30 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   let scanFade = 0 // network vision faded in, 0..1: the view ranges show only in it
   const waves = { wave: 0, cleared: 0, needed: 0, firewallDown: false, active: false }
 
-  /** Sneaking (crouched): none of the combat juice - the stealth side stays calm. Set once per frame in handle(). */
+  /** Sneaking (crouched) or reduced flash: no hit-stop and no flashes - the stealth side stays calm. Set once per frame in handle(). */
   let calm = false
+  /** Crouched: no camera punch, FOV punch or trauma (the muzzle flash, bolt, impacts and markers still show). */
+  let sneak = false
 
   /** A hit-stop (the sim and the hero freeze): not while sneaking, never longer than the cap. */
   function stop(sec: number): void {
     if (!calm && sec > 0) view.hitStop = Math.max(view.hitStop, Math.min(J.hitStopMaxSec, sec))
   }
 
-  /** A shake and a camera kick from a hit, a kill or a shot (not while sneaking). */
-  function jolt(shk: number, pitch: number, push: number): void {
-    if (calm) return
-    shake = Math.max(shake, shk)
+  /** Camera trauma (rotational shake, view.juice.trauma budgets) and a kick from a hit or a kill (not while sneaking). */
+  function jolt(trauma: number, pitch: number, push: number): void {
+    if (sneak) return
+    rig.trauma(trauma)
     rig.kick(pitch, push)
+  }
+
+  /** Streak sparks thrown from an enemy hit back toward the hero (the way the shot came from). */
+  function hitStreaks(x: number, y: number, z: number, n: number, speed: number, color: Color): void {
+    const p = playerPos(s)
+    impactDir.set(p.x - x, p.y + 1.2 - y, p.z - z)
+    if (impactDir.lengthSq() < 1e-4) impactDir.set(0, 1, 0)
+    impactDir.normalize()
+    fx.streaks(x, y, z, impactDir.x, impactDir.y, impactDir.z, n, speed, 0.8, color)
   }
 
   function near(x: number, y: number, z: number): number {
@@ -355,6 +396,9 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       case 'scanOn':
         promptDone.add('camera').add('sensor').add('sound')
         tips?.skip('netvision')
+        break
+      case 'wardenDowned':
+        promptDone.add('warden')
         break
       case 'hackStarted':
         promptDone.add('terminal')
@@ -441,6 +485,8 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     }
   }
 
+  let heroYaw = 0
+  let heroYawSnap = true
   const view: GameView = {
     hud,
     guide,
@@ -449,12 +495,14 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     music,
     rig,
     renderer: r,
+    exposure,
     hitStop: 0,
     handle(events, st, sm): void {
       const p = playerPos(st)
       may.handle(events, st)
       let hackSolvedNow = false
-      calm = isCrouched(st) || reduceFx
+      sneak = isCrouched(st)
+      calm = sneak || reduceFx
       // one swing that kills several holds the freeze a little longer
       let kills = 0
       for (const e of events) if (e.type === 'targetHit' && e.killed) kills++
@@ -477,11 +525,12 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
           case 'landed':
             sound.play('land', 0.7)
             shake = Math.max(shake, J.shakeLand)
+            rig.trauma(T.land)
             fx.sparks(p.x, p.y + 0.05, p.z, 10, 3, sparkCyan, 0.2)
             break
           case 'dashed':
             sound.play('dash', 0.8)
-            shake = Math.max(shake, J.shakeDash)
+            rig.trauma(T.dash)
             fx.sparks(p.x, p.y + 1, p.z, 18, 4, sparkWhite, 0.1)
             break
           case 'crouchChanged':
@@ -491,21 +540,54 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
             sound.play('sword_swing', 0.8, e.combo === 2 ? 0.82 : e.combo === 1 ? 1.08 : 1)
             trailStart = true
             break
-          case 'rifleShot':
-            sound.play('rifle_shot', 0.55)
+          case 'rifleShot': {
+            sound.play('rifle_shot', H.rifle)
             // from the gun's muzzle when the model has one (the core's origin is only a point near the chest)
-            if (hero.muzzle(muzzlePt)) fx.tracer(muzzlePt.x, muzzlePt.y, muzzlePt.z, e.toX, e.toY, e.toZ)
-            else fx.tracer(e.fromX, e.fromY, e.fromZ, e.toX, e.toY, e.toZ)
-            fx.sparks(e.toX, e.toY, e.toZ, e.hit ? 4 : 8, 3, e.hit ? sparkWhite : sparkCyan)
-            if (!calm && hero.muzzle(muzzlePt)) {
-              fx.flash(muzzlePt.x, muzzlePt.y, muzzlePt.z, sparkWhite, J.muzzleFlashSize, J.muzzleFlashSec)
-              fx.sparks(muzzlePt.x, muzzlePt.y, muzzlePt.z, 5, 4, sparkCyan, 0.1)
+            const hasMuzzle = hero.muzzle(muzzlePt)
+            if (!hasMuzzle) muzzlePt.set(e.fromX, e.fromY, e.fromZ)
+            fx.tracer(muzzlePt.x, muzzlePt.y, muzzlePt.z, e.toX, e.toY, e.toZ)
+            let dx = e.toX - muzzlePt.x
+            let dy = e.toY - muzzlePt.y
+            let dz = e.toZ - muzzlePt.z
+            const dl = Math.hypot(dx, dy, dz) || 1
+            dx /= dl
+            dy /= dl
+            dz /= dl
+            if (!e.hit) {
+              // a wall (or the floor) was hit: a glowing scorch and streaks along the reflection. The surface normal is guessed:
+              // up near the floor, else the horizontal opposite of the shot.
+              if (dl < cfgAll.combat.rifle.range - 0.5) {
+                const onFloor = e.toY - floorHeightAt(grid, e.toX, e.toZ) < 0.12
+                const hl = Math.hypot(dx, dz)
+                const nx = onFloor || hl < 0.05 ? 0 : -dx / hl
+                const ny = onFloor || hl < 0.05 ? 1 : 0
+                const nz = onFloor || hl < 0.05 ? 0 : -dz / hl
+                const dn = dx * nx + dy * ny + dz * nz
+                fx.scorch(e.toX, e.toY, e.toZ, nx, ny, nz, sparkCyan)
+                fx.streaks(e.toX, e.toY, e.toZ, dx - 2 * dn * nx, dy - 2 * dn * ny, dz - 2 * dn * nz, 7, 6, 0.55, sparkCyan)
+                fx.streaks(e.toX, e.toY, e.toZ, nx, ny, nz, 3, 4, 0.5, sparkWhite)
+                fx.flash(e.toX + nx * 0.05, e.toY + ny * 0.05, e.toZ + nz * 0.05, sparkCyan, 0.4, 0.08)
+              }
+              sound.playAt('bullet_impact', e.toX, e.toZ, 0.3 * near(e.toX, e.toY, e.toZ))
+            }
+            // the muzzle flash always shows (crouched too); only the camera punch follows the stealth calm
+            if (hasMuzzle) {
+              const rs = reduceFx ? J.reducedFlash : 1
+              fx.flash(muzzlePt.x, muzzlePt.y, muzzlePt.z, sparkWhite, J.muzzleFlashSize * rs, J.muzzleFlashSec)
+              fx.star(muzzlePt.x, muzzlePt.y, muzzlePt.z, sparkWhite, J.muzzleStarSize * rs, J.muzzleFlashSec * 1.4)
+              fx.streaks(muzzlePt.x, muzzlePt.y, muzzlePt.z, dx, dy, dz, 5, 7, 0.4, sparkCyan)
               muzzleLight.position.copy(muzzlePt)
               muzzleT = J.muzzleFlashSec
             }
-            jolt(J.shakeShot, J.kickShotPitch, J.kickShotPush)
-            if (!e.hit) sound.playAt('bullet_impact', e.toX, e.toZ, 0.3 * near(e.toX, e.toY, e.toZ))
+            hero.kick()
+            hud.marks.shot()
+            if (!sneak) {
+              rig.kick((J.shotPunchPitchDeg * DEG), J.kickShotPush, (Math.random() < 0.5 ? -1 : 1) * J.shotPunchYawDeg * DEG * (0.4 + 0.6 * Math.random()))
+              rig.fovKick(J.fovPunch.shotDeg)
+              rig.trauma(T.shot)
+            }
             break
+          }
           case 'rifleEmpty':
             sound.play('rifle_empty', 0.8)
             if (time - emptyToastAt > 3) {
@@ -519,25 +601,41 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
           case 'modeSwitched':
             sound.play('ammo_drop', 0.6)
             break
-          case 'targetHit':
+          case 'targetHit': {
+            const col = e.target === 'worm' ? starWorm : starRed
+            const spark = e.target === 'worm' ? sparkWorm : sparkRed
+            // the confirmation: one tick on a hit, one pop for every kind of kill, and the contact star in the enemy's own colour
+            if (e.killed) {
+              sound.play('kill_pop', H.killPop)
+              hud.marks.kill()
+              fx.star(e.x, e.y, e.z, col, J.starSize * 1.5)
+              if (!sneak) rig.fovKick(J.fovPunch.killDeg)
+            } else {
+              sound.play('hit_tick', H.hitTick)
+              hud.marks.hit()
+              fx.star(e.x, e.y, e.z, col, J.starSize)
+            }
             if (e.target === 'worm') {
               // worms: a wet crunch; a kill scatters the body in magenta sparks (several die at once to one swing)
               const nr = near(e.x, e.y, e.z)
               if (e.killed) {
                 sound.playAt('worm_death', e.x, e.z, H.wormKill * nr)
                 wormViews.burst(e.index, (x, y, z) => fx.sparks(x, y, z, 12, 5, sparkWorm, 0.6))
-                fx.sparks(e.x, e.y, e.z, 26, 6, sparkWhite, 0.6)
+                fx.sparks(e.x, e.y, e.z, 26, 6, sparkWorm, 0.6)
+                hitStreaks(e.x, e.y, e.z, 10, 8, sparkWorm)
                 if (!calm) fx.flash(e.x, e.y, e.z, sparkWorm, J.killFlashSize * 0.5, J.killFlashSec)
                 stop(e.byRifle ? J.rifleKillHitStopSec : killStop * 0.8)
-                jolt(J.shakeHit, J.kickHitPitch, J.kickHitPush)
+                jolt(e.byRifle ? T.rifleKill : T.swordKill, J.kickHitPitch, J.kickHitPush)
               } else {
                 sound.playAt('worm_hit', e.x, e.z, H.wormHit * nr)
-                if (!e.byRifle) sound.playAt('sword_hit', e.x, e.z, H.droneHitBlade * 0.6 * nr)
+                if (!e.byRifle) sound.playAt('sword_hit', e.x, e.z, H.wormHitBlade * nr)
                 wormViews.flash(e.index)
-                fx.sparks(e.x, e.y, e.z, 12, 4, sparkWorm, 0.4)
-                if (!e.byRifle) stop(J.hitStopSec)
-                if (e.byRifle) jolt(J.shakeShot * 2, 0, 0)
-                else jolt(J.shakeHit * 0.7, J.kickHitPitch, J.kickHitPush)
+                fx.sparks(e.x, e.y, e.z, 8, 4, sparkWorm, 0.4)
+                hitStreaks(e.x, e.y, e.z, 6, 6, sparkWorm)
+                if (!e.byRifle) {
+                  stop(J.hitStopSec)
+                  jolt(T.swordHit, J.kickHitPitch, J.kickHitPush)
+                }
               }
               break
             }
@@ -556,22 +654,32 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
               if (e.target !== 'drone') sound.playAt('derez', e.x, e.z, 0.9 * near(e.x, e.y, e.z))
               sound.play('glitch', 0.6)
               fx.sparks(e.x, e.y, e.z, 90, 9, sparkRed, 0.3)
-              fx.sparks(e.x, e.y, e.z, 50, 6, sparkWhite, 0.5)
+              fx.sparks(e.x, e.y, e.z, 50, 6, spark, 0.5)
+              hitStreaks(e.x, e.y, e.z, 14, 10, spark)
               if (!calm) fx.flash(e.x, e.y, e.z, e.target === 'drone' || e.target === 'warden' ? sparkRed : sparkCyan, J.killFlashSize, J.killFlashSec)
               stop(e.byRifle ? J.rifleKillHitStopSec : killStop)
-              jolt(J.shakeKill, J.kickKillPitch, J.kickKillPush)
-              glitch = Math.max(glitch, J.glitchKill)
+              // the big kill glitch stays for wardens; the small kills get a lighter one
+              const big = e.target === 'warden'
+              jolt(big ? T.heavy : e.byRifle ? T.rifleKill : T.swordKill, J.kickKillPitch, J.kickKillPush)
+              glitch = Math.max(glitch, big ? J.glitchKill : J.glitchKillSmall)
             } else {
               if (e.target !== 'drone') sound.playAt(e.byRifle ? 'bullet_impact' : 'sword_hit', e.x, e.z, 0.85)
               else if (e.byRifle) sound.play('bullet_impact', 0.5)
-              fx.sparks(e.x, e.y, e.z, e.byRifle ? 14 : 28, e.byRifle ? 5 : 7, e.byRifle ? sparkWhite : sparkRed)
+              fx.sparks(e.x, e.y, e.z, e.byRifle ? 6 : 20, e.byRifle ? 5 : 7, spark)
+              hitStreaks(e.x, e.y, e.z, e.byRifle ? 8 : 12, e.byRifle ? 7 : 9, spark)
               if (!e.byRifle) {
                 stop(J.hitStopSec)
-                if (!calm) fx.flash(e.x, e.y, e.z, sparkWhite, J.killFlashSize * 0.3, J.killFlashSec * 0.5)
+                if (!calm) fx.flash(e.x, e.y, e.z, spark, J.killFlashSize * 0.3, J.killFlashSec * 0.5)
+                jolt(T.swordHit, J.kickHitPitch, J.kickHitPush)
               }
-              if (e.byRifle) jolt(J.shakeShot * 2, 0, 0)
-              else jolt(J.shakeHit, J.kickHitPitch, J.kickHitPush)
             }
+            break
+          }
+          case 'shieldBlocked':
+            // a bolt stopped by the heavy's shield: a block marker, a blue contact star and a deflect thunk
+            hud.marks.block()
+            fx.star(e.x, e.y, e.z, sparkShield, J.starSize * 1.1)
+            sound.playAt('shield_hit', e.x, e.z, 0.6 * near(e.x, e.y, e.z))
             break
           case 'playerHurt': {
             // a meaty body hit on top of the signal buzz, heavier when low; a red flash and an arc towards the source
@@ -584,8 +692,8 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
             const ang = fdx * fdx + fdz * fdz > 0.01 ? -Math.atan2(Math.sin(Math.atan2(fdx, fdz) - rig.yaw), Math.cos(Math.atan2(fdx, fdz) - rig.yaw)) : 0
             hud.hit(fdx * fdx + fdz * fdz > 0.01 ? ang : Math.PI, Math.min(1, e.amount / 15))
             hurt = 1
-            shake = Math.max(shake, J.shakeHurt)
-            if (!reduceFx) rig.kick(J.kickHurtPitch, J.kickHurtPush)
+            rig.trauma(T.hurt)
+            rig.kick(J.kickHurtPitch, J.kickHurtPush)
             glitch = Math.max(glitch, J.glitchHurt)
             if (!reduceFx) view.hitStop = Math.max(view.hitStop, Math.min(J.hitStopMaxSec, J.hurtHitStopSec))
             fx.sparks(p.x, p.y + 1.1, p.z, 16, 5, sparkRed)
@@ -614,7 +722,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
           case 'playerDied':
             sound.play('player_death', 1)
             glitch = 1.4
-            shake = 1
+            rig.trauma(T.death)
             fx.sparks(p.x, p.y + 1, p.z, 160, 8, sparkWhite, 0.6)
             break
           case 'droneFired': {
@@ -688,6 +796,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
             sound.play('firewall_drop', 1)
             hud.toast(t('toast.firewall'), 'good')
             glitch = Math.max(glitch, J.glitchWall)
+            rig.trauma(T.firewall)
             lastWallToast = time
             break
           case 'wallOpened':
@@ -698,6 +807,26 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
               glitch = Math.max(glitch, J.glitchWall)
               lastWallToast = time
             }
+            break
+          case 'abilityUsed':
+            if (e.slot === 0) {
+              fx.noiseRing(e.x, floorHeightAt(grid, e.x, e.z), e.z, cfgAll.progression.distract.noiseRadius)
+              sound.play('decoy_spawn', 0.8)
+            }
+            abilities.used(e.slot)
+            break
+          case 'abilityFailed':
+            sound.play('ui_back', 0.6)
+            abilities.deny(e.slot)
+            hud.toast(t(e.reason === 'cooldown' ? 'toast.recharging' : 'toast.noTarget'))
+            break
+          case 'mayPoints':
+            hud.toast(t(e.gained === 1 ? 'toast.points' : 'toast.pointsMany', { n: e.gained }), 'good')
+            break
+          case 'shieldAbsorbed':
+            sound.play('shield_hit', 0.9)
+            hud.toast(t('toast.shield'), 'good')
+            glitch = Math.max(glitch, J.glitchHurt)
             break
           case 'devicePaused':
             sound.play('camera_pause', 0.8)
@@ -745,12 +874,23 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const anim = heroAnim(st, sm)
       // the hero
       hero.root.position.set(p.x, p.y, p.z)
-      hero.root.rotation.y = playerFacing(st)
+      // the model turns toward the core facing fast but not in one frame: a shot or a dash backwards snaps the core facing by
+      // 180 deg, which read as the camera flipping (the aim solver re-measures the barrel every frame, so it stays on target)
+      {
+        const want = playerFacing(st)
+        const d = want - heroYaw - Math.PI * 2 * Math.round((want - heroYaw) / (Math.PI * 2))
+        heroYaw = heroYawSnap ? want : heroYaw + d * Math.min(1, dt * V.heroTurnRate)
+        heroYawSnap = false
+      }
+      hero.root.rotation.y = heroYaw
       keyLight.position.set(p.x - Math.sin(rig.yaw) * V.heroLight.back, p.y + V.heroLight.height, p.z - Math.cos(rig.yaw) * V.heroLight.back)
       rimLight.position.set(p.x + Math.sin(rig.yaw) * 1.4, p.y + 2.1, p.z + Math.cos(rig.yaw) * 1.4)
       hero.setMode(weaponMode(st))
       heroLineColor(st, sm, red, blue, rgb)
       heroColor.setRGB(rgb.r * WHITE_SCALE, rgb.g * WHITE_SCALE, rgb.b * WHITE_SCALE)
+      // hidden: unseen and crouched in cover, the light lines dim (Mark of the Ninja); back to full when a watcher notices
+      hiddenK += (((lanesEnabled && securityStatus(st) === 'hidden' && isCrouched(st) && isInCover(st, sm)) ? 1 : 0) - hiddenK) * Math.min(1, V.stealthLight.heroFadeRate * dt)
+      setHeroHidden(hiddenK)
       hero.setLineColor(heroColor)
       // the crosshair's world point (from this frame's aim(), see below): the raised rifle points at it, the head glances at it
       heroAim.on = isAiming(st)
@@ -765,7 +905,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       }
       if (muzzleT > 0) {
         muzzleT -= fdt
-        muzzleLight.intensity = J.muzzleLight * Math.max(0, muzzleT / J.muzzleFlashSec)
+        muzzleLight.intensity = J.muzzleLight * (reduceFx ? J.reducedFlash : 1) * Math.max(0, muzzleT / J.muzzleFlashSec)
       } else muzzleLight.intensity = 0
 
       // footsteps from the distance walked
@@ -791,7 +931,9 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       scanFade += ((scanActive(st) ? 1 : 0) - scanFade) * Math.min(1, dt * V.cones.scanFadeRate)
       if (scanFade < 0.01) scanFade = 0
       setConesFade(scanFade)
+      setCullView(r.camera)
       sight.setWalls(redWalls(st))
+      exposure.update(st, sm, dt)
       let nc = 0
       const vc = cfgAll.videoCamera
       const cp = Math.cos((vc.pitchDeg * Math.PI) / 180)
@@ -800,7 +942,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       const cams = videoCameras(st)
       for (let i = 0; i < cams.length; i++) {
         const c = cams[i]
-        if (scanFade <= 0 || !c || !c.alive || c.pausedTime > 0 || nc >= MAX_CONES) continue
+        if (scanFade <= 0 || !c || !c.alive || c.pausedTime > 0 || nc >= MAX_CONES || !inView(c.pos.x, c.pos.y, c.pos.z, vc.range)) continue
         coneColor.copy(palette.security).lerp(palette.suspicious, c.suspicion < 1 ? Math.min(1, c.suspicion * 1.5) : 0)
         const fan = sight.fan(i, c.pos.x, c.pos.y, c.pos.z, c.yaw, CAM_SPREAD, vc.range)
         city.setCone(nc++, c.pos.x, c.pos.y, c.pos.z, Math.sin(c.yaw) * cp, -sp, Math.cos(c.yaw) * cp, camCos, vc.range, coneColor, (0.9 + c.suspicion) * scanFade, fan)
@@ -813,7 +955,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       for (let i = 0; i < ds.length; i++) {
         const d = ds[i]
         if (nc >= MAX_CONES || scanFade <= 0) break
-        if (!d || !d.active || !d.alive || d.pausedTime > 0 || d.spawnTime > 0) continue
+        if (!d || !d.active || !d.alive || d.pausedTime > 0 || d.spawnTime > 0 || !inView(d.pos.x, d.pos.y, d.pos.z, dc.range)) continue
         coneColor.copy(palette.security).lerp(palette.suspicious, d.mode === 'alert' ? 0 : Math.min(1, d.suspicion * 1.6))
         const fan = sight.fan(DRONE_KEY + i, d.pos.x, d.pos.y, d.pos.z, d.yaw, DRONE_SPREAD, dc.range)
         city.setCone(nc++, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * dp, -dsp, Math.cos(d.yaw) * dp, droneCos, dc.range, coneColor, (d.mode === 'alert' ? 1.6 : 0.8 + d.suspicion) * scanFade, fan)
@@ -826,7 +968,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       for (let i = 0; i < ws.length; i++) {
         const w = ws[i]
         if (nc >= MAX_CONES || scanFade <= 0) break
-        if (!w || !w.alive || w.pausedTime > 0 || w.controlled) continue
+        if (!w || !w.alive || w.pausedTime > 0 || w.controlled || !inView(w.pos.x, w.pos.y, w.pos.z, wc.range)) continue
         const look = wardenLookYaw(st, i)
         const ey = w.pos.y + wc.eyeHeight
         coneColor.copy(palette.security).lerp(palette.suspicious, w.mode === 'alert' ? 0 : Math.min(1, w.suspicion * 1.6))
@@ -925,8 +1067,28 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
         m.spotted = src.spotted
       }
       hud.update(h)
+      abilitySlot(st, sm, 0, abil.slots[0])
+      abilitySlot(st, sm, 1, abil.slots[1])
+      abil.pauseSec = pauseLengthSec(st, sm)
+      abilities.update(abil)
+      hud.marks.update(dt)
+      // stealth feedback: a warden passed close by and did not notice the player
+      {
+        const ws = wardens(st)
+        watchers.length = ws.length
+        for (let i = 0; i < ws.length; i++) {
+          const w = ws[i] as (typeof ws)[number]
+          const slot = (watchers[i] ??= { x: 0, z: 0, yaw: 0 })
+          slot.x = w.alive ? w.pos.x : 1e9
+          slot.z = w.pos.z
+          slot.yaw = wardenLookYaw(st, i)
+        }
+        if (unseen.step(dt, h.status === 'hidden' && h.suspicion < 0.05 && st.phase === 'playing', p.x, p.z, watchers)) {
+          hud.unseen(V.hud.unseenSec)
+          may.unseen()
+        }
+      }
       // tips: a card for the first minutes of play, the prompts after a short calm start
-      if (time > TC.quietCardAfterSec) card('quiet')
       hintClock -= dt
       if (hintClock <= 0) {
         hintClock = 0.25
@@ -968,9 +1130,11 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     },
     reset(st, sm): void {
       rig.yaw = playerFacing(st)
+      heroYawSnap = true
       rig.snap()
       props.reset(st)
       may.reset()
+      unseen.reset()
       lastX = playerPos(st).x
       lastZ = playerPos(st).z
       shake = 0

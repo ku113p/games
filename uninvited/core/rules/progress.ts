@@ -4,6 +4,8 @@
 import type { EndingConfig } from '../config'
 import type { GameState, RunState, Sim } from '../state'
 import { dist2, emit } from '../util'
+import { awardCheckpoint } from './may'
+import { endLockdown } from './alarm'
 
 export function updateCheckpoints(s: GameState, sim: Sim): void {
   if (s.phase !== 'playing') return
@@ -21,9 +23,14 @@ export function passCheckpoint(s: GameState, sim: Sim, i: number): void {
   const c = s.checkpoints[i]
   if (!c || c.passed) return
   c.passed = true
-  c.underAlarm = s.alarm.segmentFight
-  s.alarm.segmentFight = false // the next segment starts clean
+  // red when a wave fight happened in this segment, or a lockdown is on right now (alarm 3, firewall still up: waves are
+  // running or coming); a fight that spans several checkpoints counts at each of them
+  const fightOn = s.alarm.stage >= 3 && !s.alarm.firewallDown
+  c.underAlarm = s.alarm.segmentFight || fightOn
+  s.alarm.segmentFight = fightOn // a finished fight is counted; one still going counts at the next checkpoint too
+  endLockdown(s, sim) // a finished lockdown ends here: the next arena is a fresh choice
   s.player.hp = sim.cfg.player.maxHp
+  awardCheckpoint(s, sim)
   s.run.checkpointsPassed++
   if (c.underAlarm) s.run.alarmCheckpoints++
   else s.run.calmCheckpoints++

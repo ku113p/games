@@ -1,6 +1,8 @@
 // Runs the in-game benchmark (`?bench=`, see view/bench.ts) in a headless browser, prints a table and saves the JSON.
-//   bun tools/bench.ts [scenario=all] [--level l1|slice] [--url http://localhost:3330] [--sec N] [--compare] [--gpu]
-// Scenarios: idle wave fx fx-sword fx-shots fx-worm fx-drone fx-warden fx-hurt fx-audio fx-hud soak all (all = no soak).
+//   bun tools/bench.ts [scenario=all] [--level l1|slice] [--url http://localhost:3330] [--sec N] [--compare] [--gpu] [--profile]
+// --alloc: a sampling heap profile (who allocates), prints the top allocation sites.
+// --profile: a CPU profile of the run (CDP), prints the functions with the most self time (JS side; GL calls show as native).
+// Scenarios: idle scan scan-walk scan-still scan-off wave fx fx-sword fx-shots fx-worm fx-drone fx-warden fx-hurt fx-audio fx-hud soak all (all = no soak).
 // Results: bench/results/<date>-<scenario>-<level>.json (gitignored). --compare diffs against the previous file of the same scenario.
 // Headless Chrome renders with SwiftShader (software GL): read the trends, spikes and counts, NOT the absolute frame
 // times. The real numbers come from opening the same ?bench= URL in a real browser on a real GPU.
@@ -33,10 +35,47 @@ page.on('console', (m: any) => {
 const url = `${base}/?bench=${scenario}&level=${level}${sec ? `&sec=${sec}` : ''}${argv.includes('--nowarm') ? '&nowarm' : ''}${flag('--q') ?? ''}`
 console.log(`bench ${url}\n(software GL: trends and counts only, not absolute frame times)`)
 await page.goto(url)
+const cdp = argv.includes('--profile') ? await page.context().newCDPSession(page) : null
 await page.click('#bench-go', { timeout: 60000 })
+const cdpA = argv.includes('--alloc') ? await page.context().newCDPSession(page) : null
+if (cdpA) await cdpA.send('HeapProfiler.startSampling', { samplingInterval: 4096, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true })
+if (cdp) {
+  await cdp.send('Profiler.enable')
+  await cdp.send('Profiler.setSamplingInterval', { interval: 500 })
+  await cdp.send('Profiler.start')
+}
 const limit = (scenario === 'all' ? 1500 : (Number(sec) || (scenario === 'soak' ? 300 : 60)) + 120) * 1000
 await page.waitForFunction(() => (window as any).__benchResult, null, { timeout: limit, polling: 1000 })
 const out = await page.evaluate(() => (window as any).__benchResult)
+if (cdpA) {
+  const { profile } = await cdpA.send('HeapProfiler.stopSampling')
+  const sites = new Map<string, number>()
+  const walk = (n: any): void => {
+    const c = n.callFrame
+    const k = `${c.functionName || '(anon)'} ${String(c.url).split('/').pop()}:${c.lineNumber + 1}`
+    sites.set(k, (sites.get(k) ?? 0) + n.selfSize)
+    for (const ch of n.children) walk(ch)
+  }
+  walk(profile.head)
+  const tot = [...sites.values()].reduce((a, b) => a + b, 0)
+  console.log(`alloc profile: ${(tot / 1048576).toFixed(1)} MB sampled over the run; top sites:`)
+  for (const [k, v] of [...sites.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)) console.log(`${(v / 1024).toFixed(0).padStart(8)} KB  ${k}`)
+}
+if (cdp) {
+  const { profile } = await cdp.send('Profiler.stop')
+  const self = new Map<string, number>()
+  const byId = new Map<number, any>(profile.nodes.map((n: any) => [n.id, n]))
+  const dt: number[] = profile.timeDeltas
+  profile.samples.forEach((id: number, i: number) => {
+    const c = byId.get(id).callFrame
+    const k = `${c.functionName || '(anon)'} ${String(c.url).split('/').pop()}:${c.lineNumber + 1}`
+    self.set(k, (self.get(k) ?? 0) + (dt[i] ?? 0) / 1000)
+  })
+  const total = [...self.values()].reduce((a, b) => a + b, 0)
+  const idle = (self.get('(idle) :1') ?? 0) + (self.get('(program) :1') ?? 0)
+  console.log(`profile: ${total.toFixed(0)} ms sampled, ${idle.toFixed(0)} ms idle/program; top self time:`)
+  for (const [k, v] of [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 28)) console.log(`${v.toFixed(0).padStart(7)} ms  ${k}`)
+}
 await browser.close()
 
 const dir = new URL('../bench/results/', import.meta.url).pathname

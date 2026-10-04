@@ -242,3 +242,5 @@ cards are 50 % wide, but they are built at 58 vw.
 - Do not fire hints in combat or stack them; a missed hint is better than an unread one.
 - Do not use `localStorage` without try/catch; a refusing browser must still play with defaults.
 - Do not invent rules in UI text: if a hint and DESIGN.md disagree, fix the hint (or ask the designer and update DESIGN.md, then DESIGN.ru.md).
+
+**Status 2026-10-05 (flow agent):** done - the Move quietly card at D1 (2 lines), the meeting at 0.35 s/word + skip hint, one bottom column (prompt, May, hint), HUD sizes in vh, no HUD blinking under Reduce shake/flash, level banner, title screen with Fullscreen and the sound note, UNSEEN flash, the status stays at the top centre. Open: marks "?"/"!" and diamond pips (P4), load progress, a settings/controls button on the pause screen is unchanged.

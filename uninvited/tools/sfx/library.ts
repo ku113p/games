@@ -223,14 +223,47 @@ const RECIPES: Recipe[] = [
     ],
   },
   {
-    name: "rifle_shot", category: "Combat", n: 3, level: -1, drive: 1.6, match: true,
-    desc: "Rifle shot: sci-fi laser with a low punch (Kenney Sci-Fi + Digital)",
-    layers: (i) => [
-      { src: sci("laserSmall", i), t: 0.24, hp: 250, rate: pick([0.95, 1.0, 1.08], i), fo: 0.1 },
-      { src: `dig:laser${pick([3, 5, 8], i)}`, t: 0.3, hp: 800, db: -8, rate: 1.1, fo: 0.2 },
-      { src: "sci:lowFrequency_explosion_000", t: 0.12, lp: 320, db: -6, rate: pick([1.2, 1.3, 1.1], i), fo: 0.07 },
-      gen(click(rngFor("rifle_shot", i), 900, 6000, 0.008), { db: 2 }),
-    ],
+    name: "rifle_shot", category: "Combat", n: 5, level: -1, drive: 1.5, match: true, tailDb: -54,
+    desc: "Rifle shot in layers: a bright crack, a 300-1500 Hz zap body, a 90->45 Hz sub thump with saturated harmonics, a servo chk at +60-90 ms and a short dark city slap (Kenney Sci-Fi + Digital + synth)",
+    layers: (i) => {
+      const rng = rngFor("rifle_shot", i);
+      const subHz = pick([90, 96, 86, 92, 88], i);
+      const sub = S.norm(S.amp(S.osc(0.16, "sine", S.expc(subHz, 45, 0.11)), S.ad(0.0012, 0.14)));
+      const harm = S.norm(S.band(S.drive(sub, 4), 100, 170));
+      const chk = S.norm(S.amp(S.band(S.noise(0.05, rng), 1800, 6500), S.ad(0.0006, 0.018)));
+      const servo = S.norm(S.amp(S.osc(0.06, "sine", S.expc(pick([1500, 1650, 1400, 1580, 1720], i), 2100, 0.05)), S.ad(0.002, 0.04)));
+      const crack = click(rng, 900, 7000, 0.008);
+      return [
+        gen(crack, { db: 3 }),
+        { src: sci("laserSmall", i), t: 0.14, hp: 300, lp: 1500, db: -4, rate: pick([0.95, 1.0, 1.08, 0.9, 1.02], i), dec: 0.1, fo: 0.06 },
+        { src: `dig:laser${pick([3, 5, 8, 3, 5], i)}`, t: 0.1, hp: 1200, db: -11, rate: 1.1, dec: 0.07, fo: 0.05 },
+        gen(sub, { db: -4, fo: 0.04 }),
+        gen(harm, { db: -7, fo: 0.04 }),
+        gen(chk, { at: pick([0.062, 0.07, 0.078, 0.085, 0.066], i), db: -14, fo: 0.01 }),
+        gen(servo, { at: pick([0.062, 0.07, 0.078, 0.085, 0.066], i), db: -17, fo: 0.02 }),
+        // the short city slap: two dark echoes of the crack at about 90 and 180 ms
+        gen(crack, { at: 0.09, db: -15, lp: 1100, fo: 0.02 }),
+        gen(crack, { at: 0.18, db: -21, lp: 800, fo: 0.02 }),
+      ];
+    },
+  },
+  {
+    name: "hit_tick", category: "Combat", n: 1, level: -4,
+    desc: "Hit confirmation tick (UI): one 10 ms bright 3-4 kHz click with a tiny ring, identical for every enemy (synth)",
+    layers: () => {
+      const rng = rngFor("hit_tick", 0);
+      return [gen(click(rng, 3000, 5200, 0.005), { db: 0 }), gen(note(3600, 0.014, 0.2), { db: -4, fo: 0.01 })];
+    },
+  },
+  {
+    name: "kill_pop", category: "Combat", n: 1, level: -2, tailDb: -58,
+    desc: "Kill confirmation (UI): a bright pop with a short 55 Hz thump, identical for every enemy (synth)",
+    layers: () => {
+      const rng = rngFor("kill_pop", 0);
+      const pop = S.norm(S.amp(S.osc(0.09, "sine", S.expc(1100, 260, 0.06)), S.ad(0.0008, 0.07)));
+      const thump = S.norm(S.amp(S.osc(0.22, "sine", S.expc(95, 52, 0.14)), S.ad(0.002, 0.18)));
+      return [gen(click(rng, 2000, 7000, 0.007), { db: -2 }), gen(pop, { db: 0, fo: 0.02 }), gen(thump, { db: -3, at: 0.004, fo: 0.04 }), gen(note(2400, 0.03, 0.4), { db: -9, at: 0.002, fo: 0.02 })];
+    },
   },
   {
     name: "bullet_impact", category: "Combat", n: 3, level: -3, match: true,

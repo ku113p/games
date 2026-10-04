@@ -26,6 +26,7 @@ import type { MoveResult, World } from './ports'
 import { createRng, type Rng } from './random'
 import { createNav, tallCells, type Nav } from './rules/nav'
 import { createWalkNav, type WalkNav } from './rules/walk'
+import { grantFreeUpgrade, maxCharges } from './rules/may'
 import { buildWardenRoutes, createWardens, type WalkPath, type WardenRoute } from './rules/wardens'
 
 export interface Vec3 {
@@ -99,6 +100,9 @@ export interface PlayerState {
    * back on safe ground) to -fadeSec (it fades in again); 0 when not falling.
    */
   fallTime: number
+  /** > 0 while performing a takedown (the hero is locked), s left; the warden's index while it lasts. */
+  takedownTime: number
+  takedownTarget: number
 }
 
 export type DroneRole = 'patrol' | 'searcher' | 'wave' | 'checker'
@@ -137,6 +141,8 @@ export interface DroneState {
   /** Holds a ranged attack token (from the start of the aim until tokenHold ran out after the shot). */
   token: boolean
   tokenHold: number
+  /** Where its ring turned to, rad (the standoff strafe: it keeps going while the drone has no line of sight, faster). */
+  ringPhase: number
 }
 
 export type WormRole = 'wave' | 'searcher'
@@ -245,11 +251,17 @@ export interface WardenState {
   /** Waiting behind its opening gate, s (a wave warden is not alive until it comes out). */
   spawnTime: number
   gate: number
+  /** Taken down (DESIGN 8): > 0 while it is down, s left (counted from the start of the takedown; it reboots at 0). */
+  down: number
+  /** Seconds until it may notice a downed warden again (the notice cooldown). */
+  noticeCool: number
   /** The attack token it holds: 0 none, 1 melee, 2 ranged (kept `tokenHold` s after a shot). */
   token: number
   tokenHold: number
   /** Where it waits while it has no token: 1 or -1 (which way it circles). */
   ringDir: number
+  /** Shots fired since it started fighting: a warden steps in for the melee only after its first shot (DESIGN 8). */
+  shots: number
 }
 
 export interface VideoCameraState {
@@ -361,6 +373,8 @@ export interface Gate {
   ceiling: boolean
   /** The plan cell in front of it. */
   cell: number
+  /** Index of the firewall arena it stands in (-1: none). */
+  arena: number
 }
 
 export interface BoltState {
@@ -415,10 +429,28 @@ export interface RunState {
   alarmCheckpoints: number
   calmCheckpoints: number
   kills: number
+  /** Non-lethal takedowns of wardens (not kills, not incidents). */
+  takedowns: number
   devicesBroken: number
   alarmsRaised: number
   deaths: number
   timeSec: number
+}
+
+/** May's progression (DESIGN 10): points, the rank of every upgrade bought, the cooldowns of keys 1-2 and the shield. Saved, and carried to the next level. */
+export interface MayState {
+  /** Unspent points. */
+  points: number
+  /** Rank per upgrade id (a missing id is 0). */
+  ranks: Record<string, number>
+  /** Seconds until key 1 (distraction) and key 2 (pause a camera) are ready. */
+  cd: number[]
+  /** Seconds until the shield is back up (0 = up; only with the shield bought). */
+  shieldWait: number
+}
+
+export function createMay(): MayState {
+  return { points: 0, ranks: {}, cd: [0, 0], shieldWait: 0 }
 }
 
 export interface HackRun {
@@ -459,6 +491,8 @@ export interface GameState {
   lastCheckpoint: number
   /** May is present (DESIGN 10): set when the T0 hack is solved, or from the start on a level with `mayFromStart`. Saved. */
   mayMet: boolean
+  /** May's points and upgrades. */
+  may: MayState
 }
 
 /** What a terminal controls, resolved from the level's ids. */
@@ -481,6 +515,8 @@ export interface Noise {
   y: number
   z: number
   radius: number
+  /** A lure (May's distraction signal): wardens and drones come to look, sound cameras do not take it for the player. */
+  lure: boolean
 }
 
 /** Static level data, ports and caches for one level. Not saved. */
@@ -509,6 +545,24 @@ export interface Sim {
   noises: Noise[]
   noiseCount: number
   move: MoveResult
+  /** Firewall arenas in world metres, with the indices of their red walls (empty: one implicit arena, every wall). */
+  arenas: ArenaRuntime[]
+  /** Primer zones in world metres: no alarm stage is raised inside them. */
+  primers: Rect[]
+}
+
+export interface Rect {
+  x0: number
+  z0: number
+  x1: number
+  z1: number
+}
+
+export interface ArenaRuntime extends Rect {
+  id: string
+  walls: number[]
+  /** Waves of a lockdown; 0 = the config default. */
+  waves: number
 }
 
 export function vec(x = 0, y = 0, z = 0): Vec3 {
@@ -591,6 +645,8 @@ function createPlayer(cfg: GameConfig, at: Vec3, facing: number): PlayerState {
     aimSwap: false,
     safe: vec(at.x, at.y, at.z),
     fallTime: 0,
+    takedownTime: 0,
+    takedownTarget: -1,
   }
 }
 
@@ -620,6 +676,7 @@ export function emptyDrone(): DroneState {
     aim: 0,
     token: false,
     tokenHold: 0,
+    ringPhase: 0,
   }
 }
 
@@ -691,13 +748,18 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
       return links
     })
   const noises: Noise[] = []
-  for (let i = 0; i < 16; i++) noises.push({ x: 0, y: 0, z: 0, radius: 0 })
+  for (let i = 0; i < 16; i++) noises.push({ x: 0, y: 0, z: 0, radius: 0, lure: false })
   const nav = createNav(grid, false, undefined, Infinity, tallCells(grid, cfg.drone.overMax))
   const crawl = createNav(grid, true, nav, cfg.worm.climb)
   const walk = createWalkNav(grid, cfg.warden.radius, nav.wallOpen)
   const wardenRoutes = buildWardenRoutes(level, grid, walk)
   // the pool of wave wardens: posts nobody walks to (they come out of a gate and fight)
   for (let i = 0; i < cfg.alarm.waveWardenSlots; i++) wardenRoutes.push({ stops: [{ x: 0, y: 0, z: 0, waitSec: Infinity, look: NaN }], post: true, line: [] })
+  const arenas = (level.arenas ?? []).map((a): ArenaRuntime => {
+    const rect = cellRect(grid, a.from, a.to)
+    return { ...rect, id: a.id, walls: a.walls.map((id) => wallIds.get(id) ?? failArena(a.id, id)), waves: a.waves ?? 0 }
+  })
+  for (const g of gates) g.arena = arenas.findIndex((r) => g.out.x >= r.x0 && g.out.x < r.x1 && g.out.z >= r.z0 && g.out.z < r.z1)
   return {
     cfg,
     level,
@@ -717,7 +779,17 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
     noises,
     noiseCount: 0,
     move: { x: 0, y: 0, z: 0, grounded: false },
+    arenas,
+    primers: (level.primers ?? []).map((p) => cellRect(grid, p.from, p.to)),
   }
+}
+
+function failArena(arena: string, wall: string): never {
+  throw new Error(`arena ${arena}: unknown red wall "${wall}"`)
+}
+
+function cellRect(g: Grid, from: readonly [number, number], to: readonly [number, number]): Rect {
+  return { x0: Math.min(from[0], to[0]) * g.cell, z0: Math.min(from[1], to[1]) * g.cell, x1: (Math.max(from[0], to[0]) + 1) * g.cell, z1: (Math.max(from[1], to[1]) + 1) * g.cell }
 }
 
 /**
@@ -734,7 +806,7 @@ function buildGate(g: Grid, cfg: GameConfig, at: readonly [number, number], wall
   const hover = floor + cfg.drone.hover
   const d = cfg.drone
   if (wall === 'down') {
-    return { mouth: vec(cx, floor, cz), deep: vec(cx, floor - d.gateDepth, cz), out: vec(cx, hover, cz), nx: 0, ny: 1, nz: 0, ceiling: false, cell: i }
+    return { mouth: vec(cx, floor, cz), deep: vec(cx, floor - d.gateDepth, cz), out: vec(cx, hover, cz), nx: 0, ny: 1, nz: 0, ceiling: false, cell: i, arena: -1 }
   }
   if (wall === 'up') {
     const roof = roofAt(g, cx, cz)
@@ -748,6 +820,7 @@ function buildGate(g: Grid, cfg: GameConfig, at: readonly [number, number], wall
       nz: 0,
       ceiling: true,
       cell: i,
+      arena: -1,
     }
   }
   const sx = sideDx(wall)
@@ -769,6 +842,7 @@ function buildGate(g: Grid, cfg: GameConfig, at: readonly [number, number], wall
     nz: -sz,
     ceiling: false,
     cell: i,
+    arena: -1,
   }
 }
 
@@ -837,8 +911,8 @@ function mount(g: Grid, at: readonly [number, number], wall: 'n' | 'e' | 's' | '
 
 const DEG = Math.PI / 180
 
-/** A fresh state for the start of a level. */
-export function createState(sim: Sim, seed: number): GameState {
+/** A fresh state for the start of a level; `carry` is May's progression from the previous level (copied). */
+export function createState(sim: Sim, seed: number, carry?: MayState): GameState {
   const { cfg, level, grid: g } = sim
   const drones: DroneState[] = []
   sim.patrols.forEach((points, i) => {
@@ -909,7 +983,7 @@ export function createState(sim: Sim, seed: number): GameState {
   for (let i = 0; i < cfg.shards.max; i++) shards.push({ active: false, pos: vec(), life: 0, big: false })
   for (let i = 0; i < 48; i++) bolts.push({ active: false, damage: 0, pos: vec(), vel: vec(), life: 0 })
 
-  return {
+  const state: GameState = {
     levelId: level.id,
     time: 0,
     rng: createRng(seed),
@@ -932,10 +1006,14 @@ export function createState(sim: Sim, seed: number): GameState {
     shards,
     alarm: { stage: 0, cooldown: 0, decay: 0, center: vec(), wave: 0, waveActive: false, waveTimer: 0, wavesCleared: 0, firewallDown: false, segmentFight: false },
     scan: { active: false, held: 0, heat: 0, cooldown: 0, warned: false, needRelease: false },
-    run: { checkpointsPassed: 0, alarmCheckpoints: 0, calmCheckpoints: 0, kills: 0, devicesBroken: 0, alarmsRaised: 0, deaths: 0, timeSec: 0 },
+    run: { checkpointsPassed: 0, alarmCheckpoints: 0, calmCheckpoints: 0, kills: 0, takedowns: 0, devicesBroken: 0, alarmsRaised: 0, deaths: 0, timeSec: 0 },
     hack: null,
     artifactTaken: false,
     lastCheckpoint: -1,
     mayMet: level.mayFromStart === true,
+    may: carry ? { points: carry.points, ranks: { ...carry.ranks }, cd: [0, 0], shieldWait: 0 } : createMay(),
   }
+  if (state.mayMet) grantFreeUpgrade(state)
+  state.player.charges = maxCharges(state, sim)
+  return state
 }

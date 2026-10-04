@@ -64,7 +64,7 @@ export function updateHearing(s: GameState, sim: Sim, dt: number): void {
     c.suspicion = Math.max(0, c.suspicion - cfg.decay * dt)
     for (let n = 0; n < sim.noiseCount; n++) {
       const z = sim.noises[n]
-      if (!z) continue
+      if (!z || z.lure) continue
       const d2 = dist2(z.x, z.z, c.pos.x, c.pos.z)
       // heard when made inside its ring, or loud enough to carry to it
       if (d2 > cfg.radius * cfg.radius && d2 > z.radius * z.radius) continue

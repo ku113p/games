@@ -5,6 +5,7 @@ import { hackPick as pickInSession, hackTick, startHack, type HackEvent } from '
 import type { GameState, Sim } from '../state'
 import { dist2, emit } from '../util'
 import { raiseAlarm } from './alarm'
+import { grantFreeUpgrade, hackBonusSec } from './may'
 import { setNavWallOpen } from './nav'
 
 export type Interactable = 'none' | 'terminal' | 'artifact'
@@ -52,7 +53,7 @@ export function interact(s: GameState, sim: Sim): void {
 function beginHack(s: GameState, sim: Sim, terminal: number): void {
   const links = sim.terminalLinks[terminal]
   if (!links) return
-  s.hack = { terminal, session: startHack(s.rng, links.difficulty, sim.cfg.terminal.timeBonusSec, sim.cfg.hack) }
+  s.hack = { terminal, session: startHack(s.rng, links.difficulty, sim.cfg.terminal.timeBonusSec + hackBonusSec(s, sim), sim.cfg.hack) }
   s.scan.active = false
   // hacking keeps the stance: a Ctrl crouch becomes a plain crouch, so letting go of Ctrl during the hack (the hack
   // screen takes the keyboard) does not stand you up from behind cover when it ends - C or a jump does
@@ -107,6 +108,44 @@ export function openWall(s: GameState, sim: Sim, i: number): void {
   emit(sim, { type: 'wallOpened', index: i })
 }
 
+/**
+ * Pauses one device for `sec` seconds (a hack, or May's "pause a camera"): it stops seeing and acting. A camera index
+ * counts video cameras first, then sound cameras. Returns false when there is nothing to pause (gone, or the pause
+ * already lasts longer).
+ */
+export function pauseDevice(s: GameState, sim: Sim, target: 'laser' | 'drone' | 'warden' | 'camera', index: number, sec: number): boolean {
+  let held: { pausedTime: number } | undefined
+  if (target === 'laser') {
+    const laser = s.lasers[index]
+    if (laser?.alive) held = laser
+  } else if (target === 'drone') {
+    const drone = s.drones[index]
+    if (drone?.alive && drone.active) {
+      held = drone
+      drone.sees = false
+    }
+  } else if (target === 'warden') {
+    const w = s.wardens[index]
+    if (w?.alive) {
+      held = w
+      w.sees = false
+    }
+  } else if (index < s.cameras.length) {
+    const c = s.cameras[index]
+    if (c?.alive) {
+      held = c
+      c.sees = false
+    }
+  } else {
+    const c = s.soundCameras[index - s.cameras.length]
+    if (c?.alive) held = c
+  }
+  if (!held || held.pausedTime >= sec) return false
+  held.pausedTime = sec
+  emit(sim, { type: 'devicePaused', target, index, sec })
+  return true
+}
+
 /** The hack worked: open the terminal's walls, pause its lasers, drones and wardens. */
 export function unlockTerminal(s: GameState, sim: Sim, terminal: number): void {
   const links = sim.terminalLinks[terminal]
@@ -115,42 +154,15 @@ export function unlockTerminal(s: GameState, sim: Sim, terminal: number): void {
   const sec = sim.cfg.terminal.pauseSec
   if (links.meetsMay && !s.mayMet) {
     s.mayMet = true
+    grantFreeUpgrade(s)
     emit(sim, { type: 'mayMet' })
   }
   for (const w of links.walls) openWall(s, sim, w)
-  for (const l of links.lasers) {
-    const laser = s.lasers[l]
-    if (!laser || !laser.alive) continue
-    laser.pausedTime = sec
-    emit(sim, { type: 'devicePaused', target: 'laser', index: l, sec })
-  }
-  for (const d of links.drones) {
-    const drone = s.drones[d]
-    if (!drone || !drone.alive || !drone.active) continue
-    drone.pausedTime = sec
-    drone.sees = false
-    emit(sim, { type: 'devicePaused', target: 'drone', index: d, sec })
-  }
-  for (const k of links.wardens) {
-    const w = s.wardens[k]
-    if (!w || !w.alive) continue
-    w.pausedTime = sec
-    w.sees = false
-    emit(sim, { type: 'devicePaused', target: 'warden', index: k, sec })
-  }
-  for (const k of links.cameras) {
-    const c = s.cameras[k]
-    if (!c || !c.alive) continue
-    c.pausedTime = sec
-    c.sees = false
-    emit(sim, { type: 'devicePaused', target: 'camera', index: k, sec })
-  }
-  for (const k of links.soundCameras) {
-    const c = s.soundCameras[k]
-    if (!c || !c.alive) continue
-    c.pausedTime = sec
-    emit(sim, { type: 'devicePaused', target: 'camera', index: s.cameras.length + k, sec })
-  }
+  for (const l of links.lasers) pauseDevice(s, sim, 'laser', l, sec)
+  for (const d of links.drones) pauseDevice(s, sim, 'drone', d, sec)
+  for (const k of links.wardens) pauseDevice(s, sim, 'warden', k, sec)
+  for (const k of links.cameras) pauseDevice(s, sim, 'camera', k, sec)
+  for (const k of links.soundCameras) pauseDevice(s, sim, 'camera', s.cameras.length + k, sec)
   if (links.walls.length > 0) t.done = true
   else t.cooldown = sec
 }

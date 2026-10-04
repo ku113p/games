@@ -7,6 +7,7 @@ import type { Gate, GameState, Sim, WormRole, WormState } from '../state'
 import { angleDiff, DEG, dist2, emit, turnTowards } from '../util'
 import { randomSearchPoint } from './alarm'
 import { hurtPlayer } from './combat'
+import { gateInArena, lockdownArena } from './arenas'
 import { pickGate, openGate } from './gates'
 import { flyable, navDistance, nextCell } from './nav'
 import { biteTokens, ringRadius } from './tokens'
@@ -142,11 +143,13 @@ export function pickPackGate(s: GameState, sim: Sim, usedGates: readonly number[
   const p = s.player.pos
   const target = cellAt(sim.grid, p.x, p.z)
   const minD = sim.cfg.alarm.minSpawnDist
+  const arena = lockdownArena(s, sim)
   let best = -1
   let bestCost = Infinity
   for (let i = 0; i < sim.gates.length; i++) {
     if (usedGates.includes(i)) continue
     const g = sim.gates[i] as Gate
+    if (!gateInArena(g, arena)) continue
     if (dist2(g.out.x, g.out.z, p.x, p.z) < minD * minD) continue
     const d = target >= 0 ? navDistance(sim.crawl, g.cell, target) : 0
     if (d < 0) continue

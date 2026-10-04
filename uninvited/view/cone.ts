@@ -134,6 +134,8 @@ export function createCone(range: number, halfAngleRad: number, fans: Texture, o
   }
   const mesh = new Mesh(geo, material)
   mesh.frustumCulled = false
+  // the view range is a network-vision overlay: its mirror image on the floor would only cost a second set of draws
+  if (onlyInScan) mesh.userData['noReflect'] = true
   mesh.renderOrder = 5
   const u = material.uniforms as Record<string, { value: unknown }>
   return {

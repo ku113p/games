@@ -4,7 +4,7 @@ import texts from '../texts/en.json'
 import type { GameEvent } from '../core/events'
 import { deathLineDue, type MayLine } from './may-queue'
 
-export type MayKey = 'meet1' | 'meet2' | 'meet3' | 'welcome' | 'camera' | 'netvision' | 'warden' | 'alarm1' | 'alarm3' | 'firewall' | 'cpCalm' | 'cpRed' | 'death' | 'notes' | 'end'
+export type MayKey = 'meet1' | 'meet2' | 'meet3' | 'welcome' | 'camera' | 'netvision' | 'warden' | 'alarm1' | 'alarm3' | 'firewall' | 'cpCalm' | 'cpRed' | 'death' | 'notes' | 'end' | 'unseen'
 
 /** The text of one of her lines. */
 export function mayText(key: MayKey): string {
@@ -27,7 +27,7 @@ export interface MayTriggers {
   /** The events of one frame (the lines go to `say`). Call only while May is present. */
   events(list: readonly GameEvent[]): void
   /** The first camera, warden... came into view (the view decides when). */
-  seen(what: 'camera' | 'warden'): void
+  seen(what: 'camera' | 'warden' | 'unseen'): void
   /** A new run of the level: the death count starts over. */
   reset(): void
   readonly deaths: number
@@ -43,7 +43,7 @@ export function createMayTriggers(say: (line: MayLine) => void, deathEvery?: num
       deaths = 0
     },
     seen(what): void {
-      say(what === 'camera' ? L('camera', 40, 'save') : L('warden', 45, 'save'))
+      say(what === 'camera' ? L('camera', 40, 'save') : what === 'unseen' ? L('unseen', 42, 'save') : L('warden', 45, 'save'))
     },
     events(list): void {
       let solved = false

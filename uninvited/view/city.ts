@@ -42,12 +42,14 @@ import type { GameState } from '../core/state'
 import { GeoBuilder, glowQuad, panel, tube, type Frame3, type P3 } from './geo'
 import { addRim, palette, type Materials } from './look'
 import type { Mirror } from './reflect'
+import { lanesEnabled, type Exposure } from './exposure'
 import { SIGHT_GLSL, type Fan, type Sight } from './sight'
 import { buildGuides, hash, hexLattice, offsetLine, type HexCol } from './city-kit'
 
 const L = cfgAll.view.corridor
 const Y = cfgAll.view.city
 const K = cfgAll.view.cones
+const SL = cfgAll.view.stealthLight
 
 /** Distance textures: texels per metre, and the distances they encode (metres). */
 const DIST_RES = 4
@@ -286,8 +288,8 @@ void main() {
 const DIST_GLSL = /* glsl */ `
 uniform sampler2D uDist;
 uniform vec2 uSize;
-vec2 distAt(vec2 xz) {
-  return texture2D(uDist, xz / uSize).rg * ${DIST_MAX.toFixed(1)};
+vec3 distAt(vec2 xz) {
+  return texture2D(uDist, xz / uSize).rgb * ${DIST_MAX.toFixed(1)};
 }`
 
 const FLOOR_FRAG = /* glsl */ `
@@ -313,6 +315,13 @@ uniform vec3 uConeShape[MAX_CONES];
 uniform vec4 uConeFan[MAX_CONES];
 uniform vec4 uFanLook;
 uniform vec4 uFanLines;
+uniform sampler2D uExposure;
+uniform vec2 uExpSize;
+uniform vec4 uLane;
+uniform vec4 uLaneRange;
+uniform vec2 uLaneMore;
+uniform vec3 uLaneColor;
+uniform vec3 uFootColor;
 varying vec3 vWorld;
 ${ALARM_GLSL}
 ${LIGHT_GLSL}
@@ -321,7 +330,7 @@ ${SIGHT_GLSL}
 #include <fog_pars_fragment>
 void main() {
   vec2 p = vWorld.xz;
-  vec2 dist = distAt(p);
+  vec3 dist = distAt(p);
   vec2 fw = fwidth(p);
   float px = max(fw.x, fw.y) + 1e-4;
   // big matte plates (4 m), a tone each, thin dark joints
@@ -361,6 +370,24 @@ void main() {
       vec3 viewDir = normalize(cameraPosition - vWorld);
       float fres = 0.2 + 0.8 * pow(1.0 - max(viewDir.y, 0.0), 4.0);
       c += r * 0.25 * uReflectAmt * fres * fade * onPlane * (1.0 - joint);
+    }
+  }
+  // the stealth lighting (view/exposure.ts): watched floor is lit cool with a faint cell grid, blind spots are dark, and the
+  // chains of cover that offer a way through carry a thin footlight at their base. uLane = (on, cell, grid, dim).
+  if (uLane.x > 0.5) {
+    vec2 ex = texture2D(uExposure, p / uExpSize).rg;
+    float lit = smoothstep(uLaneRange.x, uLaneRange.y, ex.r);
+    lit = lit * (1.0 + uLaneMore.x * (1.0 - lit)); // lifts the low end: a spot watched only now and then still reads lit
+    c *= mix(uLane.w, 1.0, lit);
+    if (lit > 0.01) {
+      vec2 gf = fract(p / uLane.y + 0.5) - 0.5;
+      float gd = min(abs(gf.x), abs(gf.y)) * uLane.y;
+      float gridLine = 1.0 - smoothstep(0.012, 0.012 + px * 1.3, gd);
+      c += uLaneColor * lit * ao * (uLaneRange.z + uLane.z * gridLine);
+    }
+    if (ex.g > 0.01) {
+      float cover = 1.0 - smoothstep(uLaneRange.w, uLaneRange.w + px * 1.3, abs(dist.z - 0.09));
+      c += uFootColor * ex.g * (cover + uLaneMore.y * (1.0 - smoothstep(0.0, 0.3, dist.z)));
     }
   }
   // where the security looks: a red fan on the floor (NN1b), cut off where its line of sight is (view/sight.ts).
@@ -524,11 +551,14 @@ function distanceTexture(g: Grid): DataTexture {
       const c0 = Math.floor(x / g.cell)
       const r0 = Math.floor(z / g.cell)
       let dw = DIST_MAX
+      let dcov = DIST_MAX
       for (let r = r0 - reach; r <= r0 + reach; r++) {
         for (let c = c0 - reach; c <= c0 + reach; c++) {
           if (!solid(c, r)) continue
           const inset = g.kind[r * g.cols + c] === CellKind.Cover ? Y.coverInset : 0
-          dw = Math.min(dw, boxDist(x, z, c * g.cell + inset, r * g.cell + inset, (c + 1) * g.cell - inset, (r + 1) * g.cell - inset))
+          const d = boxDist(x, z, c * g.cell + inset, r * g.cell + inset, (c + 1) * g.cell - inset, (r + 1) * g.cell - inset)
+          dw = Math.min(dw, d)
+          if (g.kind[r * g.cols + c] === CellKind.Cover) dcov = Math.min(dcov, d)
         }
       }
       let db = DIST_MAX
@@ -539,7 +569,7 @@ function distanceTexture(g: Grid): DataTexture {
       const o = (ty * w + tx) * 4
       data[o] = Math.round((dw / DIST_MAX) * 255)
       data[o + 1] = Math.round((db / DIST_MAX) * 255)
-      data[o + 2] = 0
+      data[o + 2] = Math.round((Math.min(dcov, db) / DIST_MAX) * 255) // the foot of the cover (low cover and blocks)
       data[o + 3] = 255
     }
   }
@@ -726,7 +756,7 @@ function softCorners(pts: P3[], closed: boolean, r: number): P3[] {
   return out
 }
 
-export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror, _s: GameState): City {
+export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror, _s: GameState, exposure?: Exposure): City {
   const root = new Group()
   const chunks = new Map<number, Chunk>()
   const ccols = Math.ceil(g.cols / CHUNK)
@@ -1448,6 +1478,13 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
         uConeFan: { value: coneArr(() => new Vector4()) },
         uFanLook: { value: new Vector4(K.floorFill, K.floorRays, K.floorRim, K.floorRings) },
         uFanLines: { value: new Vector4(K.lineWidth, K.raysPerRadian, K.ringGap, K.ringSpeed) },
+        uExposure: { value: null },
+        uExpSize: { value: new Vector2(1, 1) },
+        uLane: { value: new Vector4(0, g.cell, SL.litGrid, SL.darkDim) },
+        uLaneRange: { value: new Vector4(SL.litFrom, SL.litTo, SL.litFill, SL.footLineWidth) },
+        uLaneMore: { value: new Vector2(SL.litLift, SL.footGlow) },
+        uLaneColor: { value: new Vector3(SL.litColor[0], SL.litColor[1], SL.litColor[2]) },
+        uFootColor: { value: palette.seamDim.clone().multiplyScalar(SL.footlight) },
       },
       alarmUniforms(),
       lightUniforms(),
@@ -1480,6 +1517,11 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
   share(floorMat, 'uReflectInv', mirror.inverse)
   share(floorMat, 'uReflectTexel', mirror.texel)
   share(floorMat, 'uFans', sight.texture)
+  if (exposure && lanesEnabled) {
+    share(floorMat, 'uExposure', exposure.texture)
+    ;(floorMat.uniforms['uExpSize']?.value as Vector2).set(exposure.width, exposure.depth)
+    ;(floorMat.uniforms['uLane']?.value as Vector4).x = 1
+  }
   share(floorMat, 'uReflectPlane', mirror.plane)
   for (const m of [solidMat, floorMat, hexMat]) share(m, 'uPlane', mirror.plane)
 

@@ -167,3 +167,5 @@ Measured, not heard (ffmpeg, the audit, an offline Chromium render of a 15-enemy
 3. Stealth soundscape (M): a live ambience bed, random distant one-shots every 5-14 s, 3-5 positional emitters on L1 landmarks; calm music -4 dB vs combat and resting 8-16 bars after two loops.
 4. Lyria before the key expires (by 10-09, about $0.5): a second calm take `net_calm_b` at exactly 120 BPM, -2 st.
 5. When the scene flow lands: room/office ambience and music at a lower level, `jack_in`/`jack_out`, the knock, quiet endings with silence after `sting_death`/`sting_end`.
+
+**Status 2026-10-05:** Top 1 (combat feel pass) is **done** except the worm death and the warden hit/death rebuilds (pack 2): mix numbers in config, `hit_tick` and `kill_pop`, one shared convolution reverb with per-group sends, the "far" lowpass by distance, `shield_hit` on a shield block, and the layered 5-variant `rifle_shot`. Stealth soundscape and the music items are open.

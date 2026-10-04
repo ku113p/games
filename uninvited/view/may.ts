@@ -16,6 +16,7 @@ import { createMayQueue, holdSec, MAY_CFG, voiceBeeps, type Beep, type MayLine, 
 import { createMayTriggers, meetingLines, MEETING_PREFIX, type MayTriggers } from './may-triggers'
 import type { HeroView } from './hero'
 import type { Sound } from './audio'
+import { renderKeys, t } from './hud'
 
 const C = MAY_CFG
 
@@ -35,6 +36,8 @@ export interface MayView {
   meetingActive(): boolean
   /** Enter / a click: ends the meeting early (only after its first line has been read). True when it did. */
   skipMeeting(): boolean
+  /** A watcher passed close by and did not notice the player (the first time she says so). */
+  unseen(): void
   /** The level end is waiting for the "Jim's notes" line to finish. */
   holdingEnd(): boolean
   /** After a load: the old moment is gone (queued lines drop, the death line stays). */
@@ -50,11 +53,14 @@ export interface MayView {
 }
 
 const CSS = `
-.may-sub { position: absolute; left: 50%; bottom: 17vh; transform: translateX(-50%); z-index: 40; box-sizing: border-box; width: max-content; max-width: min(88%, 26em);
+.may-sub { position: static; order: 1; display: none; box-sizing: border-box; width: max-content; max-width: min(calc(44vw / var(--zoom, 1)), 26em);
   text-align: center; font-size: clamp(20px, 2.8vh, 36px); line-height: 1.35; padding: 0.35em 0.9em; color: var(--white); letter-spacing: 0.02em;
   background: rgba(0, 8, 14, 0.9); border: 1px solid rgba(111, 244, 255, 0.55); border-left: 0.2em solid var(--cyan); box-shadow: 0 0 22px rgba(0, 0, 0, 0.7), 0 0 16px rgba(111, 244, 255, 0.18);
-  opacity: 0; transition: opacity 0.18s; pointer-events: none; }
-.may-sub.on { opacity: 1; }
+  pointer-events: none; }
+.may-sub.on { display: block; animation: may-in 0.18s ease-out 1; }
+@keyframes may-in { from { opacity: 0; } to { opacity: 1; } }
+.may-skip { order: 2; display: none; font-size: clamp(14px, 2vh, 26px); color: rgba(220, 245, 255, 0.85); text-shadow: 0 1px 6px #000; }
+.may-skip.on { display: block; }
 .may-sub .who { display: inline-block; margin-right: 0.8em; padding: 0 0.5em; font-size: 0.7em; font-weight: 700; letter-spacing: 0.2em; color: #04141a; background: var(--cyan); vertical-align: 0.1em; }
 .may-glitch { position: absolute; inset: 0; z-index: 45; pointer-events: none; opacity: 0; overflow: hidden; mix-blend-mode: screen;
   background: repeating-linear-gradient(0deg, rgba(111, 244, 255, 0) 0 3px, rgba(111, 244, 255, 0.2) 3px 4px), linear-gradient(90deg, rgba(255, 40, 120, 0.14), rgba(40, 255, 240, 0.14)); }
@@ -76,6 +82,7 @@ export function createMay(
   store: QueueStore | null,
   settings: SettingsHandle | undefined,
   rand: () => number = Math.random,
+  stack: HTMLElement = uiRoot,
 ): MayView {
   const style = document.createElement('style')
   style.textContent = CSS
@@ -97,7 +104,11 @@ export function createMay(
     bar.style.animationDelay = `${(rand() * 0.2).toFixed(2)}s`
     glitchEl.appendChild(bar)
   }
-  uiRoot.append(box, glitchEl)
+  const skipEl = document.createElement('div')
+  skipEl.className = 'may-skip'
+  renderKeys(skipEl, t('meeting.skip'))
+  stack.append(box, skipEl)
+  uiRoot.append(glitchEl)
 
   // the glyph over the wrist display: a canvas drawn a few times a second while she speaks
   const px = C.glyph.px
@@ -217,6 +228,7 @@ export function createMay(
         if (introT <= 0) for (const l of meetingLines((text) => holdSec(text, C.meeting.perWordSec, C.meeting.baseSec), C.meeting.outroSec)) queue.say(l)
       }
       if (meeting && introT <= 0 && !queue.has(MEETING_PREFIX)) meeting = false
+      skipEl.classList.toggle('on', meeting && introT <= 0)
       if (screenGlitch > 0) screenGlitch -= rawDt
       if (present && !meeting && mode === 'play') {
         watchT -= rawDt
@@ -285,6 +297,9 @@ export function createMay(
       meeting = false
       return true
     },
+    unseen(): void {
+      triggers.seen('unseen')
+    },
     holdingEnd: () => queue.has('notes'),
     reset(): void {
       queue.clearWaiting('death')
@@ -294,6 +309,7 @@ export function createMay(
       screenGlitch = 0
       shownId = ''
       box.classList.remove('on')
+      skipEl.classList.remove('on')
     },
     restart(): void {
       this.reset()

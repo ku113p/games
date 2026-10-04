@@ -113,4 +113,49 @@ describe('the alarm', () => {
     run(f, (f.sim.cfg.alarm.decaySec[1] ?? 0) + 2, 1 / 30)
     expect(f.s.alarm.stage).toBe(1)
   })
+
+  function killWaves(f: Fixture): void {
+    for (const d of f.s.drones) if (d.active && d.alive && d.role === 'wave' && d.spawnTime <= 0) ((d.alive = false), (d.active = false))
+    for (const w of f.s.worms) if (w.active && w.role === 'wave') ((w.alive = false), (w.active = false))
+    for (const w of f.s.wardens) if (w.wave && w.alive) w.alive = false
+  }
+
+  test('a lockdown is exactly its arena waves long: re-raising the alarm after the firewall dropped starts no new wave', () => {
+    const f = setup(PLAN, ENTITIES)
+    f.sim.arenas.push({ id: 'a', x0: 0, z0: 0, x1: 40, z1: 20, walls: [0], waves: 2 })
+    for (const g of f.sim.gates) g.arena = 0
+    placePlayer(f, 2, 4)
+    raise(f, 3)
+    let started = 0
+    for (let t = 0; t < 120; t += 1 / 30) {
+      f.sim.events.length = 0
+      run(f, 1 / 30, 1 / 30)
+      killWaves(f)
+      f.s.player.hp = 100
+      started = Math.max(started, f.s.alarm.wave)
+      if (f.s.alarm.firewallDown) break
+    }
+    expect(f.s.alarm.firewallDown).toBe(true)
+    expect(started).toBe(2)
+    // new incidents in the same arena push the alarm again: still no more waves
+    raise(f, 3)
+    run(f, 60, 1 / 30)
+    expect(f.s.alarm.wave).toBe(2)
+    expect(f.s.alarm.waveActive).toBe(false)
+  })
+
+  test('the firewall opens only the red walls of the arena the lockdown is fought in', () => {
+    const plan = ['####################', '#........D.....D...#', '#.S......D.....D.A.#', '####################']
+    const f = setup(plan, [{ kind: 'redWall', id: 'w1', at: [9, 1] }, { kind: 'redWall', id: 'w2', at: [15, 1] }, { kind: 'spawn', at: [2, 1] }])
+    f.sim.arenas.push({ id: 'a', x0: 0, z0: 0, x1: 18, z1: 8, walls: [0], waves: 2 }, { id: 'b', x0: 18, z0: 0, x1: 40, z1: 8, walls: [1], waves: 2 })
+    placePlayer(f, 12, 1) // in the second arena
+    f.s.alarm.stage = 3
+    f.s.alarm.firewallDown = false
+    f.s.alarm.waveActive = false
+    f.s.alarm.wave = 2
+    f.s.alarm.wavesCleared = 2
+    run(f, 0.2)
+    expect(f.s.walls[0]?.open).toBe(false)
+    expect(f.s.walls[1]?.open).toBe(true)
+  })
 })

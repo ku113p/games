@@ -175,6 +175,25 @@ export interface DroneConfig {
   hearFactor: number
   /** Extra drone slots for alarm searchers and waves. */
   maxExtra: number
+  /** The combat standoff (DESIGN 9): a fighting drone keeps a ring around the player, never above them. */
+  standoff: {
+    /** The ring's horizontal radii (each drone gets its own share), m. */
+    ringMin: number
+    ringMax: number
+    /** Height over the player's floor (a share per drone), m; capped so the elevation angle stays under maxElevDeg. */
+    heightMin: number
+    heightMax: number
+    maxElevDeg: number
+    /** Closer than this horizontally a drone slides out at once, m, at slideSpeed m/s. */
+    clearRadius: number
+    slideSpeed: number
+    /** Ring strafe, rad/s (the direction alternates per drone). */
+    strafeSpeed: number
+    /** Without a line of sight to the player a drone closes to the ring and circles at this speed (m/s arc) until it sees them. */
+    seekStrafeSpeed: number
+    /** A fighting drone sees the player out to this range, m (the ring is wider than the patrol cone's range). */
+    alertRange: number
+  }
   /** A spawn gate opens for this long (glitch, light) before its drone comes out. */
   spawnSec: number
   /** The flight out of (or into) a gate, s. */
@@ -208,22 +227,42 @@ export interface WardenConfig {
   investigateSpeed: number
   searchSpeed: number
   alertSpeed: number
+  /** The run of a pursuing warden while the player is further than pursuit.runFarDist, m/s (below the player's sprint). */
+  runSpeed: number
+  /** Alarm 2+ pursuit: wardens within radius of the known player position run to it. */
+  /** A warden closes in for the melee only while its next shot is further than closeInCooldownSec away (it shoots, steps in, shoots again). */
+  pursuit: { radius: number; runFarDist: number; closeInCooldownSec: number }
   /** Body turn rates, rad/s (slow: you can sneak up behind it). */
   turnRate: number
   alertTurnRate: number
   headTurnRate: number
   /** How far the head turns from the body, degrees. */
   headMaxDeg: number
-  /** At a stop without a wait: the chance it pauses anyway, and for how long [min, max], s. */
-  pauseChance: number
-  pauseSec: number[]
   /** At a post: each idle act (standing, a slow look around) lasts [min, max] s. */
   postActSec: number[]
-  /** A stop's waitSec varies by +- this share. */
+  /** A stop's waitSec varies by +- this share (small: the rounds are meant to be learned). */
   waitVary: number
   /** A slow look around: head sweep amplitude (degrees) and one sweep's period, s. */
   scanDeg: number
   scanPeriodSec: number
+  /** The head sweep while it walks its round (the cone swings this far to each side, degrees) and its period, s. */
+  walkScanDeg: number
+  walkScanPeriodSec: number
+  /** The non-lethal takedown from behind (E, DESIGN 8). */
+  takedown: {
+    /** Horizontal reach, m, and the rear arc (total width, degrees, centred right behind its body). */
+    reach: number
+    arcDeg: number
+    /** The action: the hero is locked this long, s. */
+    sec: number
+    /** The warden stays down this long counted from the start of the action, s, then reboots (lights flicker for the last rebootSec). */
+    downSec: number
+    rebootSec: number
+    /** Other wardens that see a downed warden (within range, in the cone) become suspicious; each one only again after this long, s. */
+    noticeCooldownSec: number
+    /** From this alarm stage on a downed warden reboots at once (the alarm wakes it). */
+    wakeAlarmStage: number
+  }
   /** While standing still now and then it glances aside this far, degrees. */
   glanceDeg: number
   /** Suspicious: it stops and turns to the cue for this long before walking over to check. */
@@ -437,6 +476,34 @@ export interface WorldConfig {
   }
 }
 
+/** One purchasable upgrade of May's tree (DESIGN 10): the points each rank costs, in order. */
+export interface UpgradeConfig {
+  /** costs[r] buys rank r + 1; the length is the number of ranks. */
+  costs: number[]
+  /** An upgrade that must be owned first (rank >= 1). */
+  requires?: string
+}
+
+/** May's progression (DESIGN 10 "as built"): points, the tree, and the numbers of every upgrade. */
+export interface ProgressionConfig {
+  /** Points May earns at every checkpoint passed. */
+  pointsPerCheckpoint: number
+  /** The tree by id: distract, pause, pauseTime, cooldown, shield, charges, hackTime. */
+  items: Record<string, UpgradeConfig>
+  /** Distraction signal (key 1): a noise ping at the aimed point (or the nearest surface) within `range`. */
+  distract: { range: number; noiseRadius: number; cooldownSec: number }
+  /** Pause a camera (key 2): aim at a camera or drone within `range`; paused for baseSec + rank of pauseTime x pauseTimeSec. */
+  pause: { range: number; aimDeg: number; baseSec: number; pauseTimeSec: number; cooldownSec: number }
+  /** Both cooldowns are multiplied by cooldownFactor[rank of "cooldown"]. */
+  cooldownFactor: number[]
+  /** Shield: absorbs one hit, then comes back after rechargeSec[rank - 1] seconds without being hurt (and at a checkpoint). */
+  shield: { rechargeSec: number[] }
+  /** Rifle charges added to the maximum (and given at once) per rank. */
+  chargesPerRank: number
+  /** Hacking time added per rank, s. */
+  hackTimeSec: number
+}
+
 export interface GameConfig {
   sim: { maxDt: number; maxEvents: number }
   world: WorldConfig
@@ -460,4 +527,5 @@ export interface GameConfig {
   artifact: { radius: number }
   ending: EndingConfig
   hack: HackConfig
+  progression: ProgressionConfig
 }

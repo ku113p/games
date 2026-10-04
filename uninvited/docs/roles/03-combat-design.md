@@ -39,7 +39,7 @@ The combat designer owns how fighting feels and how fair it is: the gunblade (sw
   - Shards live 6 s, are pulled in within 1.5 m (magnet speed 9) and are picked up at 0.5 m. At most 48 exist at once.
   - Checkpoints heal fully.
   - **This replaces DESIGN section 9 "as built" item 8 ("No healing").** DESIGN.md has not caught up: that line, and section 10 "shield/regeneration from May", need to be brought in line. May's shield/regen passive stays as an upgrade on top.
-- **Non-lethal takedown** (DESIGN section 8). The player sneaks up behind a warden and presses E. An override powers the warden down for a while with no noise and no kill. It reboots later, or wakes at an alarm. Not yet in `core/`.
+- **Non-lethal takedown** (DESIGN section 8). The player sneaks up behind a warden and presses E. An override powers the warden down for a while with no noise and no kill. It reboots later, or wakes at an alarm. **Built (2026-10-05)**: `core/rules/wardens.ts` (`warden.takedown`: 1.6 m, 110 deg rear arc, 0.6 s, down 45 s, alarm 2+ wakes it, a heavy cannot be taken down); see DESIGN section 8.
 - **Endings.** A checkpoint counts red only if an alarm-3 wave fight happened since the previous checkpoint (DESIGN section 4, no cascade). For combat this means one fight costs at most one red checkpoint.
 
 **Responsiveness numbers now in `config.json`:**
@@ -191,3 +191,7 @@ The full review is in the session's `scratchpad/reviews2/03-combat-design.md`. T
 | 3 | Sword contact sync and recovery. Delay the sword hit presentation 0.06 s in the view. Mouse turn during recovery. Sprint/jump cancel after 0.18 s. Cooldowns 0.28 / 0.45 s. | S |
 | 4 | Push-forward loop and the worm threat. Shard heal 4, magnet 4 m. Aimed move 4.0 m/s, hip spread 1.5 deg. Release packs 2-3 s apart; bite tokens 4; windup 0.42; heavy factor 1.1. Re-run the loud bot (normal ≥ 7/8, sloppy 3-5/6). | S |
 | 5 | Optional "glory kill lite": sword on a staggered warden = an instant kill with a dash-lunge, `slash_c`, i-frames and 3 big shards. Cut it first if time runs short. | M |
+
+**Status 2026-10-05:** Top 1 (shot + confirmation pack) is **done** (pack 1): travelling bolt, muzzle flash 0.35 / light 10 always on, push 0.12, spine recoil, crosshair bloom, hit / kill / block markers with `hit_tick` and `kill_pop`, impacts in the enemy colour, `glitchKillSmall` 0.25 (wardens keep 0.7), rebuilt `rifle_shot` at 1.0. Items 2-5 (stagger, sword timing) are pack 2, open. See DESIGN 12 "The shot and its confirmation - as built".
+
+**Status 2026-10-05 (round 2, fight start and spread):** wardens now run to a known position at alarm 2+ (30 m, 4 m/s, shared alarm knowledge, one warden steps in for the melee after its first shot) and fighting drones keep a 7-12 m ring at 3.5-5 m up, never within 4 m above you, spread around it (`drone.standoff`, `warden.pursuit`, `core/pursuit.test.ts`). Bots (8 seeds, normal): slice loud 7/8, slice quiet 8/8, l1 loud 6/8. See DESIGN 8-9 "as built".

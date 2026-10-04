@@ -4,6 +4,7 @@
 import { cellAt } from '../grid'
 import type { DroneRole, DroneState, Gate, GameState, Sim } from '../state'
 import { dist2, emit } from '../util'
+import { gateInArena, lockdownArena } from './arenas'
 import { navDistance } from './nav'
 
 /** Opens a gate for at least `sec` (the view shows it; the event fires only when it was closed). */
@@ -25,9 +26,10 @@ export function pickGate(s: GameState, sim: Sim, x: number, z: number, skip: num
   const p = s.player.pos
   const minD = sim.cfg.alarm.minSpawnDist
   const target = cellAt(sim.grid, x, z)
+  const arena = lockdownArena(s, sim) // a lockdown's gates are the ones of its own arena
   // count the candidates first so skip wraps around them
   let candidates = 0
-  for (let i = 0; i < gates.length; i++) if (gateOk(sim, gates[i] as Gate, target, p.x, p.z, minD)) candidates++
+  for (let i = 0; i < gates.length; i++) if (gateOk(sim, gates[i] as Gate, target, p.x, p.z, minD, arena)) candidates++
   if (candidates > 0) {
     const rank = skip % candidates
     let lastD = -1
@@ -38,7 +40,7 @@ export function pickGate(s: GameState, sim: Sim, x: number, z: number, skip: num
       let bestD = Infinity
       for (let i = 0; i < gates.length; i++) {
         const g = gates[i] as Gate
-        if (!gateOk(sim, g, target, p.x, p.z, minD)) continue
+        if (!gateOk(sim, g, target, p.x, p.z, minD, arena)) continue
         const d = target >= 0 ? navDistance(sim.nav, g.cell, target) : 0
         // strictly after the previous pick in (distance, index) order
         if (d < lastD || (d === lastD && i <= lastI)) continue
@@ -70,7 +72,8 @@ export function pickGate(s: GameState, sim: Sim, x: number, z: number, skip: num
   return best
 }
 
-function gateOk(sim: Sim, g: Gate, target: number, px: number, pz: number, minD: number): boolean {
+function gateOk(sim: Sim, g: Gate, target: number, px: number, pz: number, minD: number, arena: number): boolean {
+  if (!gateInArena(g, arena)) return false
   if (dist2(g.out.x, g.out.z, px, pz) < minD * minD) return false
   return target < 0 || navDistance(sim.nav, g.cell, target) >= 0
 }
@@ -110,6 +113,7 @@ export function spawnDrone(s: GameState, sim: Sim, role: Exclude<DroneRole, 'pat
     d.aim = 0
     d.token = false
     d.tokenHold = 0
+    d.ringPhase = 0
     d.gate = gateIndex
     d.gateIn = false
     d.gateTime = 0

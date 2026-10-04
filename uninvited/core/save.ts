@@ -1,7 +1,7 @@
 // Saves (DESIGN 6): the game state is plain data, so a save is its JSON. Checkpoints save automatically;
 // the storage itself (localStorage) is an adapter's job.
 import { syncWorld } from './rules/terminals'
-import type { GameState, Sim } from './state'
+import { createMay, type GameState, type MayState, type Sim } from './state'
 
 export interface SaveData {
   version: number
@@ -27,6 +27,7 @@ export function parseSave(json: string | null, levelId: string): GameState | nul
     s.hack = null
     s.phase = 'playing'
     s.scan.active = false
+    s.may ??= createMay() // saves from before May's progression
     return s
   } catch {
     return null
@@ -38,4 +39,17 @@ export function applyLoadedState(s: GameState, sim: Sim): void {
   sim.events.length = 0
   sim.noiseCount = 0
   syncWorld(s, sim)
+}
+
+/** The same save with its progression replaced (the upgrade screen spent points after the checkpoint saved); null when there is no usable save. */
+export function patchSaveMay(json: string | null, may: MayState): string | null {
+  if (!json) return null
+  try {
+    const data = JSON.parse(json) as Partial<SaveData>
+    if (!data.state) return null
+    data.state.may = may
+    return JSON.stringify(data)
+  } catch {
+    return null
+  }
 }

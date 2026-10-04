@@ -4,6 +4,7 @@
 import { floorHeightAt } from '../grid'
 import type { GameState, Sim } from '../state'
 import { emit } from '../util'
+import { maxCharges } from './may'
 
 /** Drops `count` shards around (x, z); the oldest one is reused when every slot is busy. */
 export function dropShards(s: GameState, sim: Sim, x: number, z: number, count: number, big: boolean): void {
@@ -69,7 +70,7 @@ export function updateShards(s: GameState, sim: Sim, dt: number): void {
       sh.active = false
       const heal = sh.big ? c.bigHeal : c.heal
       if (p.hp < maxHp) p.hp = Math.min(maxHp, p.hp + heal)
-      p.charges = Math.min(sim.cfg.combat.rifle.charges, p.charges + (sh.big ? c.bigCharges : c.charges))
+      p.charges = Math.min(maxCharges(s, sim), p.charges + (sh.big ? c.bigCharges : c.charges))
       emit(sim, { type: 'shardTaken', x: sh.pos.x, y: sh.pos.y, z: sh.pos.z, big: sh.big, hp: p.hp })
     } else if (d <= c.magnetDist) {
       const k = Math.min(1, (c.magnetSpeed * dt) / d)

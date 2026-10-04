@@ -55,6 +55,8 @@ export interface HeroView {
   setMode(mode: 'sword' | 'rifle'): void
   /** `combo` is the sword combo step (0, 1, 2 = finisher) of the swing being played. */
   update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo?: number, aim?: HeroAim): void
+  /** A rifle shot: the upper body kicks back for a moment (additive, on top of the aim; it never changes the aim goal). */
+  kick(): void
   /** World position of the gunblade's muzzle (the barrel tip, after the upper-body aim); false until the model has loaded. */
   muzzle(out: Vector3): boolean
   /** World positions of the blade's hilt and tip (for the sword trail); false until the model has loaded. */
@@ -123,6 +125,11 @@ const RIM_COAT = 0.15
 const RIM_HOOD = 0.22
 const TRIM_K = 0.2 // trim brightness against the line color (stays under the bloom threshold)
 const LINES_K = 0.85
+/** How bright the light lines are while the hero is hidden in cover (1 = lit, view.stealthLight.heroHiddenLines = hidden; the visor stays on). */
+let linesK = 1
+export function setHeroHidden(k: number): void {
+  linesK = 1 - (1 - cfgAll.view.stealthLight.heroHiddenLines) * Math.max(0, Math.min(1, k))
+}
 const FILAMENT_K = 0.5
 const STRIP_GLOW_K = 0.08
 const CORE_K = 0.6
@@ -471,6 +478,10 @@ export function createHero(): HeroView {
   // the upper-body aim: the extra turn (rad) of the spine chain, smoothed; its goal is the turn the barrel was still missing
   const aimYaw: Damped = { x: 0, v: 0 }
   const aimPitch: Damped = { x: 0, v: 0 }
+  const baseQ = [new Quaternion(), new Quaternion(), new Quaternion(), new Quaternion()]
+  const additiveBones: (Object3D | null)[] = [null, null, null, null]
+  let baseHas = false
+  let recoil = 0 // 0..1: the shot's upper-body kick, decays by view.heroAim.recoilRate
   let aimGoalYaw = 0
   let aimGoalPitch = 0
   let aimHeading = 0 // yaw of the direction from the muzzle to the target (the axis of the pitch turn)
@@ -521,6 +532,11 @@ export function createHero(): HeroView {
       spine1 = bone('spine_01')
       spine3 = bone('spine_03')
       neck = bone('neck_01')
+      additiveBones[0] = spine1
+      additiveBones[1] = spine
+      additiveBones[2] = spine3
+      additiveBones[3] = neck
+      baseHas = false
       model.updateMatrixWorld(true)
       const pelInv = pelvis.getWorldQuaternion(new Quaternion()).premultiply(model.getWorldQuaternion(new Quaternion()).invert()).invert()
       // coat chains: coat_<side><k>_a, _b, _c ... ; the last bone of a chain is a non-deforming leaf
@@ -753,7 +769,7 @@ export function createHero(): HeroView {
   /** Raises the barrel to the target: the spine chain (and a small share of the neck) turns by the smoothed yaw and pitch the
    * clips' pose still lacks; after turning, the barrel is measured again and the miss is added to the goal (so the shoulder
    * offset, the recoil and the bones' own bends all cancel out). Lowered: the turn eases back to 0 and the head looks at the target. */
-  function aimUpper(dt: number, raised: boolean, target: Vector3 | null, look: boolean): void {
+  function aimSolve(dt: number, raised: boolean, target: Vector3 | null, look: boolean): void {
     if (!spine1 || !spine || !spine3 || !neck || !muzzleNode || !gunRoot) return
     const chain = [spine1, spine, spine3, neck]
     const on = raised && target !== null
@@ -799,6 +815,16 @@ export function createHero(): HeroView {
     aimGoalPitch = clampAbs(aimPitch.x + dp, AIMC.pitchMaxDeg * DEG)
   }
 
+  /** The shot's recoil: the spine chain pitches back by a decaying extra turn, applied after the aim was solved (so the solver does
+   * not cancel it) and rebuilt from the clips next frame (so it never accumulates). */
+  function aimUpper(dt: number, raised: boolean, target: Vector3 | null, look: boolean): void {
+    aimSolve(dt, raised, target, look)
+    recoil *= Math.exp(-dt * AIMC.recoilRate)
+    if (recoil < 1e-3 || !spine1 || !spine || !spine3 || !neck) return
+    const chain = [spine1, spine, spine3, neck]
+    for (let i = 0; i < chain.length; i++) rotateWorld(chain[i] as Object3D, pitchAxis, -recoil * AIMC.recoilDeg * DEG * (AIMC.pitchShare[i] ?? 0))
+  }
+
   function updateGun(dt: number, anim: HeroAnim, actionT: number): void {
     if (!gunRoot || !bladeMesh) return
     gunK = smooth(gunK, mode === 'rifle' ? 1 : 0, 24, dt)
@@ -810,7 +836,7 @@ export function createHero(): HeroView {
       // the kick: back along the barrel
       barrel.set(0, 0, 0)
       barrel[bladeAxis] = barrelSign
-      barrel.applyQuaternion(gunRoot.quaternion).multiplyScalar(-0.035 * (1 - actionT) * gunRoot.scale.x)
+      barrel.applyQuaternion(gunRoot.quaternion).multiplyScalar(-AIMC.gunKick * (1 - actionT) * gunRoot.scale.x)
       gunRoot.position.add(barrel)
       shotGlow = 1
     } else shotGlow = smooth(shotGlow, 0, 10, dt)
@@ -823,13 +849,13 @@ export function createHero(): HeroView {
   return {
     root,
     setLineColor(c: Color): void {
-      lineColor.copy(c)
-      lines.color.copy(c).multiplyScalar(LINES_K)
-      trim.color.copy(c).multiplyScalar(TRIM_K)
+      lineColor.copy(c).multiplyScalar(linesK)
+      lines.color.copy(c).multiplyScalar(LINES_K * linesK)
+      trim.color.copy(c).multiplyScalar(TRIM_K * linesK)
       visor.color.copy(c).multiplyScalar(1.05)
       blade.color.copy(c).multiplyScalar(1.15)
-      filaments.color.copy(c).multiplyScalar(FILAMENT_K)
-      glowColor.value.copy(c).multiplyScalar(STRIP_GLOW_K)
+      filaments.color.copy(c).multiplyScalar(FILAMENT_K * linesK)
+      glowColor.value.copy(c).multiplyScalar(STRIP_GLOW_K * linesK)
       // the rim light: cool, a little of the line color (so it shifts with the ending counter)
       const m = Math.max(c.r, c.g, c.b, 1e-3)
       lineN.setRGB(c.r / m, c.g / m, c.b / m)
@@ -840,6 +866,9 @@ export function createHero(): HeroView {
     },
     setMode(m: 'sword' | 'rifle'): void {
       mode = m
+    },
+    kick(): void {
+      recoil = 1
     },
     muzzle(out: Vector3): boolean {
       if (!muzzleNode) return false
@@ -971,7 +1000,18 @@ export function createHero(): HeroView {
         a.setEffectiveWeight(w * OVER)
       }
 
+      // the clip does not rewrite a bone whose track value did not change (a paused frame, hit-stop, a constant idle track), so the
+      // additive turns below would pile up on last frame's result: put the clean clip pose back first, snapshot it after the mixer
+      for (let i = 0; i < 4; i++) {
+        const b = additiveBones[i]
+        if (b && baseHas) b.quaternion.copy(baseQ[i] as Quaternion)
+      }
       mixer.update(dt)
+      for (let i = 0; i < 4; i++) {
+        const b = additiveBones[i]
+        if (b) (baseQ[i] as Quaternion).copy(b.quaternion)
+      }
+      baseHas = true
       aimK = smooth(aimK, !sword && !fullBody ? 1 : 0, 16, dt)
       if (aimK > 1e-3 && spine && neck) {
         twist(spine, AIM_TWIST * aimK)

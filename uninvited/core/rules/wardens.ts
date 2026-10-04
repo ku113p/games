@@ -2,8 +2,9 @@
 // post or walks a round of stops where it stands a while, looks around slowly or checks a rack, with varied pauses.
 // It sees in a forward cone that follows its head (shorter and narrower than a camera's) and hears noise. Something
 // odd: it stops and turns to it (suspicious, the "?"), then walks over and searches a little, then goes back to its
-// round. Spotted: it calls the alarm and fights - closes in for a telegraphed melee strike, or takes a slow aimed arm
-// shot from further away. It turns slowly, so you can sneak up behind it. Alarm 1-2 sends it to search the alarm area;
+// round (the round is deterministic: waits are the route's, the head swings 30 deg while walking and 55 at a stop).
+// From behind an unaware warden can be taken down (E): silent, non-lethal, it is down for a while. Spotted: it calls
+// the alarm and fights - closes in for a telegraphed melee strike, or takes a slow aimed arm shot from further away. It turns slowly, so you can sneak up behind it. Alarm 1-2 sends it to search the alarm area;
 // a terminal can pause it; `controlled` is the hook for May's "take over a sentry".
 import { cellAt, cellCenterX, cellCenterZ, cellFloor, cellIndex, floorHeightAt, yawTowards, type Grid } from '../grid'
 import type { LevelDef, WardenDef } from '../level'
@@ -11,8 +12,10 @@ import { nextFloat } from '../random'
 import type { GameState, Sim, Vec3, WardenState } from '../state'
 import { angleDiff, clamp, DEG, dist2, emit, turnTowards } from '../util'
 import { raiseAlarm } from './alarm'
+import { inPrimer } from './arenas'
+import { setAim } from './movement'
 import { openGate } from './gates'
-import { meleeFree, rangedFree } from './tokens'
+import { meleeFree, meleeTokens, rangedFree } from './tokens'
 import { hurtPlayer } from './combat'
 import { seeFactor } from './detection'
 import { findPath, walkable, type WalkNav } from './walk'
@@ -146,9 +149,12 @@ export function createWardens(sim: Sim): WardenState[] {
       wave: false,
       spawnTime: 0,
       gate: -1,
+      down: 0,
+      noticeCool: 0,
       token: 0,
       tokenHold: 0,
       ringDir: 1,
+      shots: 0,
     }
   })
   for (let k = 0; k < sim.cfg.alarm.waveWardenSlots; k++) own.push(waveSlot(sim, defs.length + k))
@@ -192,9 +198,12 @@ function waveSlot(sim: Sim, i: number): WardenState {
     wave: true,
     spawnTime: 0,
     gate: -1,
+    down: 0,
+    noticeCool: 0,
     token: 0,
     tokenHold: 0,
     ringDir: 1,
+    shots: 0,
   }
 }
 
@@ -254,6 +263,7 @@ function appearWaveWarden(s: GameState, sim: Sim, i: number): void {
   const path = sim.wardenPaths[i]
   if (path) path.n = 0
   w.ringDir = i % 2 === 0 ? 1 : -1
+  w.shots = 0
   emit(sim, { type: 'wardenSpawned', index: i, gate: w.gate, heavy: w.heavy })
 }
 
@@ -284,6 +294,7 @@ export function alertWarden(s: GameState, sim: Sim, i: number): void {
   w.mode = 'alert'
   w.act = 'walk'
   w.wait = 0
+  w.shots = 0
   w.fireCooldown = sim.cfg.warden.shotFirstSec
   emit(sim, { type: 'wardenAlerted', index: i })
   raiseAlarm(s, sim, 'warden', p.x, p.y, p.z)
@@ -294,6 +305,7 @@ export function wardenHit(s: GameState, sim: Sim, i: number): void {
   const w = s.wardens[i]
   if (!w || !w.alive) return
   w.hitTime = sim.cfg.warden.hitAnimSec
+  w.down = 0 // a hit wakes a downed warden: it is awake, hurt and knows where you are
   // knocked back, away from the player (a heavy hit moves it)
   const p = s.player.pos
   const dx = w.pos.x - p.x
@@ -403,6 +415,12 @@ function sweepHead(sim: Sim, w: WardenState, elapsed: number): void {
   w.headWant = c.scanDeg * DEG * Math.sin((elapsed / c.scanPeriodSec) * Math.PI * 2)
 }
 
+/** The head swing of a warden on its round: walking it looks about 30 deg to each side (a stop sweeps wider). */
+function walkSweep(sim: Sim, time: number, i: number): number {
+  const c = sim.cfg.warden
+  return c.walkScanDeg * DEG * Math.sin((time / c.walkScanPeriodSec) * Math.PI * 2 + i * 1.7)
+}
+
 function startAct(s: GameState, sim: Sim, w: WardenState, act: WardenState['act'], len: number): void {
   w.act = act
   w.actLen = len
@@ -417,7 +435,11 @@ function range(s: GameState, r: readonly number[]): number {
   return a + (b - a) * nextFloat(s.rng)
 }
 
-/** Reached its stop: stand a while (varied), or now and then pause on the way, or walk on. */
+/**
+ * Reached its stop: stand the stop's waitSec (a post: stand or look around, varied). The round is deterministic: no
+ * random pauses on the way, a stop without a wait is walked straight through; only the length of a wait varies a little
+ * (waitVary), so the level's timing (a window of N seconds) holds from loop to loop.
+ */
 function arrive(s: GameState, sim: Sim, w: WardenState, route: WardenRoute): void {
   const c = sim.cfg.warden
   const st = route.stops[w.stop] as WardenRouteStop
@@ -427,12 +449,8 @@ function arrive(s: GameState, sim: Sim, w: WardenState, route: WardenRoute): voi
   }
   if (st.waitSec > 0) {
     const len = st.waitSec * (1 + c.waitVary * (nextFloat(s.rng) * 2 - 1))
-    const r = nextFloat(s.rng)
-    startAct(s, sim, w, Number.isNaN(st.look) ? (r < 0.45 ? 'scan' : 'stand') : r < 0.65 ? 'check' : 'stand', len)
-    return
-  }
-  if (nextFloat(s.rng) < c.pauseChance) {
-    startAct(s, sim, w, nextFloat(s.rng) < 0.5 ? 'scan' : 'stand', range(s, c.pauseSec))
+    // a stop that faces somewhere checks what is there; one without a facing looks around
+    startAct(s, sim, w, Number.isNaN(st.look) ? 'scan' : 'check', len)
     return
   }
   w.stop = (w.stop + 1) % route.stops.length
@@ -484,6 +502,7 @@ function fireArmBolt(s: GameState, sim: Sim, w: WardenState, i: number): void {
   b.vel.x = (tx / l) * c.boltSpeed
   b.vel.y = (ty / l) * c.boltSpeed
   b.vel.z = (tz / l) * c.boltSpeed
+  w.shots++
   emit(sim, { type: 'wardenFired', index: i })
 }
 
@@ -512,9 +531,134 @@ function bump(s: GameState, sim: Sim, w: WardenState, i: number, dt: number): vo
   else becomeSuspicious(sim, w, i)
 }
 
+/** A warden that sees a downed warden (within its cone and range, line of sight clear) turns to check the spot. */
+function noticeDowned(s: GameState, sim: Sim, w: WardenState, i: number, look: number): void {
+  const c = sim.cfg.warden
+  const ex = w.pos.x
+  const ey = w.pos.y + c.eyeHeight
+  const ez = w.pos.z
+  for (let j = 0; j < s.wardens.length; j++) {
+    const o = s.wardens[j] as WardenState
+    if (j === i || !o.alive || o.down <= 0) continue
+    const dx = o.pos.x - ex
+    const dz = o.pos.z - ez
+    if (dx * dx + dz * dz > c.range * c.range || Math.abs(o.pos.y - w.pos.y) > 2) continue
+    if (Math.abs(angleDiff(Math.atan2(dx, dz), look)) > c.halfAngleDeg * DEG) continue
+    if (!sim.world.lineOfSight(ex, ey, ez, o.pos.x, o.pos.y + c.chestHeight, o.pos.z)) continue
+    w.lastKnown.x = o.pos.x
+    w.lastKnown.y = o.pos.y
+    w.lastKnown.z = o.pos.z
+    w.noticeCool = c.takedown.noticeCooldownSec
+    becomeSuspicious(sim, w, i)
+    return
+  }
+}
+
+/** Can the player take warden i down right now: unaware, behind it, close, and not a heavy. */
+export function canTakedown(s: GameState, sim: Sim, i: number): boolean {
+  const w = s.wardens[i]
+  const p = s.player
+  if (!w || !w.alive || w.heavy || w.wave || w.controlled || w.down > 0 || w.mode === 'alert') return false
+  if (s.phase !== 'playing' || s.hack !== null || p.takedownTime > 0 || p.dashTime > 0) return false
+  const t = sim.cfg.warden.takedown
+  const dx = p.pos.x - w.pos.x
+  const dz = p.pos.z - w.pos.z
+  const d2 = dx * dx + dz * dz
+  if (d2 > t.reach * t.reach || Math.abs(p.pos.y - w.pos.y) > 1.5) return false
+  // behind it: the player lies inside the arc around the direction opposite to its body's facing
+  if (d2 > 1e-4 && Math.abs(angleDiff(Math.atan2(dx, dz), w.yaw + Math.PI)) > (t.arcDeg / 2) * DEG) return false
+  const c = sim.cfg.warden
+  return sim.world.lineOfSight(p.pos.x, p.pos.y + sim.cfg.player.chestHeight, p.pos.z, w.pos.x, w.pos.y + c.chestHeight, w.pos.z)
+}
+
+/** The warden E would take down (the nearest one that allows it), or -1. */
+export function takedownTarget(s: GameState, sim: Sim): number {
+  let best = -1
+  let bd = Infinity
+  for (let i = 0; i < s.wardens.length; i++) {
+    if (!canTakedown(s, sim, i)) continue
+    const w = s.wardens[i] as WardenState
+    const d = dist2(s.player.pos.x, s.player.pos.z, w.pos.x, w.pos.z)
+    if (d < bd) {
+      bd = d
+      best = i
+    }
+  }
+  return best
+}
+
+/**
+ * E from behind (DESIGN 8, non-lethal takedown): the hero is locked for takedown.sec, the warden powers down and stays
+ * down for takedown.downSec (counted from now), then reboots and walks its round, unaware. No noise, no kill, no alarm.
+ * Returns true when it started.
+ */
+export function startTakedown(s: GameState, sim: Sim): boolean {
+  const i = takedownTarget(s, sim)
+  if (i < 0) return false
+  const w = s.wardens[i] as WardenState
+  const p = s.player
+  const t = sim.cfg.warden.takedown
+  setAim(s, sim, false)
+  p.takedownTime = t.sec
+  p.takedownTarget = i
+  p.facing = Math.atan2(w.pos.x - p.pos.x, w.pos.z - p.pos.z)
+  w.down = t.downSec
+  w.suspicion = 0
+  w.sees = false
+  w.speed = 0
+  w.strike = 0
+  w.aim = 0
+  w.token = 0
+  w.pushX = 0
+  w.pushZ = 0
+  s.run.takedowns++
+  emit(sim, { type: 'wardenDowned', index: i })
+  return true
+}
+
+/**
+ * Shared alarm knowledge (DESIGN 9): at alarm 2+ anyone who sees the player (a fighting warden or drone) tells the others,
+ * the alarm's centre follows the player. Returns true while that knowledge is fresh (somebody sees now, or the alarm
+ * was just raised: its centre is where it happened).
+ */
+function shareKnowledge(s: GameState): boolean {
+  const a = s.alarm
+  if (a.stage < 2 || s.phase !== 'playing') return false
+  let seen = false
+  for (const w of s.wardens) if (w.alive && w.down <= 0 && w.mode === 'alert' && w.sees) seen = true
+  if (!seen) for (const d of s.drones) if (d.active && d.alive && d.mode === 'alert' && d.sees) seen = true
+  if (seen) {
+    a.center.x = s.player.pos.x
+    a.center.y = s.player.pos.y
+    a.center.z = s.player.pos.z
+  }
+  return seen || a.cooldown > 0
+}
+
+/** The alert warden nearest to the player that may close in for the melee (only while a melee token is free), or -1. */
+function meleeCandidate(s: GameState, sim: Sim): number {
+  if (meleeTokens(s) >= sim.cfg.tokens.melee) return -1
+  const p = s.player.pos
+  let best = -1
+  let bd = Infinity
+  for (let i = 0; i < s.wardens.length; i++) {
+    const w = s.wardens[i] as WardenState
+    if (!w.alive || w.mode !== 'alert' || w.down > 0 || w.controlled || w.pausedTime > 0 || w.token === 2) continue
+    const d = dist2(w.pos.x, w.pos.z, p.x, p.z)
+    if (d < bd) {
+      bd = d
+      best = i
+    }
+  }
+  return best
+}
+
 export function updateWardens(s: GameState, sim: Sim, dt: number): void {
   const c = sim.cfg.warden
   const det = sim.cfg.detection
+  const known = shareKnowledge(s)
+  const pr = c.pursuit.radius
+  const cand = meleeCandidate(s, sim)
   const cosHalf = Math.cos(c.halfAngleDeg * DEG)
   const cp = Math.cos(c.pitchDeg * DEG)
   const sp = Math.sin(c.pitchDeg * DEG)
@@ -530,11 +674,36 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
     const route = sim.wardenRoutes[i] as WardenRoute
     w.hitTime -= dt
     w.fireCooldown -= dt
+    w.noticeCool -= dt
     if (w.token === 2 && w.aim <= 0) {
       w.tokenHold -= dt
       if (w.tokenHold <= 0) w.token = 0
     }
     if ((w.pushX || w.pushZ) && dt > 0) applyPush(sim, w, dt)
+    if (w.down > 0) {
+      // taken down: powered off (no sight, no hearing); it reboots by itself and resumes its round, unaware
+      w.down -= dt
+      if (s.alarm.stage >= c.takedown.wakeAlarmStage && w.down > c.takedown.rebootSec) w.down = c.takedown.rebootSec
+      w.sees = false
+      w.suspicion = 0
+      w.strike = 0
+      w.aim = 0
+      w.recover = 0
+      w.token = 0
+      w.speed = 0
+      w.headWant = 0
+      w.head = turnTowards(w.head, 0, c.headTurnRate * dt)
+      if (w.down <= 0) {
+        w.down = 0
+        w.mode = 'return'
+        w.act = 'walk'
+        w.wait = 0
+        w.lastKnown.x = w.pos.x
+        w.lastKnown.z = w.pos.z
+        emit(sim, { type: 'wardenRebooted', index: i })
+      }
+      continue
+    }
     if (w.pausedTime > 0 || w.controlled) {
       // paused by a terminal, or taken over: it stands, sees and hears nothing
       if (w.pausedTime > 0) w.pausedTime -= dt
@@ -579,6 +748,9 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
       } else w.suspicion = Math.max(0, w.suspicion - det.decay * 0.5 * dt)
     }
 
+    // a downed warden in view (or one being taken down) makes it suspicious: somebody was here
+    if (w.noticeCool <= 0 && (w.mode === 'patrol' || w.mode === 'return')) noticeDowned(s, sim, w, i, look)
+
     // hearing
     for (let n = 0; n < sim.noiseCount; n++) {
       const z = sim.noises[n]
@@ -604,6 +776,28 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
 
     // the alarm: search its area at any stage, back to the round when it is over
     const stage = s.alarm.stage
+    const ac = s.alarm.center
+    const inPursuit = known && !w.controlled && dist2(w.pos.x, w.pos.z, ac.x, ac.z) <= pr * pr
+    if (inPursuit && w.mode !== 'alert' && !inPrimer(sim, w.pos.x, w.pos.z)) {
+      // alarm 2+ with a known position: it does not stroll, it runs there (no new alarm: the alarm is what called it)
+      w.mode = 'alert'
+      w.act = 'walk'
+      w.wait = 0
+      w.suspicion = 1
+      w.lostTimer = 0
+      w.shots = 0
+      w.fireCooldown = c.shotFirstSec
+      w.lastKnown.x = ac.x
+      w.lastKnown.y = ac.y
+      w.lastKnown.z = ac.z
+      emit(sim, { type: 'wardenAlerted', index: i })
+    } else if (inPursuit && w.mode === 'alert' && !w.sees) {
+      // somebody else sees the player: the position is shared, so it does not give up while the others keep sight
+      w.lastKnown.x = ac.x
+      w.lastKnown.y = ac.y
+      w.lastKnown.z = ac.z
+      w.lostTimer = 0
+    }
     if (stage > 0 && (w.mode === 'patrol' || w.mode === 'return')) {
       const r = sim.cfg.alarm.searchRadius[stage] ?? 0
       if (dist2(w.pos.x, w.pos.z, s.alarm.center.x, s.alarm.center.z) <= r * r) {
@@ -621,7 +815,7 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
       case 'patrol': {
         const st = route.stops[w.stop] as WardenRouteStop
         if (w.act === 'walk') {
-          w.headWant = 0
+          w.headWant = walkSweep(sim, s.time, i)
           const left = walkTo(sim, i, w, st.x, st.z, c.patrolSpeed, c.turnRate, dt)
           if (left < ARRIVE) arrive(s, sim, w, route)
           break
@@ -688,7 +882,7 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
         break
       }
       case 'return': {
-        w.headWant = 0
+        w.headWant = walkSweep(sim, s.time, i)
         const st = route.stops[w.stop] as WardenRouteStop
         const left = walkTo(sim, i, w, st.x, st.z, c.patrolSpeed, c.turnRate, dt)
         if (left < ARRIVE) {
@@ -758,6 +952,8 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
         const d = Math.sqrt(dist2(w.pos.x, w.pos.z, tx, tz))
         const playing = s.phase === 'playing'
         // close (about 3 m): the melee fight, one warden at a time (the melee token); the others hold off and shoot
+        const closeIn = cand === i && playing && ((w.shots > 0 && w.fireCooldown > c.pursuit.closeInCooldownSec) || d < c.shotMinDist)
+        const run = d > c.pursuit.runFarDist || !w.sees ? c.runSpeed : c.alertSpeed
         const inMelee = w.sees && playing && d < c.meleeDist
         if (inMelee && w.token === 2 && w.aim <= 0) w.token = 0
         if (inMelee && w.token === 0 && meleeFree(s, sim)) w.token = 1
@@ -788,10 +984,10 @@ export function updateWardens(s: GameState, sim: Sim, dt: number): void {
           emit(sim, { type: 'wardenAiming', index: i })
           break
         }
-        if (w.hitTime > 0 || (w.sees && d <= c.holdDist)) {
+        if (w.hitTime > 0 || (w.sees && d <= c.holdDist && !closeIn)) {
           w.speed = 0
           face(w, tx, tz, c.alertTurnRate, dt)
-        } else if (walkTo(sim, i, w, tx, tz, c.alertSpeed, c.alertTurnRate, dt) < 0) face(w, tx, tz, c.alertTurnRate, dt)
+        } else if (walkTo(sim, i, w, tx, tz, run, c.alertTurnRate, dt) < 0) face(w, tx, tz, c.alertTurnRate, dt)
         break
       }
     }

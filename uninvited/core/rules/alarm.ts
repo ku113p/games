@@ -7,6 +7,7 @@ import { nextInt } from '../random'
 import type { GameState, Sim, Vec3 } from '../state'
 import { dist2, emit } from '../util'
 import { flyable, navDistance } from './nav'
+import { gateInArena, inPrimer, lockdownArena } from './arenas'
 import { openWall } from './terminals'
 import { startInvestigating } from './drones'
 import { pickGate, spawnDrone } from './gates'
@@ -17,6 +18,7 @@ import { liveWorms, spawnWavePacks, wormsHunting, wormsOnAlarm, wormsOnAlarmLowe
 export function raiseAlarm(s: GameState, sim: Sim, reason: AlarmReason, x: number, y: number, z: number): void {
   const a = s.alarm
   const cfg = sim.cfg.alarm
+  if (inPrimer(sim, x, z)) return // a primer zone: a safe place to be seen in (the watcher still investigates)
   s.run.alarmsRaised++
   a.center.x = x
   a.center.y = y
@@ -124,7 +126,7 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
     a.waveActive = false
     a.wavesCleared++
     emit(sim, { type: 'waveCleared', wave: a.wave })
-    if (!a.firewallDown && a.wavesCleared >= cfg.firewallAfterWaves) dropFirewall(s, sim)
+    if (!a.firewallDown && a.wavesCleared >= wavesNeeded(s, sim)) dropFirewall(s, sim)
     a.waveTimer = cfg.waveGapSec
     return
   }
@@ -132,6 +134,11 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
   if (a.firewallDown) return
   a.waveTimer -= dt
   if (a.waveTimer > 0) return
+  // a lockdown has exactly its arena's number of waves, however often the alarm is raised again meanwhile
+  if (a.wave >= wavesNeeded(s, sim)) {
+    if (a.wavesCleared >= a.wave) dropFirewall(s, sim)
+    return
+  }
   const wave = cfg.waves[Math.min(a.wave, cfg.waves.length - 1)]
   if (!wave) return
   const p = s.player.pos
@@ -172,11 +179,12 @@ const pathScratch = new Float32Array(256)
 function pickWardenGate(s: GameState, sim: Sim, used: readonly number[]): number {
   const p = s.player.pos
   const minD = sim.cfg.alarm.minSpawnDist
+  const arena = lockdownArena(s, sim)
   const cost: number[] = []
   for (let i = 0; i < sim.gates.length; i++) {
     const g = sim.gates[i]
     const d = g ? Math.sqrt(dist2(g.out.x, g.out.z, p.x, p.z)) : -1
-    if (!g || d < minD) {
+    if (!g || d < minD || !gateInArena(g, arena)) {
       cost.push(Infinity)
       continue
     }
@@ -202,10 +210,40 @@ function pickWardenGate(s: GameState, sim: Sim, used: readonly number[]): number
   return -1
 }
 
+/** Waves a lockdown needs before its firewall drops. */
+export function wavesNeeded(s: GameState, sim: Sim): number {
+  const a = sim.arenas[lockdownArena(s, sim)]
+  return a && a.waves > 0 ? a.waves : sim.cfg.alarm.firewallAfterWaves
+}
+
+/** The firewall drops: it opens the red walls of the arena the lockdown is fought in (every wall if the level has no arenas). */
 export function dropFirewall(s: GameState, sim: Sim): void {
   s.alarm.firewallDown = true
   emit(sim, { type: 'firewallDropped' })
-  for (let i = 0; i < s.walls.length; i++) openWall(s, sim, i)
+  const arena = sim.arenas[lockdownArena(s, sim)]
+  if (!arena) {
+    for (let i = 0; i < s.walls.length; i++) openWall(s, sim, i)
+    return
+  }
+  for (const w of arena.walls) openWall(s, sim, w)
+}
+
+/**
+ * A checkpoint ends a finished lockdown: the alarm goes back to 0 and the waves start over, so the next arena is a fresh
+ * choice. A lockdown still being fought (the firewall is up) goes on.
+ */
+export function endLockdown(s: GameState, sim: Sim): void {
+  const a = s.alarm
+  if (a.stage < 3 || !a.firewallDown) return
+  a.stage = 0
+  a.decay = 0
+  a.cooldown = 0
+  a.wave = 0
+  a.wavesCleared = 0
+  a.waveActive = false
+  a.waveTimer = 0
+  a.firewallDown = false
+  emit(sim, { type: 'alarmLowered', stage: 0 })
 }
 
 /** A random flyable point near (x, z) within the radius, for searchers; falls back to (x, z). */

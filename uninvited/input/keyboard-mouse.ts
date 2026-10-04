@@ -5,8 +5,13 @@
 //   Tab network vision (hold).
 //   Ctrl must not reach the browser while playing: its shortcuts (Ctrl+S, Ctrl+D, Ctrl+wheel zoom...) are blocked;
 //   Ctrl+W cannot be, so a "leave the page?" guard is up while the pointer is locked.
-//   1-4 are reserved for May's abilities (not in the slice).
+//   1 / 2: May's distraction signal / pause a camera (3-4 stay free).
 // main.ts reads `held`, `look` and the pressed counters every frame and calls consumePressed() after.
+import cfgAll from '../config.json'
+
+/** Mouse look spike filter (see onMouseMove). */
+const MAX_MOVE_PX = cfgAll.input.maxMovePx
+const LOCK_SETTLE_MS = cfgAll.input.lockSettleMs
 
 export interface Held {
   forward: boolean
@@ -34,6 +39,9 @@ export interface Pressed {
   attack: number
   switchMode: number
   interact: number
+  /** Keys 1 and 2: May's actives. */
+  ability1: number
+  ability2: number
 }
 
 export interface GameInput {
@@ -54,7 +62,7 @@ export interface GameInput {
 
 export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
   const held: Held = { forward: false, back: false, left: false, right: false, run: false, crouch: false, attack: false, aim: false, scan: false }
-  const pressed: Pressed = { jump: 0, tapForward: 0, tapBack: 0, tapLeft: 0, tapRight: 0, crouch: 0, attack: 0, switchMode: 0, interact: 0 }
+  const pressed: Pressed = { jump: 0, tapForward: 0, tapBack: 0, tapLeft: 0, tapRight: 0, crouch: 0, attack: 0, switchMode: 0, interact: 0, ability1: 0, ability2: 0 }
   const look = { dx: 0, dy: 0 }
   let enabled = true
   let unlockFn: (() => void) | null = null
@@ -104,6 +112,14 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
       case 'KeyE':
         if (down && !repeat) pressed.interact++
         return true
+      case 'Digit1':
+      case 'Numpad1':
+        if (down && !repeat) pressed.ability1++
+        return true
+      case 'Digit2':
+      case 'Numpad2':
+        if (down && !repeat) pressed.ability2++
+        return true
       case 'Tab':
         held.scan = down
         return true
@@ -135,8 +151,14 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     if (e.button === 0) held.attack = false
     if (e.button === 2) held.aim = false
   }
+  // Chrome (Windows above all) now and then reports a bogus huge movementX/Y under pointer lock, most often right after the
+  // lock is taken - one such event flips the camera by 180 deg. Drop the events just after a lock change and any single
+  // event far larger than a real mouse report.
+  let lockAt = 0
   const onMouseMove = (e: MouseEvent): void => {
     if (!enabled || !isLocked()) return
+    if (e.timeStamp - lockAt < LOCK_SETTLE_MS) return
+    if (Math.abs(e.movementX) > MAX_MOVE_PX || Math.abs(e.movementY) > MAX_MOVE_PX) return
     look.dx += e.movementX
     look.dy += e.movementY
   }
@@ -150,6 +172,7 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     pressed.switchMode++
   }
   const onLockChange = (): void => {
+    lockAt = performance.now()
     if (!isLocked()) {
       clearHeld()
       unlockFn?.()
@@ -182,8 +205,12 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     locked: isLocked,
     requestLock(): void {
       try {
-        const r = canvas.requestPointerLock() as unknown
-        if (r instanceof Promise) r.catch(() => undefined)
+        // raw input where supported (no OS acceleration, fewer spikes); fall back to the plain lock if it is refused
+        const raw = (canvas.requestPointerLock as (o?: { unadjustedMovement?: boolean }) => unknown).call(canvas, { unadjustedMovement: true })
+        if (raw instanceof Promise) raw.catch(() => {
+          const r = canvas.requestPointerLock() as unknown
+          if (r instanceof Promise) r.catch(() => undefined)
+        })
       } catch {
         // some browsers refuse without a fresh gesture; the pause screen asks for a click
       }
@@ -193,7 +220,7 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
       if (!on) clearHeld()
     },
     consumePressed(): void {
-      pressed.jump = pressed.crouch = pressed.attack = pressed.switchMode = pressed.interact = 0
+      pressed.jump = pressed.crouch = pressed.attack = pressed.switchMode = pressed.interact = pressed.ability1 = pressed.ability2 = 0
       pressed.tapForward = pressed.tapBack = pressed.tapLeft = pressed.tapRight = 0
       look.dx = 0
       look.dy = 0

@@ -36,6 +36,7 @@ import cfgAll from '../config.json'
 import type { GameState, Sim } from '../core/state'
 import { droneAim, drones, gameTime, playerPos } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
+import { inView } from './cull'
 import { addRim, palette, type Materials } from './look'
 import { DRONE_KEY, fanSpread, NO_FAN, type Sight } from './sight'
 
@@ -582,10 +583,10 @@ export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: S
         ;(fu['uColor'] as { value: Color }).value.copy(tmp)
         ;(fu['uTime'] as { value: number }).value = time
         ;(fu['uStrength'] as { value: number }).value = (paused ? 0.02 : alert ? 0.12 : 0.05 + d.suspicion * 0.06) * (aiming ? 1.5 : 1)
-        v.cone.mesh.visible = !paused && !spawning
+        v.cone.mesh.visible = !paused && !spawning && inView(d.pos.x, d.pos.y, d.pos.z, D.range)
         v.look.mesh.visible = !spawning
         v.look.set(tmp, (paused ? LOOK.pausedStrength : LOOK.strength) * (alert ? 1.6 : 1 + d.suspicion), time, NO_FAN)
-        v.cone.set(tmp, alert ? 1.6 : 0.7 + d.suspicion * 1.2, time, sight.fan(DRONE_KEY + i, d.pos.x, d.pos.y, d.pos.z, d.yaw, SPREAD, D.range))
+        if (v.cone.mesh.visible) v.cone.set(tmp, alert ? 1.6 : 0.7 + d.suspicion * 1.2, time, sight.fan(DRONE_KEY + i, d.pos.x, d.pos.y, d.pos.z, d.yaw, SPREAD, D.range))
         // suspicion arc above it, facing the camera
         const showSus = !alert && !paused && d.suspicion > 0.02
         v.sus.visible = showSus

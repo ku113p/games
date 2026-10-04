@@ -1,10 +1,12 @@
 // The benchmark (`?bench=<scenario>`; absent = this file is never loaded, no cost). Deterministic: the fixed seed, a fixed
 // simulation step (1/60 s, up to 6x on a slow machine), scripted hero and camera, synthetic effect events. It measures the frame times of a wall-clock
 // stretch per scenario, logs what happened around every slow frame, and ends with a results panel (+ JSON).
-//   idle | wave | fx | fx-sword fx-shots fx-worm fx-drone fx-warden fx-hurt fx-audio fx-hud | soak | all
+//   idle | scan scan-still scan-off | wave | fx | fx-sword fx-shots fx-worm fx-drone fx-warden fx-hurt fx-audio fx-hud | soak | all
 // `?bench=all` reloads the page between scenarios (a clean heap and state each); `&sec=N` overrides the duration.
 // CLI runner: tools/bench.ts. Pass thresholds and the as-built notes: docs/roles/09-producer.md (perf budget).
 import type { GameEvent } from '../core/events'
+import { CellKind, floorHeightAt } from '../core/grid'
+import { levelGrid } from '../core/queries'
 import { raiseAlarm } from '../core/rules/alarm'
 import type { GameState, Sim } from '../core/state'
 import type { GameView } from './game-view'
@@ -28,16 +30,41 @@ interface Scenario {
   /** fight: a wave is played; cats: synthetic effect bursts. */
   fight: boolean
   cats: Cat[]
+  /** Network vision benchmarks: the hero is put on arena 2's low bridge (found by its laser) and Tab is held; move: walk/run the bridge back and forth, or stand. */
+  scan?: { move: 'walk' | 'run' | 'none'; hold: boolean }
 }
 
 const SCENARIOS: Record<string, Scenario> = {
   idle: { sec: 15, fight: false, cats: [] },
+  scan: { sec: 20, fight: false, cats: [], scan: { move: 'run', hold: true } },
+  'scan-walk': { sec: 20, fight: false, cats: [], scan: { move: 'walk', hold: true } },
+  'scan-still': { sec: 20, fight: false, cats: [], scan: { move: 'none', hold: true } },
+  'scan-off': { sec: 20, fight: false, cats: [], scan: { move: 'run', hold: false } },
   wave: { sec: 45, fight: true, cats: [] },
   fx: { sec: 20, fight: false, cats: CATS },
   soak: { sec: 300, fight: true, cats: [] },
 }
 for (const c of CATS) SCENARIOS[`fx-${c}`] = { sec: 12, fight: false, cats: [c] }
-const ALL = ['idle', 'wave', 'fx', ...CATS.map((c) => `fx-${c}`)]
+const ALL = ['idle', 'scan', 'scan-still', 'wave', 'fx', ...CATS.map((c) => `fx-${c}`)]
+/** What each scenario shows, for the on-screen banner (some are invisible on purpose: fx-audio only plays sounds). */
+const ABOUT: Record<string, string> = {
+  idle: 'the level, nothing happening - the baseline',
+  scan: 'running back and forth over arena 2\'s bridge, holding network vision (drone, warden and cones in view)',
+  'scan-walk': 'the same, walking',
+  'scan-still': 'standing on the bridge, holding network vision',
+  'scan-off': 'the same run over the bridge without network vision (the control)',
+  wave: 'the biggest alarm-3 wave fighting the hero',
+  fx: 'every effect at once, on repeat',
+  soak: 'waves on repeat for 5 minutes - leak check',
+  'fx-sword': 'sword swings and hits only',
+  'fx-shots': 'rifle shots, tracers and impacts only',
+  'fx-worm': 'worm deaths only',
+  'fx-drone': 'drone hits and kill bursts only',
+  'fx-warden': 'warden spawn flares and shield flashes only',
+  'fx-hurt': 'player hurt flash, hit-stop and camera kick only',
+  'fx-audio': 'sounds only - nothing to see, listen (needs a click for audio)',
+  'fx-hud': 'HUD updates only',
+}
 
 const STEP = 1 / 60
 const WARMUP_FRAMES = 6
@@ -159,16 +186,20 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
   go.style.cssText = 'font:16px monospace;padding:14px 22px;background:#06222c;color:#9fefff;border:1px solid #4ff0ff;cursor:pointer'
   gate.appendChild(go)
   document.body.appendChild(gate)
+  const banner = document.createElement('div')
+  banner.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100;font:600 18px monospace;padding:8px 16px;background:rgba(0,10,16,0.8);color:#9fefff;border:1px solid #4ff0ff;pointer-events:none'
   const begin = (): void => {
     gate.remove()
     ctx.start()
     setup()
     running = true
     perfProbe.on = true
+    banner.textContent = `BENCH ${chain ? `${step + 1}/${ALL.length} ` : ''}${scName} - ${ABOUT[scName] ?? ''}`
+    document.body.appendChild(banner)
     t0 = last = performance.now()
   }
   go.addEventListener('click', begin)
-  if (chain && step > 0) setTimeout(begin, 300) // chained: the first click's gesture is gone after a reload, audio stays locked then
+  if (chain && step > 0 && scName !== 'fx-audio') setTimeout(begin, 300) // chained: the first click's gesture is gone after a reload, audio stays locked then
 
   function snap(): Snap {
     const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
@@ -265,6 +296,86 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
     if (f % 240 === 100) ctx.input.pressed['switchMode'] = (ctx.input.pressed['switchMode'] ?? 0) + 1
   }
 
+  // ---- the scan routes: the low bridge of arena 2 is the straight line of cells through the laser, out to the banks
+  // (found by the level's data, so a reshaped plan keeps working)
+  const route: { ax: number; az: number; bx: number; bz: number } = { ax: 0, az: 0, bx: 0, bz: 0 }
+  let leg = 0 // 0: towards b, 1: back to a
+  function findRoute(): void {
+    const g = levelGrid(ctx.sim)
+    const cs = g.cell
+    const laser = ctx.state().lasers[0]
+    // the laser plane is across the bridge: its plan cell is the middle of the run
+    const lx = laser ? (laser.alongX ? laser.coord : (laser.min + laser.max) / 2) : (g.cols * cs) / 2
+    const lz = laser ? (laser.alongX ? (laser.min + laser.max) / 2 : laser.coord) : (g.rows * cs) / 2
+    const c0 = Math.floor(lx / cs)
+    const r0 = Math.floor(lz / cs)
+    const open = (c: number, r: number): boolean => {
+      if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) return false
+      const k = g.kind[r * g.cols + c]
+      return k !== CellKind.Void && k !== CellKind.Wall
+    }
+    // the bridge runs along the axis whose neighbours are open (the sides are the void)
+    const alongZ = open(c0, r0 - 1) && open(c0, r0 + 1)
+    const dc = alongZ ? 0 : 1
+    const dr = alongZ ? 1 : 0
+    // out over the bridge, then four cells onto the bank (where the cells beside the route are open again)
+    const reach = (sign: number): [number, number] => {
+      let c = c0
+      let r = r0
+      let past = 0
+      for (let i = 0; i < 40; i++) {
+        const nc = c + dc * sign
+        const nr = r + dr * sign
+        if (!open(nc, nr)) break
+        c = nc
+        r = nr
+        if (alongZ ? open(c - 1, r) || open(c + 1, r) : open(c, r - 1) || open(c, r + 1)) past++
+        if (past >= 4) break
+      }
+      return [c, r]
+    }
+    const a = reach(-1)
+    const b = reach(1)
+    route.ax = (a[0] + 0.5) * cs
+    route.az = (a[1] + 0.5) * cs
+    route.bx = (b[0] + 0.5) * cs
+    route.bz = (b[1] + 0.5) * cs
+  }
+  function scanRoute(f: number): void {
+    const s = ctx.state()
+    const m = (sc as Scenario).scan as NonNullable<Scenario['scan']>
+    const p = s.player.pos
+    if (f === 0) {
+      findRoute()
+      p.x = route.ax
+      p.z = route.az
+      p.y = floorHeightAt(levelGrid(ctx.sim), p.x, p.z)
+      ctx.view.rig.yaw = Math.atan2(route.bx - route.ax, route.bz - route.az)
+      // `&at=col,row` and `&yaw=deg` put the hero elsewhere (the still-image scripts)
+      const at = params.get('at')?.split(',').map(Number)
+      if (at && at.length === 2 && Number.isFinite(at[0]) && Number.isFinite(at[1])) {
+        const cs = levelGrid(ctx.sim).cell
+        p.x = ((at[0] as number) + 0.5) * cs
+        p.z = ((at[1] as number) + 0.5) * cs
+        p.y = floorHeightAt(levelGrid(ctx.sim), p.x, p.z)
+      }
+      if (params.has('yaw')) ctx.view.rig.yaw = (Number(params.get('yaw')) * Math.PI) / 180
+    }
+    s.player.hp = 9999
+    for (const l of s.lasers) l.pausedTime = 1e9 // T1 solved: the laser is down
+    s.scan.held = 0 // never overheats (that would raise the alarm)
+    const h = ctx.input.held
+    h['scan'] = m.hold && params.get('hold') !== '0'
+    const tx = leg === 0 ? route.bx : route.ax
+    const tz = leg === 0 ? route.bz : route.az
+    if (Math.hypot(tx - p.x, tz - p.z) < 1.2) leg = 1 - leg
+    let da = Math.atan2(tx - p.x, tz - p.z) - ctx.view.rig.yaw
+    da = Math.atan2(Math.sin(da), Math.cos(da))
+    ctx.view.rig.yaw += Math.max(-0.12, Math.min(0.12, da))
+    h['forward'] = m.move !== 'none'
+    h['run'] = m.move === 'run'
+  }
+
   // ---- synthetic effect bursts (the real handlers run: sounds, sparks, flashes, hit-stop, camera kick)
   let k = 0
   function burst(): void {
@@ -333,7 +444,8 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
 
   function finish(): void {
     finished = true
-    ctx.input.held['attack'] = ctx.input.held['forward'] = ctx.input.held['run'] = false
+    banner.remove()
+    ctx.input.held['attack'] = ctx.input.held['forward'] = ctx.input.held['run'] = ctx.input.held['scan'] = false
     const end = snap()
     const sorted = frameMs.slice(WARMUP_FRAMES).sort((x, y) => x - y)
     const sum = sorted.reduce((x, y) => x + y, 0)
@@ -477,6 +589,7 @@ export function createBench(ctx: BenchCtx, name: string): Bench {
       }
       const f = frame++
       if (sc.fight) fight(f)
+      else if (sc.scan) scanRoute(f)
       else {
         ctx.view.rig.yaw += 0.01
         if (f % 8 === 0) burst()

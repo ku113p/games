@@ -53,6 +53,7 @@ describe('waves on repeat', () => {
       }
       if (f.s.alarm.wavesCleared > waves) waves = f.s.alarm.wavesCleared
       f.s.alarm.firewallDown = false // keep the waves coming
+      if (!f.s.alarm.waveActive) f.s.alarm.wave = Math.min(f.s.alarm.wave, 1) // (a lockdown has a fixed number of waves)
       expect(sizes()).toEqual(before)
     }
     expect(waves).toBeGreaterThanOrEqual(3)

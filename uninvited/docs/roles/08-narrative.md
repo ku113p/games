@@ -162,3 +162,5 @@ Full text: `scratchpad/reviews2/08-narrative.md` (drafts D1-D9 and the L1 beat t
 3. (M) A still-based prologue and endings before the freeze, upgraded to 2.5D only if time remains (the order differs from DESIGN 5; the goal does not).
 4. (S-M) L1 beats against monotony: May reacts to quiet play, a "REVOKED" flash, "Jim is online", and findings placed on the detours. Drop the counter sentence from the won screen.
 5. (M) The L3 choice + quiet endings, with the stored choice replacing `isSadEnding()`. If a level is cut, attach the choice to the last level.
+
+**Status 2026-10-05 (flow agent):** the story-card player and the scene flow are built (`view/story.ts`, `core/flow.ts`); the prologue (D3, 9 shots), the room cards, Jim's notes (D2) and a placeholder ending run on it, the won screen no longer prints the counter (N7), the level title and goal show as a banner (N2, `goal.l1`), and the `unseen` May line (draft) exists. All `story.*` texts are drafts for the designer to edit. Still open: B2-B7 beats, Johnny's name, L2/L3 text, the choice and the real endings.

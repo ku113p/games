@@ -36,17 +36,61 @@ describe('checkpoints and the ending counter', () => {
     }
   }
 
-  test('alarm 3 alone does not make a checkpoint red: an alarm-3 wave fight must have happened in its segment', () => {
+  test('a checkpoint passed under alarm 3 with the firewall still up is red even before the first wave starts', () => {
     const f = setup(PLAN, ENTITIES)
     raiseToThree(f)
     expect(f.s.alarm.stage).toBe(3)
     placePlayer(f, 6, 1)
     run(f, 0.1) // the first wave is still 5 s away
-    expect(endingCounter(f.s)).toBe(0)
-    expect(f.s.checkpoints[0]?.underAlarm).toBe(false)
+    expect(endingCounter(f.s)).toBe(1)
+    expect(f.s.checkpoints[0]?.underAlarm).toBe(true)
   })
 
-  test('a checkpoint passed after a wave fight is red - at most one red per segment, the next segment starts clean', () => {
+  test('the checkpointReached event, which picks the red line of May, is red in the middle of a wave fight', () => {
+    const f = setup(PLAN, ENTITIES)
+    raiseToThree(f)
+    placePlayer(f, 6, 1)
+    const seen: boolean[] = []
+    for (let i = 0; i < 6; i++) {
+      run(f, 1 / 60) // run() clears the events before a tick, so they are still there after it
+      for (const e of f.sim.events) if (e.type === 'checkpointReached') seen.push(e.underAlarm)
+    }
+    expect(seen).toEqual([true])
+  })
+
+  test('a fight that spans two checkpoints counts at both of them', () => {
+    const plan = ['################', '#.S..C...C..D..#', '#...........D.A#', '################']
+    const f = setup(plan, [{ kind: 'redWall', id: 'w', at: [12, 1] }])
+    raiseToThree(f)
+    f.s.alarm.waveTimer = 0
+    run(f, 0.2)
+    placePlayer(f, 5, 1)
+    run(f, 0.1)
+    expect(f.s.checkpoints[0]?.underAlarm).toBe(true)
+    expect(f.s.alarm.segmentFight).toBe(true) // still going: the next segment counts it too
+    placePlayer(f, 9, 1)
+    run(f, 0.1)
+    expect(f.s.checkpoints[1]?.underAlarm).toBe(true)
+    expect(endingCounter(f.s)).toBe(2)
+  })
+
+  test('a finished lockdown ends at the next checkpoint: the alarm resets, the checkpoint still counts red', () => {
+    const f = setup(PLAN, ENTITIES)
+    raiseToThree(f)
+    f.s.alarm.segmentFight = true
+    f.s.alarm.firewallDown = true
+    f.s.alarm.wave = 2
+    f.s.alarm.wavesCleared = 2
+    placePlayer(f, 6, 1)
+    run(f, 0.1)
+    expect(f.s.checkpoints[0]?.underAlarm).toBe(true)
+    expect(f.s.alarm.stage).toBe(0)
+    expect(f.s.alarm.firewallDown).toBe(false)
+    expect(f.s.alarm.wave).toBe(0)
+    expect(f.s.alarm.segmentFight).toBe(false)
+  })
+
+  test('a checkpoint passed after a wave fight is red; a fight that is over is counted once', () => {
     const f = setup(PLAN, ENTITIES)
     raiseToThree(f)
     f.s.alarm.waveTimer = 0
@@ -56,7 +100,7 @@ describe('checkpoints and the ending counter', () => {
     run(f, 0.1)
     expect(endingCounter(f.s)).toBe(1)
     expect(f.s.checkpoints[0]?.underAlarm).toBe(true)
-    expect(f.s.alarm.segmentFight).toBe(false)
+    expect(f.s.alarm.segmentFight).toBe(true) // the fight is still on: the next checkpoint counts it as well
   })
 
   test('after the firewall drops no more waves come: later checkpoints stay calm although the alarm stays at 3', () => {
@@ -83,7 +127,7 @@ describe('checkpoints and the ending counter', () => {
 
   test('the sad ending comes at 4 alarm checkpoints of 9', () => {
     const cfg = testConfig().ending
-    const runState = { checkpointsPassed: 0, alarmCheckpoints: 3, calmCheckpoints: 0, kills: 0, devicesBroken: 0, alarmsRaised: 0, deaths: 0, timeSec: 0 }
+    const runState = { checkpointsPassed: 0, alarmCheckpoints: 3, calmCheckpoints: 0, kills: 0, takedowns: 0, devicesBroken: 0, alarmsRaised: 0, deaths: 0, timeSec: 0 }
     expect(isSadEnding(runState, cfg)).toBe(false)
     runState.alarmCheckpoints = 4
     expect(isSadEnding(runState, cfg)).toBe(true)

@@ -155,7 +155,7 @@ contrast, and the glitch transition fits. KA3 is a strong cover: red dominant, h
 
 | # | Problem | Status |
 | --- | --- | --- |
-| P2 | No brightness hierarchy: every slab edge glows the same; bloom too wide, floods the lower third with cyan | **open** - edges (~2.0) still outshine the guides (~1.0); bloom unchanged |
+| P2 | No brightness hierarchy: every slab edge glows the same; bloom too wide, floods the lower third with cyan | **done 2026-10-05** - edges 0.35, corners 0.25, rails 0.3, slab foot lines 0.15, route 5 cm at about 2.2 effective; bloom unchanged; greyscale check in `scratchpad/lanes/` |
 | P1 | Open world flat and boxy, not NF6: wireframe far city, no haze gradient, no dominant | **in progress** - the world pass gave slabs chamfers, tiers, crowns and solid far towers with setbacks; haze, rivers and the landmark beam exist; needs a screenshot check |
 | P4 | Hero silhouette lost in combat: worm white cores merge with his hem; tall foreground slabs cover 40 % of the frame | **open** - `wormEye` is near-white #FFBCE9 at 3.2 and hits flash white; no fade of slabs between camera and hero (only the hero dithers when the camera is close) |
 | P5 | Enemies not EW1/EM1; amber used for guards, guide arrows and the goal spiral | **in progress** - EW1/EW2 builds rewritten in `tools/warden/build.py`, `warden.glb` rebuilt, `warden-heavy.glb` not built yet, `view/wardens.ts` header still describes the old warden; drone still the `enemy-1` disc (EM1 open); guides are cyan now; `sound` camera amber still overlaps suspicion |
@@ -230,7 +230,7 @@ are unclear ("you just want to dash along the map edge").
 - The impact VFX are 9 cm square points, mostly white, with no contact shape, no hit flash on wardens, no damage states
   and no death dissolve (`view/fx.ts`, `view/game-view.ts` 497-570).
 - L1 has one palette, one wall motif and one light level in all three arenas, and no arena has its own set-piece.
-- Nothing in the art shows where the safe lanes are.
+- Nothing in the art shows where the safe lanes are. **Built 2026-10-05** (proposal 1-3 of the lit/dark language, top 2): a derived exposure map lights watched floor and darkens blind spots, footlights link cover chains, the hero dims to 40 % when hidden (`view/exposure.ts`, `view.stealthLight`, `?nolanes` to compare; DESIGN 8, 14). Per-arena palettes and set-pieces are still open.
 - Amber is the UI accent, though amber means suspicion.
 
 **Top 5.**

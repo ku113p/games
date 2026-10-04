@@ -50,6 +50,7 @@ import { gameTime, levelGrid, playerPos, wardenActionProgress, wardenAnim, warde
 import type { GameState, Sim } from '../core/state'
 import type { Sound } from './audio'
 import { createCone, type ViewCone } from './cone'
+import { inView } from './cull'
 import { addRim, palette } from './look'
 import { fanSpread, NO_FAN, type Sight } from './sight'
 import { wardenBark, wardenCharge, wardenQuery, wardenServo, wardenStep, wardenSwing } from './warden-sound'
@@ -92,6 +93,8 @@ const RUN_FULL = 4.2 // ... and would be full here (alert speed 3.3 is a fast st
 const STRIKE_HIT = 0.5 // share of the slash clip where the blow lands (windup before, follow-through after)
 const SHOT_FIRE = 0.45 // share of the two-handed aim clip where the halberd is level
 const SHOT_TAIL = 0.6 // s of follow-through after a shot
+/** A downed warden holds the death clip's early pose (a slump to its knees), this far into the clip. */
+const DOWN_POSE = 0.3
 const FADE = 7
 const FADE_FAST = 20
 // a red-orange fresnel rim on the armor (the silhouette against the dark), brighter light lines and visor
@@ -145,6 +148,9 @@ void main() {
 }`
 
 interface WardenView {
+  /** Debug: seconds the warden has been alive with no drawn body (a console warning after 0.5 s), and whether it was reported. */
+  noBodyT: number
+  warned: boolean
   root: Group
   model: Object3D | null
   mixer: AnimationMixer | null
@@ -316,6 +322,8 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     const shield = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false })
     return {
       root: g,
+      noBodyT: 0,
+      warned: false,
       model: null,
       mixer: null,
       actions: [],
@@ -473,7 +481,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     return { model, mixer: mx, actions, head: model.getObjectByName('Head') ?? null, neck: model.getObjectByName('neck_01') ?? null, muzzle: model.getObjectByName('Muzzle') ?? null }
   }
 
-  let built = 0
+  let built = 0 // rigs built this frame; update() resets it (it once never reset: the third rig ever never got built, so most wardens had no body)
   /** Makes the rig for the variant the warden state wants the active one (at most two builds per frame). */
   function ensureRig(v: WardenView, heavy: boolean): void {
     const k = heavy ? 1 : 0
@@ -538,6 +546,9 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         return
       case 'paused':
         t[IDLE] = 1
+        return
+      case 'down':
+        t[DEATH] = 1
         return
       case 'idle':
         t[act === 'stand' ? POST : IDLE] = 1
@@ -604,6 +615,13 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
           v.shieldT = 1
           sound.playAt('bullet_impact', w.pos.x, w.pos.z, 0.7 * Math.max(0.5, vol), 1.7)
           break
+        case 'wardenDowned':
+          // powering down: servos winding down, no bark, no alarm
+          wardenServo(sound, 0.45 * Math.max(0.3, vol), 0.6, w.pos.x, w.pos.z)
+          break
+        case 'wardenRebooted':
+          sound.playAt('glitch', w.pos.x, w.pos.z, 0.35 * Math.max(0.3, vol))
+          break
         case 'wardenGaveUp':
           wardenServo(sound, 0.3 * vol, 0.3, w.pos.x, w.pos.z)
           break
@@ -615,6 +633,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       const time = gameTime(st)
       const ws = wardens(st)
       const p = playerPos(st)
+      built = 0
       for (let i = 0; i < views.length; i++) {
         const v = views[i] as WardenView
         const w = ws[i]
@@ -630,9 +649,24 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         if (w.alive || w.pos.y > -500) ensureRig(v, w.heavy)
         v.spawnT = Math.max(0, v.spawnT - dt * 1.2)
         v.shieldT = Math.max(0, v.shieldT - dt * 3)
+        // no body yet (the model is still loading, or the build budget of this frame is spent): none of its lights show either
+        const body = v.model !== null && v.model.visible
+        v.eyes.visible = body
+        v.aura.visible = body
+        if (body) v.noBodyT = 0
+        else if (!dead) {
+          v.noBodyT += dt
+          if (v.noBodyT > 0.5 && !v.warned) {
+            v.warned = true
+            console.warn(`warden ${i}: alive for ${v.noBodyT.toFixed(1)} s without a drawn body (models loaded: ${gltfs.map((g) => !!g).join('/')})`)
+          }
+        }
+        const down = anim === 'down'
         const paused = anim === 'paused'
+        // a downed warden: the lights go out as it powers down and flicker back on as it reboots
+        const lights = down ? (1 - prog) * (w.down < W.takedown.rebootSec && Math.sin(time * 50) < 0 ? 0.25 : 1) : 1
         const alert = w.mode === 'alert' && !dead
-        const checking = !dead && !paused && (w.mode === 'suspicious' || w.mode === 'investigate')
+        const checking = !dead && !paused && !down && (w.mode === 'suspicious' || w.mode === 'investigate')
 
         // colors: calm red-orange, amber while it checks something, bright pulsing red in a fight, blue when paused
         if (dead) tmp.setRGB(0, 0, 0)
@@ -640,6 +674,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         else if (alert) tmp.copy(palette.security).multiplyScalar(0.85 + 0.35 * Math.sin(time * 10))
         else if (checking) tmp.copy(base).lerp(palette.suspicious, 0.6).multiplyScalar(0.75 + 0.2 * Math.sin(time * 6))
         else tmp.copy(base).multiplyScalar(LINES_CALM + Math.min(0.4, w.suspicion))
+        tmp.multiplyScalar(lights)
         v.lines.color.copy(tmp)
         const charge = anim === 'strike' || anim === 'aim' ? prog : 0
         const flare = 1 + v.spawnT * 3 * (0.6 + 0.4 * Math.sin(time * 40))
@@ -652,13 +687,13 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         const m = Math.max(tmp.r, tmp.g, tmp.b, 1e-3)
         v.aura.color.copy(tmp).multiplyScalar(dead ? 0 : 1)
         v.lantern.color.setRGB(tmp.r / m, tmp.g / m, tmp.b / m)
-        v.lantern.intensity = dead ? 0 : LANTERN * (paused ? 0.4 : alert ? 1.4 : 1) * (1 + charge)
+        v.lantern.intensity = dead ? 0 : lights * LANTERN * (paused ? 0.4 : alert ? 1.4 : 1) * (1 + charge)
 
         // the look: a short beam always, the full cone only in network vision
         v.eyes.rotation.y = w.head
-        v.look.mesh.visible = !dead
-        if (!dead) v.look.set(tmp, (paused ? LOOK.pausedStrength : LOOK.strength) * (alert ? 1.6 : 1), time, NO_FAN)
-        v.cone.mesh.visible = !dead && !paused && scanFade > 0
+        v.look.mesh.visible = !dead && !down
+        if (!dead && !down) v.look.set(tmp, (paused ? LOOK.pausedStrength : LOOK.strength) * (alert ? 1.6 : 1), time, NO_FAN)
+        v.cone.mesh.visible = !dead && !paused && !down && scanFade > 0 && inView(w.pos.x, w.pos.y, w.pos.z, W.range)
         if (v.cone.mesh.visible) {
           const fan = sight.fan(WARDEN_KEY + i, w.pos.x, w.pos.y + W.eyeHeight, w.pos.z, lookYaw, SPREAD, W.range)
           v.cone.set(tmp, alert ? 1.6 : 0.8 + w.suspicion, time, fan)
@@ -666,7 +701,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
 
         // the mark over its head
         const showBang = v.alertT > 0
-        v.mark.visible = !dead && (showBang || checking)
+        v.mark.visible = body && !dead && (showBang || checking)
         if (v.mark.visible) {
           v.markMat.map = showBang ? bang : question
           v.markMat.opacity = showBang ? 1 : 0.75 + 0.25 * Math.sin(time * 5)
@@ -674,7 +709,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         }
 
         // the shot's telegraph: a thin beam from the blade tip to the hero, narrowing as the aim completes
-        v.beam.visible = anim === 'aim' && v.muzzle !== null
+        v.beam.visible = body && anim === 'aim' && v.muzzle !== null
         if (v.beam.visible && v.muzzle) {
           v.muzzle.getWorldPosition(tA)
           tB.set(p.x - tA.x, p.y + cfgAll.player.chestHeight - tA.y, p.z - tA.z)
@@ -691,7 +726,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         // sounds: the servos when it turns
         v.servoCd -= dt
         const turn = Math.abs(w.head - v.lastHead) + Math.abs(Math.atan2(Math.sin(w.yaw - v.lastYaw), Math.cos(w.yaw - v.lastYaw)))
-        if (!dead && !paused && dt > 0 && turn / dt > 0.6 && w.speed < 0.3 && v.servoCd <= 0) {
+        if (!dead && !paused && !down && dt > 0 && turn / dt > 0.6 && w.speed < 0.3 && v.servoCd <= 0) {
           wardenServo(sound, 0.22 * volumeAt(w.pos.x, w.pos.z, st), 0.35, w.pos.x, w.pos.z)
           v.servoCd = 0.9
         }
@@ -747,7 +782,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
               t = 0.95 * prog * dur
               break
             case DEATH:
-              t = Math.min(v.deathT, dur * 0.999)
+              t = anim === 'down' ? DOWN_POSE * prog * dur : Math.min(v.deathT, dur * 0.999)
               break
             default:
               t = paused ? (v.loopT[k] ?? 0) : ((v.loopT[k] ?? 0) + dt) % dur
@@ -758,7 +793,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         }
         mx.update(dt)
         // the head looks where the core says (the cone follows it): most of it in the head, some in the neck
-        if (!dead && v.head && v.neck) {
+        if (!dead && !down && v.head && v.neck) {
           twist(v.neck, w.head * 0.35)
           twist(v.head, w.head * 0.65)
         }

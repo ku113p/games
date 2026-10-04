@@ -174,6 +174,17 @@ export interface WardenDef {
   heavy?: boolean
 }
 
+/**
+ * A finding spot (story hook, not used by the rules yet): where a fragment of Jim's notes lies - an optional reward on a
+ * guarded line. `textKey` names the text (texts/en.json) the narrative agent writes.
+ */
+export interface FindingDef {
+  kind: 'finding'
+  id: string
+  at: Cell
+  textKey?: string
+}
+
 export type EntityDef =
   | VideoCameraDef
   | SoundCameraDef
@@ -187,6 +198,7 @@ export type EntityDef =
   | HexDef
   | LandmarkDef
   | WardenDef
+  | FindingDef
 
 /** A roof over a rectangle of cells (corners inclusive): the only ceilings in the open city. */
 export interface RoofDef {
@@ -194,6 +206,32 @@ export interface RoofDef {
   to: Cell
   /** Its underside above y = 0, metres. Default: the level's `ceiling`. */
   height?: number
+}
+
+/**
+ * An arena for the firewall (DESIGN 9): an alarm-3 lockdown is local. When its waves are cleared the firewall opens only
+ * the red walls of the arena the player stands in (the nearest one when in a passage), and the alarm resets at the next
+ * checkpoint. A level without `arenas` keeps the old rule: the firewall opens every red wall.
+ */
+export interface ArenaDef {
+  id: string
+  /** Corner cells of the arena's rectangle, inclusive. */
+  from: Cell
+  to: Cell
+  /** Ids of the red walls this arena's firewall opens. */
+  walls: readonly string[]
+  /** Waves of a lockdown here (default: config alarm.firewallAfterWaves). */
+  waves?: number
+}
+
+/**
+ * A primer zone (a rectangle of cells, inclusive): a safe teaching spot. A violation inside it does not raise the alarm
+ * stage (whoever saw you still investigates).
+ */
+export interface PrimerDef {
+  id: string
+  from: Cell
+  to: Cell
 }
 
 export interface LevelDef {
@@ -222,5 +260,7 @@ export interface LevelDef {
   heights?: readonly string[]
   tops?: readonly string[]
   roofs?: readonly RoofDef[]
+  arenas?: readonly ArenaDef[]
+  primers?: readonly PrimerDef[]
   entities: readonly EntityDef[]
 }

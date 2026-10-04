@@ -8,6 +8,7 @@ import { angleDiff, DEG, emit, raySphere } from '../util'
 import { callCheck } from './alarm'
 import { makeNoise, makeNoiseAt } from './detection'
 import { alertDrone } from './drones'
+import { shieldAbsorb } from './may'
 import { playerFrozen } from './movement'
 import { damageWorm } from './worms'
 import { alertWarden, wardenHit } from './wardens'
@@ -22,6 +23,10 @@ export function hurtPlayer(s: GameState, sim: Sim, amount: number, fromX = s.pla
   const cfg = sim.cfg.player
   if (s.phase !== 'playing' || p.invuln > 0) return false
   if (cfg.dashInvulnerable && p.dashTime > 0) return false
+  if (shieldAbsorb(s, sim)) {
+    p.invuln = cfg.hurtInvulnSec // the shield took it whole
+    return true
+  }
   p.hp = Math.max(0, p.hp - amount)
   p.invuln = cfg.hurtInvulnSec
   p.hitTime = cfg.hitAnimSec
