@@ -1,11 +1,9 @@
-// Keyboard + mouse (pointer lock) -> the player's intent and one-shot actions (DESIGN 12).
-//   WASD / arrows move (a double tap of a direction dashes that way - the core times the taps), mouse looks,
-//   Shift (hold) sprint, Space jump, C crouch toggle, Ctrl (hold) crouch while held,
-//   LMB attack (hold to repeat), RMB aim (hold), Q / wheel switch sword <-> rifle, E interact / hack,
-//   Tab network vision (hold).
+// Keyboard + mouse (pointer lock) -> the player's intent and one-shot actions (DESIGN 11).
+//   WASD / arrows move, mouse looks, Shift (hold) sprint, Space jump,
+//   LMB the sword (always), RMB (hold) aim - and then LMB shoots; there is no weapon switching,
+//   R reload, Q the circular sword strike, E interact (hold for the crank).
 //   Ctrl must not reach the browser while playing: its shortcuts (Ctrl+S, Ctrl+D, Ctrl+wheel zoom...) are blocked;
 //   Ctrl+W cannot be, so a "leave the page?" guard is up while the pointer is locked.
-//   1 / 2: May's distraction signal / pause a camera (3-4 stay free).
 // main.ts reads `held`, `look` and the pressed counters every frame and calls consumePressed() after.
 import cfgAll from '../config.json'
 
@@ -19,29 +17,23 @@ export interface Held {
   left: boolean
   right: boolean
   run: boolean
-  /** Ctrl held: crouch while held. */
-  crouch: boolean
   attack: boolean
   /** RMB held: aim. */
   aim: boolean
-  scan: boolean
+  /** E held: interact (the crank). */
+  interact: boolean
 }
 
 /** Presses since the last consumePressed(). */
 export interface Pressed {
   jump: number
-  /** Fresh presses (not auto-repeat) of the direction keys, for the double-tap dash. */
-  tapForward: number
-  tapBack: number
-  tapLeft: number
-  tapRight: number
-  crouch: number
   attack: number
-  switchMode: number
+  /** R: reload. */
+  reload: number
+  /** Q: the circular strike. */
+  strike: number
+  /** Fresh presses of E (not auto-repeat). */
   interact: number
-  /** Keys 1 and 2: May's actives. */
-  ability1: number
-  ability2: number
 }
 
 export interface GameInput {
@@ -52,7 +44,7 @@ export interface GameInput {
   /** Pointer lock is on (the game is being played, not paused). */
   locked(): boolean
   requestLock(): void
-  /** Ignore everything (menus, the hack overlay): clears held keys. */
+  /** Ignore everything (menus, cards): clears held keys. */
   setEnabled(on: boolean): void
   consumePressed(): void
   /** Called when pointer lock is lost (Esc): the game pauses. */
@@ -61,12 +53,11 @@ export interface GameInput {
 }
 
 export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
-  const held: Held = { forward: false, back: false, left: false, right: false, run: false, crouch: false, attack: false, aim: false, scan: false }
-  const pressed: Pressed = { jump: 0, tapForward: 0, tapBack: 0, tapLeft: 0, tapRight: 0, crouch: 0, attack: 0, switchMode: 0, interact: 0, ability1: 0, ability2: 0 }
+  const held: Held = { forward: false, back: false, left: false, right: false, run: false, attack: false, aim: false, interact: false }
+  const pressed: Pressed = { jump: 0, attack: 0, reload: 0, strike: 0, interact: 0 }
   const look = { dx: 0, dy: 0 }
   let enabled = true
   let unlockFn: (() => void) | null = null
-  let wheelBlock = 0
 
   const isLocked = (): boolean => document.pointerLockElement === canvas
 
@@ -74,61 +65,43 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     switch (code) {
       case 'KeyW':
       case 'ArrowUp':
-        if (down && !repeat && !held.forward) pressed.tapForward++
         held.forward = down
         return true
       case 'KeyS':
       case 'ArrowDown':
-        if (down && !repeat && !held.back) pressed.tapBack++
         held.back = down
         return true
       case 'KeyA':
       case 'ArrowLeft':
-        if (down && !repeat && !held.left) pressed.tapLeft++
         held.left = down
         return true
       case 'KeyD':
       case 'ArrowRight':
-        if (down && !repeat && !held.right) pressed.tapRight++
         held.right = down
         return true
       case 'ShiftLeft':
       case 'ShiftRight':
         held.run = down
         return true
-      case 'ControlLeft':
-      case 'ControlRight':
-        held.crouch = down
-        return true
       case 'Space':
         if (down && !repeat) pressed.jump++
         return true
-      case 'KeyC':
-        if (down && !repeat) pressed.crouch++
+      case 'KeyR':
+        if (down && !repeat) pressed.reload++
         return true
       case 'KeyQ':
-        if (down && !repeat) pressed.switchMode++
+        if (down && !repeat) pressed.strike++
         return true
       case 'KeyE':
         if (down && !repeat) pressed.interact++
-        return true
-      case 'Digit1':
-      case 'Numpad1':
-        if (down && !repeat) pressed.ability1++
-        return true
-      case 'Digit2':
-      case 'Numpad2':
-        if (down && !repeat) pressed.ability2++
-        return true
-      case 'Tab':
-        held.scan = down
+        held.interact = down
         return true
     }
     return false
   }
 
   function clearHeld(): void {
-    held.forward = held.back = held.left = held.right = held.run = held.crouch = held.attack = held.aim = held.scan = false
+    held.forward = held.back = held.left = held.right = held.run = held.attack = held.aim = held.interact = false
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -162,14 +135,9 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     look.dx += e.movementX
     look.dy += e.movementY
   }
+  // the wheel no longer switches weapons; Ctrl + wheel would zoom the page
   const onWheel = (e: WheelEvent): void => {
-    if (!enabled || !isLocked()) return
-    if (e.ctrlKey) e.preventDefault() // Ctrl + wheel would zoom the page
-    // one switch per wheel gesture: trackpads send many small events
-    const now = e.timeStamp
-    if (now < wheelBlock || Math.abs(e.deltaY) < 1) return
-    wheelBlock = now + 180
-    pressed.switchMode++
+    if (enabled && isLocked() && e.ctrlKey) e.preventDefault()
   }
   const onLockChange = (): void => {
     lockAt = performance.now()
@@ -220,8 +188,7 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
       if (!on) clearHeld()
     },
     consumePressed(): void {
-      pressed.jump = pressed.crouch = pressed.attack = pressed.switchMode = pressed.interact = pressed.ability1 = pressed.ability2 = 0
-      pressed.tapForward = pressed.tapBack = pressed.tapLeft = pressed.tapRight = 0
+      pressed.jump = pressed.attack = pressed.reload = pressed.strike = pressed.interact = 0
       look.dx = 0
       look.dy = 0
     },

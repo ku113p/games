@@ -1,7 +1,6 @@
-// The HUD and the screens (DOM over the canvas): HP, dash, charges and weapon mode, alarm level, security status,
-// the suspicion marks around the crosshair (one arc per watcher noticing you, turned toward it - the view cones show
-// only in network vision, so these say where the danger is), network-vision heat and cooldown, the interact prompt,
-// toasts and hints; start / pause / death / win screens.
+// The HUD and the screens (DOM over the canvas): HP, the gun's cylinder and reserve, the circular-strike cooldown, the aim
+// crosshair, the interact prompt, toasts and hints; start / pause / death / win screens. WP0 stub: WP6 builds the hunter-style
+// HUD of PLAN 4.6 (revolver cylinder, reload ring, threat arcs) on this interface.
 // Every text comes from texts/en.json. Per-frame updates write only when a value changed.
 import texts from '../texts/en.json'
 import type { SettingsHandle } from './settings'
@@ -17,14 +16,10 @@ export function t(key: TextKey, vars?: Record<string, string | number>): string 
   return s
 }
 
-/** Who says a prompt or a card: none (the game) or May, the AI assistant (a name label and her accent colour). */
-export type Speaker = 'may'
-
 /** A contextual prompt: `text` may hold {Key} markup. */
 export interface PromptSpec {
   id: string
   text: string
-  speaker?: Speaker
 }
 
 /** A tutorial card: a title and up to three lines with {Key} markup. */
@@ -32,10 +27,7 @@ export interface CardSpec {
   id: string
   title: string
   lines: readonly string[]
-  speaker?: Speaker
 }
-
-const SPEAKER_NAME: Record<Speaker, string> = { may: 'MAY' }
 
 /** The built-in tutorial card `id`, from texts/en.json (card.<id>.title, card.<id>.1..3). */
 export function cardSpec(id: CardId): CardSpec {
@@ -61,47 +53,20 @@ export function renderKeys(parent: HTMLElement, text: string): void {
   })
 }
 
-/** A watcher noticing the player, as the HUD draws it. */
-export interface HudMark {
-  /** Clockwise from straight ahead on screen (up), radians. */
-  angle: number
-  /** 0..1 how much of the arc is filled. */
-  level: number
-  /** Red and blinking: it has spotted you. */
-  spotted: boolean
-}
-
-/** At most this many suspicion marks at once. */
-export const MAX_MARKS = 8
-
+/** What the HUD shows (PLAN 4.6, trimmed: WP6 adds the stage name, threat arcs, the crank progress and the death percentage). */
 export interface HudState {
+  /** 0..1. */
   hp: number
-  dash: number
-  mode: 'sword' | 'rifle'
-  charges: number
-  alarm: number
-  alarmDecay: number
-  status: 'hidden' | 'suspected' | 'detected'
-  niche: boolean
-  suspicion: number
-  scanActive: boolean
-  scanHeat: number
-  scanCooldown: number
-  /** Heat (0..1) where the trace warning starts (config scan.warnAt). */
-  scanWarnAt?: number
-  /** Past the warning point while scanning. */
-  scanWarning?: boolean
-  prompt: 'none' | 'terminal' | 'artifact' | 'takedown'
-  wave: number
-  wavesCleared: number
-  wavesNeeded: number
-  firewallDown: boolean
-  crouched: boolean
+  gunLoaded: number
+  gunMag: number
+  gunReserve: number
+  /** 0..1 reload progress, 0 when not reloading. */
+  reloading: number
+  /** 0..1: 1 = the circular strike is ready. */
+  strike: number
   /** 0..1 how far into the aim (RMB): the aim crosshair closes in. */
-  aim?: number
-  /** The suspicion marks: the first markCount of marks are drawn. */
-  marks: HudMark[]
-  markCount: number
+  aim: number
+  prompt: 'none' | 'crank' | 'letter' | 'medkitFull'
 }
 
 export interface Hud {
@@ -114,30 +79,23 @@ export interface Hud {
   /** A tutorial card (the caller pauses the game). Enter or a click calls onContinue once. back: the footer says "go back". */
   showCard(spec: CardSpec, back: boolean, onContinue: () => void): void
   setVisible(on: boolean): void
-  /** Network vision held too long: the security is called - a clear banner. */
-  traced(): void
   /** You got hit: a red flash at the screen edges and a red arc pointing where it came from (clockwise from up, radians). */
   hit(angle: number, strength: number): void
   showStart(onStart: () => void): void
   showPause(on: boolean): void
   showResume(on: boolean): void
-  showDead(hasSave: boolean, onLoad: () => void, onRestart: () => void): void
+  /** The stage was lost: "Again" (the stage restarts by itself after the death cam; a click skips the wait). */
+  showDead(onRestart: () => void): void
   showWon(stats: string, ending: string, onAgain: () => void, buttonKey?: 'won.again' | 'won.continue'): void
   /** The level title banner (3 s, non-blocking): the name and a one-line goal. */
   banner(title: string, goal: string, sec: number): void
-  /** A short cyan UNSEEN flash under the security status: a watcher passed close by and did not notice you. */
-  unseen(sec: number): void
-  /** The bottom column (May's line above, the hint below, the meeting's skip hint): they cannot collide. */
+  /** The bottom column (the hint and the interact prompt): they cannot collide. */
   stack: HTMLElement
   hideScreens(): void
   /** HUD size in percent (100, 125, 150). */
   setScale(pct: number): void
   /** Reduced flashing: no full-screen hit flash (the direction arc stays). */
   reduceFlash(on: boolean): void
-  /** The first Esc in a hack: tells the player to press it again to abort (cleared by hackEsc(false) or after a while). */
-  hackEsc(on: boolean): void
-  /** The element the hack overlay is mounted in. */
-  hackRoot: HTMLElement
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement, text?: string): HTMLElementTagNameMap[K] {
@@ -148,53 +106,16 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
   return e
 }
 
-/** The trace meter and the traced banner (their styles live here, not in index.html). */
-const TRACE_CSS = `
-.hud-trace { position: absolute; left: 50%; top: 68%; width: 300px; margin-left: -150px; text-align: center;
-  font-size: clamp(12px, 1.4vh, 18px); letter-spacing: 0.3em; color: #9fefff; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
-.hud-trace.on { opacity: 1; }
-.hud-trace-bar { position: relative; height: 5px; margin-top: 6px; background: rgba(120, 220, 255, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(120, 220, 255, 0.25); }
-.hud-trace-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #8ff0ff; box-shadow: 0 0 8px #4fe0ff; }
-.hud-trace-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #ff4a3a; box-shadow: 0 0 6px #ff3020; }
-.hud-trace.risk { color: #ff5a48; animation: traceRisk 0.5s steps(2, start) infinite; }
-.hud-trace.risk .hud-trace-fill { background: #ff3a2a; box-shadow: 0 0 10px #ff2010; }
-.hud-trace.risk .hud-trace-bar { box-shadow: inset 0 0 0 1px rgba(255, 70, 50, 0.6), 0 0 12px rgba(255, 40, 20, 0.5); }
-@keyframes traceRisk { 50% { opacity: 0.45; } }
-.hud-marks { position: absolute; left: 50%; top: 50%; width: 360px; height: 360px; margin: -180px 0 0 -180px;
-  overflow: visible; pointer-events: none; }
-.hud-mark { opacity: 0; transition: opacity 0.2s; }
-.hud-mark.on { opacity: 1; }
-.hud-mark-track { fill: none; stroke: rgba(255, 176, 60, 0.28); stroke-width: 7; stroke-linecap: round; }
-.hud-mark-fill { fill: none; stroke: #ffb03c; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 4px #ff9a20); }
-.hud-mark-tip { fill: #ffb03c; }
-.hud-mark.spotted .hud-mark-track { stroke: rgba(255, 60, 40, 0.45); }
-.hud-mark.spotted .hud-mark-fill { stroke: #ff3a2a; filter: drop-shadow(0 0 6px #ff2010); }
-.hud-mark.spotted .hud-mark-tip { fill: #ff3a2a; }
-.hud-mark.spotted { animation: traceRisk 0.5s steps(2, start) infinite; }
-.hud-traced { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: clamp(26px, 3.6vh, 48px); letter-spacing: 0.32em;
-  color: #ff4a3a; text-shadow: 0 0 14px #ff2010; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
-.hud-traced.on { opacity: 1; animation: traceRisk 0.5s steps(2, start) 3; }
-/* reduce shake / flash: nothing on the HUD blinks (the states keep their colours) */
-.hud.reduce-fx .hud-status.detected, .hud.reduce-fx .hud-top.alarm3 .hud-pip.on, .hud.reduce-fx .hud-mark.spotted, .hud.reduce-fx .hud-trace.risk, .hud.reduce-fx .hud-traced.on { animation: none; }
+/** The banner and the reduced-flash rule. */
+const BANNER_CSS = `
 .hud-banner { position: absolute; left: 0; right: 0; top: 24%; text-align: center; opacity: 0; pointer-events: none; }
 .hud-banner.on { animation: hudBanner var(--banner-sec, 3s) ease-in-out 1 forwards; }
 .hud-banner h3 { margin: 0; font-weight: 300; font-size: clamp(28px, 5vh, 64px); letter-spacing: 0.3em; text-transform: uppercase; color: var(--white); text-shadow: 0 0 22px var(--cyan), 0 2px 8px #000; }
 .hud-banner p { margin: 0.6em 0 0; font-size: clamp(16px, 2.4vh, 30px); letter-spacing: 0.08em; color: #bff7ff; text-shadow: 0 2px 8px #000; }
 @keyframes hudBanner { 0% { opacity: 0; } 15% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
-.hud-unseen { margin-top: 0.5vh; font-size: clamp(12px, 1.6vh, 20px); letter-spacing: 0.4em; color: #8ff0ff; opacity: 0; text-shadow: 0 0 10px #4fe0ff; }
-.hud-unseen.on { animation: hudUnseen var(--unseen-sec, 1.4s) ease-out 1; }
-@keyframes hudUnseen { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
 `
 
-/** The "Esc again to abort" line over the hack overlay. */
-const HACK_ESC_CSS = `
-.hack-esc { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); z-index: 60; padding: 8px 20px; letter-spacing: 3px;
-  color: #ffd6a0; background: rgba(20, 8, 0, 0.82); border: 1px solid #ffb03a; box-shadow: 0 0 14px rgba(255, 176, 58, 0.5);
-  pointer-events: none; }
-`
-
-/** The contextual prompt, the interact prompt, keycaps and the tutorial card. Font: about 2.6 % of the screen height, the card body 2.8 % like May's subtitles (the HUD size multiplies it). */
+/** The contextual prompt, the interact prompt, keycaps and the tutorial card. Font: about 2.6 % of the screen height, the card body 2.8 % (the HUD size multiplies it). */
 const TIPS_CSS = `
 .hud-stack { position: absolute; left: 0; right: 0; bottom: 6vh; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
 .hud-hint, .hud-prompt { max-width: 88%; box-sizing: border-box; text-align: center;
@@ -204,13 +125,9 @@ const TIPS_CSS = `
 .hud-hint { position: static; order: 3; display: none; width: max-content; max-width: calc(44vw / var(--zoom, 1)); }
 .hud-hint.on { display: block; animation: hintIn ${TIPS_CFG.promptFadeSec}s ease-out 1; opacity: 1; }
 @keyframes hintIn { from { opacity: 0; } to { opacity: 1; } }
-/* the interact prompt is the top of the bottom column (May's line and the hint below it), far from the crosshair ring */
+/* the interact prompt is the top of the bottom column, far from the crosshair ring */
 .hud-prompt { position: static; order: 0; display: none; width: max-content; max-width: calc(44vw / var(--zoom, 1)); border-left-color: var(--cyan); }
 .hud-prompt.on { display: block; opacity: 1; }
-.who { display: inline-block; margin-right: 0.8em; padding: 0 0.5em; font-size: 0.7em; font-weight: 700; letter-spacing: 0.2em; color: #04141a; background: var(--cyan); vertical-align: 0.1em; }
-.hud-hint.by-may { border-left-color: var(--cyan); }
-.screen.card .who { display: block; width: fit-content; margin: 0 0 0.6em; }
-.screen.card.by-may { border-top-color: var(--cyan); }
 kbd { display: inline-block; min-width: 1.3em; box-sizing: border-box; padding: 0 0.4em; margin: 0 0.18em; font: inherit; font-weight: 700; line-height: 1.35;
   text-align: center; color: var(--white); background: #10303a; border: 1px solid var(--cyan); border-bottom-width: 0.18em; border-radius: 0.28em;
   box-shadow: 0 0 8px rgba(111, 244, 255, 0.35); }
@@ -246,79 +163,23 @@ const AIM_HIT_CSS = `
 
 export function createHud(root: HTMLElement, toastSec: number, settings?: SettingsHandle, tips?: Tips): Hud {
   const css = document.createElement('style')
-  css.textContent = TRACE_CSS + AIM_HIT_CSS + SETTINGS_CSS + HACK_ESC_CSS + TIPS_CSS
+  css.textContent = BANNER_CSS + AIM_HIT_CSS + SETTINGS_CSS + TIPS_CSS
   document.head.appendChild(css)
   const hud = el('div', 'hud', root)
   const stack = el('div', 'hud-stack', root)
 
-  // top: status + alarm
-  const top = el('div', 'hud-top', hud)
-  const status = el('div', 'hud-status', top, t('hud.hidden'))
-  const susBar = el('div', 'hud-sus', top)
-  const susFill = el('div', 'hud-sus-fill', susBar)
-  const alarmRow = el('div', 'hud-alarm', top)
-  el('span', 'hud-alarm-label', alarmRow, t('hud.alarm'))
-  const pips: HTMLElement[] = []
-  for (let i = 0; i < 3; i++) pips.push(el('span', 'hud-pip', alarmRow))
-  const unseenEl = el('div', 'hud-unseen', top, t('hud.unseen'))
-  const decay = el('div', 'hud-decay', top)
-  const decayFill = el('div', 'hud-decay-fill', decay)
-  const wave = el('div', 'hud-wave', top)
-
-  // bottom left: signal (HP) + dash
+  // bottom left: HP
   const left = el('div', 'hud-left', hud)
-  el('div', 'hud-label', left, t('hud.signal'))
+  el('div', 'hud-label', left, t('hud.hp'))
   const hpBar = el('div', 'hud-bar', left)
   const hpFill = el('div', 'hud-bar-fill', hpBar)
-  el('div', 'hud-label small', left, t('hud.dash'))
-  const dashBar = el('div', 'hud-bar thin', left)
-  const dashFill = el('div', 'hud-bar-fill', dashBar)
 
-  // bottom right: weapon + network vision
+  // bottom right: the gun (cylinder / reserve, reload) and the circular strike
   const right = el('div', 'hud-right', hud)
-  const modeRow = el('div', 'hud-mode', right)
-  const swordTag = el('span', 'hud-mode-tag', modeRow, t('hud.sword'))
-  const rifleTag = el('span', 'hud-mode-tag', modeRow, t('hud.rifle'))
-  const charges = el('div', 'hud-charges', right)
-  el('div', 'hud-label small', right, t('hud.scan'))
-  const scanBar = el('div', 'hud-bar thin scan', right)
-  const scanFill = el('div', 'hud-bar-fill', scanBar)
-
-  // center bottom: the trace meter while scanning; the traced banner
-  const trace = el('div', 'hud-trace', hud)
-  const traceLabel = el('div', 'hud-trace-label', trace, t('hud.trace'))
-  const traceBar = el('div', 'hud-trace-bar', trace)
-  const traceFill = el('div', 'hud-trace-fill', traceBar)
-  const traceMark = el('div', 'hud-trace-mark', traceBar)
-  const tracedBanner = el('div', 'hud-traced', hud, t('hud.traced'))
-  let tracedTimer: ReturnType<typeof setTimeout> | null = null
-
-  // center: the suspicion marks around the crosshair (an arc of MARK_ARC at MARK_R px, an arrow tip outside it)
-  const SVG = 'http://www.w3.org/2000/svg'
-  const svgEl = (tag: string, cls: string, parent: Element): SVGElement => {
-    const e = document.createElementNS(SVG, tag) as SVGElement
-    e.setAttribute('class', cls)
-    parent.appendChild(e)
-    return e
-  }
-  const marksSvg = svgEl('svg', 'hud-marks', hud)
-  marksSvg.setAttribute('viewBox', '-180 -180 360 360')
-  const MARK_R = 150
-  const MARK_ARC = 0.2 // radians each side of the middle
-  const ax = (MARK_R * Math.sin(MARK_ARC)).toFixed(1)
-  const ay = (-MARK_R * Math.cos(MARK_ARC)).toFixed(1)
-  const arc = `M -${ax} ${ay} A ${MARK_R} ${MARK_R} 0 0 1 ${ax} ${ay}`
-  const tip = `M -9 ${-MARK_R - 9} L 0 ${-MARK_R - 21} L 9 ${-MARK_R - 9} Z`
-  const marks: { g: SVGElement; fill: SVGElement; angle: number; level: number; cls: string }[] = []
-  for (let i = 0; i < MAX_MARKS; i++) {
-    const g = svgEl('g', 'hud-mark', marksSvg)
-    svgEl('path', 'hud-mark-track', g).setAttribute('d', arc)
-    const fill = svgEl('path', 'hud-mark-fill', g)
-    fill.setAttribute('d', arc)
-    fill.setAttribute('pathLength', '1')
-    svgEl('path', 'hud-mark-tip', g).setAttribute('d', tip)
-    marks.push({ g, fill, angle: NaN, level: -1, cls: '' })
-  }
+  const ammo = el('div', 'hud-charges', right)
+  el('div', 'hud-label small', right, t('hud.strike'))
+  const strikeBar = el('div', 'hud-bar thin', right)
+  const strikeFill = el('div', 'hud-bar-fill', strikeBar)
 
   // hit cues: a red flash at the edges, pooled direction arcs
   const flash = el('div', 'hud-flash', hud)
@@ -348,26 +209,8 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
 
   // screens
   const screens = el('div', 'screens', root)
-  const hackRoot = el('div', 'hack-root', root)
-  let hackEscEl: HTMLElement | null = null
-  let hackEscTimer: ReturnType<typeof setTimeout> | null = null
 
-  let last = {
-    hp: -1,
-    dash: -1,
-    mode: '',
-    charges: -1,
-    alarm: -1,
-    decay: -1,
-    status: '',
-    sus: -1,
-    scan: -1,
-    trace: -1,
-    prompt: '',
-    wave: -1,
-    crouched: false,
-  }
-
+  const last = { hp: -1, ammo: '', strike: -1, prompt: '' }
   let hintText = ''
 
   function screen(cls: string): HTMLElement {
@@ -433,7 +276,6 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
 
   const api: Hud = {
     marks: hitMarks,
-    hackRoot,
     stack,
     update(h: HudState): void {
       const hp = Math.round(h.hp * 100)
@@ -442,79 +284,24 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
         hpBar.classList.toggle('low', hp <= 30)
         last.hp = hp
       }
-      const dash = Math.round(h.dash * 20)
-      if (dash !== last.dash) {
-        dashFill.style.width = `${dash * 5}%`
-        last.dash = dash
+      const a = `${h.gunLoaded}/${h.gunMag}|${h.gunReserve}|${Math.round(h.reloading * 10)}`
+      if (a !== last.ammo) {
+        ammo.textContent = h.reloading > 0 ? t('hud.reloading') : `${h.gunLoaded} / ${h.gunMag}  +${h.gunReserve}`
+        ammo.classList.toggle('empty', h.gunLoaded === 0 && h.gunReserve === 0)
+        last.ammo = a
       }
-      if (h.mode !== last.mode) {
-        swordTag.classList.toggle('on', h.mode === 'sword')
-        rifleTag.classList.toggle('on', h.mode === 'rifle')
-        cross.className = `hud-cross ${h.mode}`
-        last.mode = h.mode
-      }
-      if (h.charges !== last.charges) {
-        charges.textContent = `${h.charges} ${t('hud.charges')}`
-        charges.classList.toggle('empty', h.charges === 0)
-        last.charges = h.charges
-      }
-      if (h.alarm !== last.alarm) {
-        for (let i = 0; i < 3; i++) (pips[i] as HTMLElement).classList.toggle('on', i < h.alarm)
-        top.className = `hud-top alarm${h.alarm}`
-        last.alarm = h.alarm
-      }
-      const dec = Math.round(h.alarmDecay * 50)
-      if (dec !== last.decay) {
-        decayFill.style.width = `${dec * 2}%`
-        decay.style.visibility = h.alarm === 1 || h.alarm === 2 ? 'visible' : 'hidden'
-        last.decay = dec
-      }
-      const st = h.niche && h.status !== 'detected' ? 'niche' : h.status
-      if (st !== last.status) {
-        status.textContent = st === 'niche' ? t('hud.niche') : t(`hud.${h.status}`)
-        status.className = `hud-status ${st}`
-        last.status = st
-      }
-      const sus = Math.round(h.suspicion * 25)
-      if (sus !== last.sus) {
-        susFill.style.width = `${sus * 4}%`
-        susBar.style.visibility = sus > 0 && h.status !== 'detected' ? 'visible' : 'hidden'
-        last.sus = sus
-      }
-      const scanKey = (h.scanActive ? 10000 : 0) + Math.round(h.scanHeat * 50) * 100 + Math.round(h.scanCooldown * 50)
-      if (scanKey !== last.scan) {
-        const v = h.scanActive ? h.scanHeat : 1 - h.scanCooldown
-        scanFill.style.width = `${Math.round(v * 100)}%`
-        scanBar.classList.toggle('active', h.scanActive)
-        scanBar.classList.toggle('hot', h.scanActive && h.scanHeat > 0.55)
-        scanBar.classList.toggle('cool', !h.scanActive && h.scanCooldown > 0)
-        last.scan = scanKey
-      }
-      const warnAt = h.scanWarnAt ?? 0.7
-      const risk = h.scanActive && (h.scanWarning === true || h.scanHeat >= warnAt)
-      const traceKey = h.scanActive ? 1 + Math.round(h.scanHeat * 100) * 10 + (risk ? 5 : 0) + Math.round(warnAt * 100) * 10000 : 0
-      if (traceKey !== last.trace) {
-        trace.classList.toggle('on', h.scanActive)
-        trace.classList.toggle('risk', risk)
-        traceLabel.textContent = risk ? t('hud.traceRisk') : t('hud.trace')
-        traceFill.style.width = `${Math.round(h.scanHeat * 100)}%`
-        traceMark.style.left = `${Math.round(warnAt * 100)}%`
-        last.trace = traceKey
+      const st = Math.round(h.strike * 20)
+      if (st !== last.strike) {
+        strikeFill.style.width = `${st * 5}%`
+        strikeBar.classList.toggle('cool', h.strike < 1)
+        last.strike = st
       }
       if (h.prompt !== last.prompt) {
-        renderKeys(prompt, h.prompt === 'terminal' ? t('prompt.terminal') : h.prompt === 'artifact' ? t('prompt.artifact') : h.prompt === 'takedown' ? t('prompt.takedown') : '')
+        renderKeys(prompt, h.prompt === 'crank' ? t('prompt.crank') : h.prompt === 'letter' ? t('prompt.letter') : h.prompt === 'medkitFull' ? t('prompt.medkitFull') : '')
         prompt.classList.toggle('on', h.prompt !== 'none')
         last.prompt = h.prompt
       }
-      const waveKey = h.alarm < 3 ? 0 : 1 + h.wave * 1000 + h.wavesCleared * 10 + (h.firewallDown ? 1 : 0)
-      if (waveKey !== last.wave) {
-        wave.textContent =
-          h.alarm < 3
-            ? ''
-            : `${h.wave > 0 ? t('hud.wave', { wave: h.wave }) + '  -  ' : ''}${h.firewallDown ? t('hud.firewallDown') : t('hud.firewall', { cleared: h.wavesCleared, needed: h.wavesNeeded })}`
-        last.wave = waveKey
-      }
-      const aimK = Math.round((h.aim ?? 0) * 20) / 20
+      const aimK = Math.round(h.aim * 20) / 20
       if (aimK !== lastAim) {
         lastAim = aimK
         aimCross.style.opacity = String(aimK)
@@ -526,32 +313,6 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
         l.style.left = `${-gap - 9}px`
         r.style.left = `${gap}px`
       }
-      if (h.crouched !== last.crouched) {
-        cross.classList.toggle('crouched', h.crouched)
-        last.crouched = h.crouched
-      }
-      for (let i = 0; i < MAX_MARKS; i++) {
-        const m = marks[i] as (typeof marks)[number]
-        const src = i < h.markCount ? h.marks[i] : undefined
-        const cls = src ? (src.spotted ? 'hud-mark on spotted' : 'hud-mark on') : 'hud-mark'
-        if (cls !== m.cls) {
-          m.g.setAttribute('class', cls)
-          m.cls = cls
-        }
-        if (!src) continue
-        const deg = Math.round((src.angle * 180) / Math.PI)
-        if (deg !== m.angle) {
-          m.g.setAttribute('transform', `rotate(${deg})`)
-          m.angle = deg
-        }
-        const lv = Math.round(Math.max(0.08, src.level) * 40) / 40
-        if (lv !== m.level) {
-          // fills from the middle out
-          m.fill.setAttribute('stroke-dasharray', `${lv} 1`)
-          m.fill.setAttribute('stroke-dashoffset', `${-(1 - lv) / 2}`)
-          m.level = lv
-        }
-      }
     },
     toast(text: string, kind: 'info' | 'alarm' | 'good' = 'info'): void {
       const e = el('div', `toast ${kind}`, toastBox, text)
@@ -561,16 +322,10 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
     },
     hint(spec: PromptSpec | null): void {
       if (spec !== null) {
-        const key = `${spec.speaker ?? ''}|${spec.text}`
+        const key = spec.text
         if (key !== hintText) {
           renderKeys(hintBox, spec.text)
-          if (spec.speaker) {
-            const who = document.createElement('span')
-            who.className = 'who'
-            who.textContent = SPEAKER_NAME[spec.speaker]
-            hintBox.prepend(who)
-          }
-          hintBox.className = `hud-hint${spec.speaker ? ` by-${spec.speaker}` : ''} on`
+          hintBox.className = 'hud-hint on'
           hintText = key
         }
         hintBox.classList.add('on')
@@ -580,8 +335,6 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
       const s = screen('card')
       const sc = settings?.values.hudScale ?? 100
       s.style.setProperty('zoom', String(sc / 100))
-      if (spec.speaker) s.classList.add(`by-${spec.speaker}`)
-      if (spec.speaker) el('div', 'who', s, SPEAKER_NAME[spec.speaker])
       el('h2', '', s, spec.title)
       for (const line of spec.lines) renderKeys(el('p', '', s), line)
       renderKeys(el('div', 'go', s), t(back ? 'card.back' : 'card.continue'))
@@ -618,13 +371,6 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
       hpBar.classList.add('hit')
       if (hpHitTimer) clearTimeout(hpHitTimer)
       hpHitTimer = setTimeout(() => hpBar.classList.remove('hit'), 140)
-    },
-    traced(): void {
-      tracedBanner.classList.remove('on')
-      void tracedBanner.offsetWidth
-      tracedBanner.classList.add('on')
-      if (tracedTimer) clearTimeout(tracedTimer)
-      tracedTimer = setTimeout(() => tracedBanner.classList.remove('on'), 3200)
     },
     setVisible(on: boolean): void {
       hud.style.display = on ? '' : 'none'
@@ -670,18 +416,14 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
         return
       }
       const s = screen('resume')
-      el('div', 'go', s, t('resume.afterHack'))
+      el('div', 'go', s, t('resume.click'))
     },
-    showDead(hasSave: boolean, onLoad: () => void, onRestart: () => void): void {
+    showDead(onRestart: () => void): void {
       const s = screen('dead')
       el('h2', '', s, t('dead.title'))
       el('p', '', s, t('dead.text'))
-      const row = el('div', 'buttons', s)
-      const load = el('button', 'btn', row, t('dead.load'))
-      const restart = el('button', 'btn', row, t('dead.restart'))
-      if (!hasSave) el('p', 'note', s, t('dead.noSave'))
-      load.addEventListener('click', onLoad, { once: true })
-      restart.addEventListener('click', onRestart, { once: true })
+      const again = el('button', 'btn', s, t('dead.again'))
+      again.addEventListener('click', onRestart, { once: true })
     },
     banner(title: string, goal: string, sec: number): void {
       banner.replaceChildren()
@@ -691,12 +433,6 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
       banner.classList.remove('on')
       void banner.offsetWidth
       banner.classList.add('on')
-    },
-    unseen(sec: number): void {
-      unseenEl.style.setProperty('--unseen-sec', `${sec}s`)
-      unseenEl.classList.remove('on')
-      void unseenEl.offsetWidth
-      unseenEl.classList.add('on')
     },
     showWon(stats: string, ending: string, onAgain: () => void, buttonKey: 'won.again' | 'won.continue' = 'won.again'): void {
       const s = screen('won')
@@ -718,20 +454,6 @@ export function createHud(root: HTMLElement, toastSec: number, settings?: Settin
     },
     reduceFlash(on: boolean): void {
       hud.classList.toggle('reduce-fx', on)
-    },
-    hackEsc(on: boolean): void {
-      if (hackEscTimer) clearTimeout(hackEscTimer)
-      hackEscTimer = null
-      if (!on) {
-        hackEscEl?.remove()
-        hackEscEl = null
-        return
-      }
-      if (!hackEscEl) hackEscEl = el('div', 'hack-esc', hackRoot, t('hack.escAgain'))
-      hackEscTimer = setTimeout(() => {
-        hackEscEl?.remove()
-        hackEscEl = null
-      }, 2000)
     },
   }
   return api

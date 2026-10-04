@@ -34,6 +34,12 @@ describe('imports', () => {
     expect(bad('core/a.ts', `import { test } from 'bun:test'`)).toBe(1)
   })
 
+  test('core tests and the shared fixtures may read config.json, the rest of core may not', () => {
+    expect(bad('core/a.test.ts', `import cfg from '../config.json'`)).toBe(0)
+    expect(bad('core/testing.ts', `import cfg from '../config.json'`)).toBe(0)
+    expect(bad('core/a.ts', `import cfg from '../config.json'`)).toBe(1)
+  })
+
   test('other extensions', () => {
     expect(bad('core/a.js', `import x from 'three'`)).toBe(1)
     expect(bad('input/a.ts', `import { v } from '../view/index'`)).toBe(1)

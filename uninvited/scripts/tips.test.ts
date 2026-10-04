@@ -51,40 +51,40 @@ test('tips: a card is handed out once, saved, with a pause between cards', () =>
   const store = { read: (k: string) => saved[k] ?? null, write: (k: string, d: string) => ((saved[k] = d), true) }
   let on = true
   const t = createTips(store, () => on, 10)
-  t.request('quiet')
-  t.request('quiet')
-  expect(t.take()).toBe('quiet')
+  t.request('aim')
+  t.request('aim')
+  expect(t.take()).toBe('aim')
   expect(t.take()).toBeNull()
-  t.request('quiet') // seen: ignored
-  t.request('netvision')
+  t.request('aim') // seen: ignored
+  t.request('strike')
   expect(t.take()).toBeNull() // the pause since the last card
   t.tick(10)
-  expect(t.take()).toBe('netvision')
-  expect(t.seen()).toEqual(['quiet', 'netvision'])
+  expect(t.take()).toBe('strike')
+  expect(t.seen()).toEqual(['aim', 'strike'])
   // a new session reads the saved ids
-  expect(parseSeen(saved['tips'] ?? null).has('quiet')).toBe(true)
+  expect(parseSeen(saved['tips'] ?? null).has('aim')).toBe(true)
   const t2 = createTips(store, () => on, 10)
-  expect(t2.due('quiet')).toBe(false)
-  expect(t2.due('alarm')).toBe(true)
+  expect(t2.due('aim')).toBe(false)
+  expect(t2.due('letter')).toBe(true)
   // skip: the player already did it
   t2.request('aim')
   t2.skip('aim')
   expect(t2.take()).toBeNull()
   expect(t2.due('aim')).toBe(false)
   // claim: right now, once
-  expect(t2.claim('hacking')).toBe(true)
-  expect(t2.claim('hacking')).toBe(false)
+  expect(t2.claim('crank')).toBe(true)
+  expect(t2.claim('crank')).toBe(false)
   // tips off: nothing is due, nothing is marked seen
   on = false
-  expect(t2.due('alarm')).toBe(false)
-  t2.request('alarm')
+  expect(t2.due('letter')).toBe(false)
+  t2.request('letter')
   expect(t2.take()).toBeNull()
-  expect(t2.claim('alarm')).toBe(false)
+  expect(t2.claim('letter')).toBe(false)
   on = true
-  expect(t2.due('alarm')).toBe(true)
+  expect(t2.due('letter')).toBe(true)
 })
 
 test('tips: a broken save is ignored', () => {
   expect(parseSeen('{oops').size).toBe(0)
-  expect(parseSeen(JSON.stringify(['quiet', 'nope', 7])).size).toBe(1)
+  expect(parseSeen(JSON.stringify(['aim', 'nope', 7])).size).toBe(1)
 })

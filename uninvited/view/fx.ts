@@ -1,4 +1,4 @@
-// Juice that lives in the scene: streak sparks, the travelling rifle bolt, wall scorches, contact stars, drone bolts, the sword
+// Juice that lives in the scene: streak sparks, the travelling rifle bolt, wall scorches, contact stars, thrown projectiles, the sword
 // trail, flashes, noise rings on the floor. Every pool is allocated up front; spawning and updating never allocate, and nothing
 // here adds a light or a texture (the glows are vertex-coloured gradients).
 import {
@@ -22,7 +22,7 @@ import {
 } from 'three'
 import cfgAll from '../config.json'
 import type { GameState } from '../core/state'
-import { bolts } from '../core/queries'
+import { projectiles as bolts } from '../core/queries'
 import { palette } from './look'
 
 const F = cfgAll.view.fx
@@ -171,7 +171,7 @@ export function createFx(camera: Camera): Fx {
   }
   let nextStar = 0
 
-  // ---- drone bolts: follow the state's bolt pool
+  // ---- projectiles (thrown potions and junk): follow the state's projectile pool
   const boltGeo = new SphereGeometry(0.09, 8, 6)
   boltGeo.scale(1, 1, 3.2)
   const boltMat = new MeshBasicMaterial({ color: palette.security.clone().multiplyScalar(1.4), toneMapped: false })

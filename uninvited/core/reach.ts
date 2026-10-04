@@ -13,7 +13,7 @@ export interface ReachLimits {
   autostep: number
   /** The highest ledge a jump gets onto, m (v^2 / 2g of the jump). */
   jump: number
-  /** The widest gap of void (in cells) a running jump with a dash clears. */
+  /** The widest gap of void (in cells) a running jump clears. */
   gapCells: number
   /** Head room of a standing body and of a crouched one, m. */
   body: number
@@ -24,14 +24,12 @@ export interface MoveNumbers {
   jumpSpeed: number
   gravity: number
   runSpeed: number
-  dashSpeed: number
-  dashSec: number
 }
 
 /** The limits from the movement numbers (config.json "player") and the controller's autostep (config.json "physics"). */
 export function reachLimits(p: MoveNumbers, autostep: number, cell: number, body = 1.8, crouchBody = 1.1): ReachLimits {
   const air = (2 * p.jumpSpeed) / p.gravity
-  const range = p.runSpeed * air + p.dashSpeed * p.dashSec
+  const range = p.runSpeed * air
   return { autostep, jump: (p.jumpSpeed * p.jumpSpeed) / (2 * p.gravity), gapCells: Math.floor(range / cell), body, crouchBody }
 }
 

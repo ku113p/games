@@ -197,3 +197,80 @@ Voices: one syllable per typed character (or every second character), random var
 | `rain_window_loop` | 8.00 s (loop) | Rain against the window: soft wash, droplet ticks on glass, occasional drips. |
 | `room_hum_loop` | 4.00 s (loop) | The tiny room: fridge compressor and mains hum. |
 | `office_ambience_loop` | 12.00 s (loop) | Cold corporate office: quiet HVAC air and distant keyboard typing. |
+
+### Halloween mansion set (hw_*)
+
+Candidates for the horde game, rendered by `bun tools/sfx/hw.ts [word]` (own synth recipes in `hw.ts`/`recipes.ts` plus Kenney CC0 impact layers; manifest in `tools/sfx/hw-manifest.json`). `build.ts` leaves `hw_*` files alone and lists them here.
+
+#### Оружие
+
+| File | Length | What it is |
+| --- | --- | --- |
+| `hw_revolver_shot_v1..v3` | 0.48-0.69 s | Revolver shot: bright crack, 400-2500 Hz bang, 110->42 Hz sub thump with saturated harmonics, metal chamber ring, short indoor slap and a small room tail (synth + Kenney) |
+| `hw_revolver_dry_v1..v2` | 0.05-0.06 s | Dry fire: hammer fall click on steel, tiny cylinder tick, no powder |
+| `hw_revolver_reload_v1..v2` | 3.11-3.13 s | Reload: cylinder swings open, spent brass falls and jingles, six rounds drop in, cylinder spin, snap shut |
+| `hw_rune_charge_v1..v2` | 1.00-1.08 s | Rune charge: a bright silver FM ting (2-3 notes), airy shimmer and a warm rune hum that swells and fades |
+| `hw_sword_swing_light_v1..v2` | 0.22-0.25 s | Light swing: quick air swish, a swept 700->5000 Hz band and a thin blade hiss |
+| `hw_sword_swing_heavy_v1..v2` | 0.41-0.47 s | Heavy swing: a long low whoomp of air, a dark 300->2500 Hz sweep and a 70 Hz body push |
+| `hw_sword_chop_flesh_v1..v3` | 0.17 s | Chop on flesh: a sharp blade edge, a wet low-mid squelch, a 140->55 Hz meaty thump and soft heavy impact (Kenney Impact + synth) |
+| `hw_sword_chop_bone_v1..v3` | 0.46-0.49 s | Chop on a skeleton: a dry wooden crack, hollow bone knock modes, a splintering snap and a few loose bone ticks (Kenney Impact + synth) |
+| `hw_sword_chop_ghost_v1..v2` | 0.85-0.88 s | Blade through a ghost: a cold silver shing, a falling glassy wail, breathy air and a long ghostly room (synth) |
+| `hw_sword_whirl_v1..v2` | 1.41-1.46 s | Circular strike: a rising orbiting whirl (pulsing air at 4-7 turns/s), a low whoomp that swells, then a steel ring and floor thump at the end |
+| `hw_sword_jump_slash_v1..v2` | 0.46 s | Jump slash: an upward hiss that tips into a hard diagonal downward cut with a body whoomp |
+
+#### Герой
+
+| File | Length | What it is |
+| --- | --- | --- |
+| `hw_hero_hurt_v1..v3` | 0.22-0.32 s | Hurt: a short male grunt/gasp through /a/-/o/ formants with breath and a dull body thump |
+| `hw_hero_grabbed` | 0.62 s | Grabbed by the tank: a choked gasp-squeak, ribs and leather creaking under pressure, a heavy grip thud |
+| `hw_hero_thrown` | 0.60 s | Thrown: a shout cut into a rushing airy whoosh with a clothing flutter, then it ends where the landing sound begins |
+| `hw_hero_land_v1..v2` | 0.72-0.73 s | Hard landing on the wooden floor: a boom, plank slap, a scrape and a breathless grunt (Kenney Impact + synth) |
+| `hw_medkit_v1..v2` | 0.92 s | Medkit pickup: a case latch click, a cloth rustle, a warm rising two-note chime with a soft glow (synth) |
+| `hw_step_wood_v1..v4` | 0.39-0.48 s | Footstep on wooden floorboards: boot, board thud and a faint creak (Kenney Impact + synth) |
+| `hw_step_stone_v1..v4` | 0.53 s | Footstep on stone flags: hard boot heel, dull thud and a tiny echo (Kenney Impact + synth) |
+
+#### Монстры
+
+| File | Length | What it is |
+| --- | --- | --- |
+| `hw_rat_squeak_v1..v3` | 0.09-0.25 s | Rat squeak: one or two very short high chirps with a rising-falling glide and a little rasp |
+| `hw_rat_swarm_loop` | 3.00 s (loop) | Rat swarm loop: dense scurrying paws and claws on boards with scattered squeaks, seamless 3 s |
+| `hw_spider_skitter_loop` | 2.00 s (loop) | Spider skitter loop: bursts of fast tiny leg ticks, light and dry, seamless 2 s |
+| `hw_beetle_buzz_loop` | 1.00 s (loop) | Beetle buzz loop: a hard-edged 90 Hz amplitude-modulated saw buzz with a chitin rattle, seamless 1 s |
+| `hw_beetle_click_v1..v2` | 0.05 s | Beetle click: a hard chitin snap with a hollow tick, like a shell clacking open |
+| `hw_zombie_groan_v1..v3` | 0.93-1.41 s | Zombie groan: a slow low rasp, vowel gliding /a/ to /o/, irregular wobble, breath and a gravelly growl (synth) |
+| `hw_zombie_death_v1..v2` | 1.28 s | Zombie death: a last falling groan with a gurgle, then the body drops: wet thud and a floorboard knock |
+| `hw_skeleton_rattle_v1..v2` | 0.71-0.88 s | Skeleton rattle: dozens of light bone ticks and small hollow knocks, dense then loose |
+| `hw_skeleton_break_v1..v2` | 1.18-1.21 s | Skeleton breaks apart: a dry snap, then a clattering fall of bones on wood over a second (Kenney Impact + synth) |
+| `hw_bat_screech_v1..v2` | 0.68 s | Bat screech: a piercing 4-7 kHz glide with an FM-rough edge, two quick chirps |
+| `hw_bat_wings_v1..v2` | 0.39-0.45 s | Bat wing flaps: five leathery thwaps, muffled cloth-like bursts of air at a steady beat |
+| `hw_ghost_wail_v1..v2` | 1.95-2.39 s | Ghost wail: a breathy rising-falling 'ooooh' with wide vibrato, a hollow glassy overtone and a large cold room |
+| `hw_ghost_pass` | 1.87 s | Ghost passing through a wall: a cold airy rush, a muffled stone 'thum' as it crosses, a shimmer that blooms on the far side |
+| `hw_witch_cackle_v1..v2` | 1.38-1.54 s | Witch cackle: a run of 6-8 breathy, rasping 'hee' pulses on a high bouncing pitch, a wicked rising-falling curve |
+| `hw_witch_throw` | 0.50 s | Potion throw: an effort 'hah', an arm whip, a flask swishing through the air with a liquid slosh and glassy clink |
+| `hw_glass_shatter_v1..v2` | 0.81 s | Flask shattering on the floor: a bright glass burst, tinkling shards, a wet splash (Kenney Impact + synth) |
+| `hw_puddle_bubble_loop` | 3.00 s (loop) | Potion puddle loop: slow viscous bubbles popping at random pitches over a low fizz, seamless 3 s |
+| `hw_gremlin_giggle_v1..v2` | 0.87-1.11 s | Gremlin giggle: fast nasal staccato 'ki-ki-ki' chirps on a high wobbling pitch, sillier and thinner than the witch |
+| `hw_gremlin_throw` | 0.31 s | Gremlin throw: a small 'hyup' grunt and a quick fluttering whip of an object flying |
+| `hw_tank_roar_v1..v2` | 1.92-2.18 s | Tank roar: a huge growl at 50-60 Hz with a heavy amplitude rumble, wide open /a/ formants, saturation and a sub body that shakes the floor |
+| `hw_tank_punch_v1..v2` | 0.89-0.90 s | Tank punch: a whooshing fist, then a huge dull body hit, a sub boom and splintering crack (Kenney Impact + synth) |
+| `hw_tank_grab` | 0.97 s | Tank grab: a short guttural bark, a lunge whoosh, and a heavy clamp with creaking leather and a bone crunch |
+| `hw_tank_step_v1..v2` | 0.71-0.73 s | Tank footstep: a heavy sub thud that shakes the floor, board slam and a rattle of the house (Kenney Impact + synth) |
+
+#### Мир
+
+| File | Length | What it is |
+| --- | --- | --- |
+| `hw_clock_strike` | 3.20 s | Grandfather clock, one strike: a bronze bell with inharmonic partials, a mallet clank and a long wooden-hall ring |
+| `hw_clock_midnight` | 27.50 s | Grandfather clock striking midnight: twelve strikes about two seconds apart, each ringing into the next, with a faint mechanism whirr before the first |
+| `hw_door_scratch_v1..v2` | 2.79-3.30 s | Scratching at the door: claws dragged down old wood in slow raking strokes, with low taps of weight |
+| `hw_window_break_v1..v2` | 1.57-1.59 s | Window glass breaking inwards: a hard bang on the pane, heavy glass crash, a long cascade of shards and a wooden frame crack (Kenney Impact + synth) |
+| `hw_fireplace_burst_v1..v2` | 1.50-1.84 s | Fireplace spawn: a gas whump, a roaring rising fire whoosh, scattering embers and crackle, a rumble in the chimney |
+| `hw_floor_crack_v1..v2` | 0.83-0.84 s | Floor crack: planks splitting with a tearing crack, a heavy boom from below, falling dust and splinters (Kenney Impact + synth) |
+| `hw_portcullis_crank_loop` | 1.00 s (loop) | Portcullis crank loop: a steady ratchet of heavy pawl clicks (8 per second) with a rattling chain and a low iron groan, seamless 1 s |
+| `hw_gate_slide` | 2.47 s | Gate sliding up: grinding iron in its guides, a squealing metal sweep, chain links shaking, the weight easing to a stop |
+| `hw_gate_slam` | 1.27 s | Gate slam: an iron portcullis crashing down onto stone, a huge boom with a ringing bar clang, bits of rattling chain and a hall echo (Kenney Impact + synth) |
+| `hw_letter_slip` | 1.16 s | A letter slipped under the door: paper hissing over wood, a slight scrape, then a soft final slap on the floor |
+| `hw_chandelier_crash` | 3.07 s | Falling chandelier: a chain snap and creak, a plunging rush, then a colossal crash of iron and crystal with a storm of falling pieces and a long ring |
+| `hw_helicopter_approach` | 9.58 s | Helicopter approach for the finale: from a far-off flutter to a thundering rotor chop and a turbine whine right overhead, 9 s |

@@ -110,12 +110,10 @@ const LAND = 9
 const DASH = 10
 const HIT = 11
 const DEATH = 12
-const HACK = 13
 // overlay (upper body)
 const OVERLAY = ['slash_a', 'slash_b', 'slash_c', 'aim', 'shoot', 'hack'] as const
 const AIM = 3
 const SHOOT = 4
-const HACK_ARMS = 5
 
 // --- look
 const RIM_COOL = new Color(0.5, 0.66, 0.82) // the fresnel edge light, mixed a little toward the line color
@@ -125,11 +123,8 @@ const RIM_COAT = 0.15
 const RIM_HOOD = 0.22
 const TRIM_K = 0.2 // trim brightness against the line color (stays under the bloom threshold)
 const LINES_K = 0.85
-/** How bright the light lines are while the hero is hidden in cover (1 = lit, view.stealthLight.heroHiddenLines = hidden; the visor stays on). */
-let linesK = 1
-export function setHeroHidden(k: number): void {
-  linesK = 1 - (1 - cfgAll.view.stealthLight.heroHiddenLines) * Math.max(0, Math.min(1, k))
-}
+/** How bright the light lines are (there is no stealth any more: always lit). */
+const linesK = 1
 const FILAMENT_K = 0.5
 const STRIP_GLOW_K = 0.08
 const CORE_K = 0.6
@@ -626,12 +621,6 @@ export function createHero(): HeroView {
       case 'hit':
         baseT[HIT] = 1
         return
-      case 'dash':
-        baseT[DASH] = 1
-        return
-      case 'hack':
-        baseT[HACK] = 1
-        return
       default:
         break
     }
@@ -894,12 +883,11 @@ export function createHero(): HeroView {
       const sword = mode === 'sword'
 
       // what the legs do (slash and shoot keep the legs of the state before them)
-      if (anim === 'crouch' || anim === 'hackCrouched') legs = 'crouch'
-      else if (anim === 'jump') legs = 'air'
-      else if (anim === 'idle' || anim === 'walk' || anim === 'run' || anim === 'hack' || anim === 'death' || anim === 'hit') legs = 'stand'
+      if (anim === 'jump') legs = 'air'
+      else if (anim === 'idle' || anim === 'walk' || anim === 'run' || anim === 'death' || anim === 'hit') legs = 'stand'
       if (legs === 'air') airTime += dt
       else {
-        if (airTime > 0.35 && anim !== 'dash') landT = 0
+        if (airTime > 0.35) landT = 0
         airTime = 0
       }
       if (landT >= 0) {
@@ -972,13 +960,8 @@ export function createHero(): HeroView {
 
       // overlay: slashes and the raised rifle
       overT.fill(0)
-      const fullBody = anim === 'dash' || anim === 'hit' || anim === 'death' || anim === 'hack' || anim === 'hackCrouched'
-      if (anim === 'hackCrouched') {
-        // hacking from a crouch: crouched legs and back (base layer), the hack's hands on top
-        overT[HACK_ARMS] = 1
-        const clip = over[HACK_ARMS]
-        if (clip) overTime[HACK_ARMS] = ((overTime[HACK_ARMS] ?? 0) + dt) % clip.getClip().duration
-      } else if (anim === 'slash') {
+      const fullBody = anim === 'hit' || anim === 'death'
+      if (anim === 'slash') {
         overT[slashVariant] = 1
         const r = SLASH_RANGE[slashVariant]
         const clip = over[slashVariant]
@@ -1022,7 +1005,7 @@ export function createHero(): HeroView {
       aimUpper(dt, raised, aim?.target ?? null, !fullBody)
       root.updateMatrixWorld(true)
       solveCoat(dt, anim === 'death' ? 0 : speed)
-      holo.opacity = anim === 'hack' || anim === 'hackCrouched' ? 0.75 + 0.2 * Math.sin(time * 37) * Math.sin(time * 11) : 0.4
+      holo.opacity = 0.4
       prevAnim = anim
     },
   }

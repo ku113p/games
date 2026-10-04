@@ -52,3 +52,6 @@ uninvited/bench/results/
 
 # Agents scratch files - never in the repo
 uninvited/scratchpad/
+
+# Quaternius CC0 source packs for tools/monsters/build.py (re-download per CREDITS.md)
+uninvited/tools/monsters/src/

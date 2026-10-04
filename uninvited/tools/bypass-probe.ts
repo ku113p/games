@@ -1,18 +1,18 @@
-// Tries to get past every closed red wall in the real physics: from every surface the player can stand on within a few
+// Tries to get past every closed portcullis in the real physics: from every surface the player can stand on within a few
 // cells of the wall (core/reach.ts, only this wall closed) it runs at the wall, jumps and dashes at several angles, and reports
 // every attempt that ends on the far side of the wall plane.
-//   bun tools/bypass-probe.ts [slice|l1]
+//   bun tools/bypass-probe.ts [box|l1]
 import { createRapierWorld, initPhysics } from '../adapters/physics-rapier'
 import cfgJson from '../config.json'
-import { beginFrame, createIntent, dash, jump, tick } from '../core/commands'
+import { beginFrame, createIntent, jump, tick } from '../core/commands'
 import type { GameConfig } from '../core/config'
 import { buildGrid, colOf, rowOf } from '../core/grid'
 import { reachable, reachLimits } from '../core/reach'
 import { createSim, createState } from '../core/state'
 import { levelById } from '../levels/index'
 
-const cfg: GameConfig = cfgJson
-const level = levelById(process.argv[2] ?? 'l1')
+const cfg = cfgJson as unknown as GameConfig
+const level = levelById(process.argv[2] ?? 'box')
 await initPhysics()
 const grid = buildGrid(level, cfg.world)
 const physics = createRapierWorld(grid, { radius: cfg.player.radius, ...cfgJson.physics })
@@ -22,7 +22,7 @@ const DT = 1 / 60
 let bad = 0
 let tried = 0
 for (let w = 0; w < sim.grid.wallGroups.length; w++) {
-  const wall = createState(sim, 1).walls[w]
+  const wall = createState(sim, 1).portcullis[w]
   if (!wall) continue
   const side = (x: number, z: number): number => (wall.alongX ? x : z) - wall.coord
   const lineOf = (x: number, z: number): number => (wall.alongX ? z : x)
@@ -62,7 +62,7 @@ for (let w = 0; w < sim.grid.wallGroups.length; w++) {
             const px = s.player.pos.x
             const pz = s.player.pos.z
             if (mode >= 1 && f % 20 === 5) jump(s, sim)
-            if (mode === 2 && f % 20 === 12) dash(s, sim, Math.sin(yaw), Math.cos(yaw))
+            if (mode === 2 && f % 20 === 12) jump(s, sim) // a second jump on the way
             tick(s, sim, DT, it)
             const l = lineOf(s.player.pos.x, s.player.pos.z)
             if (Math.sign(side(px, pz)) === sign && Math.sign(side(s.player.pos.x, s.player.pos.z)) !== sign && Math.hypot(s.player.pos.x - px, s.player.pos.z - pz) < 1 && s.player.pos.y > -2 && l > wall.min - 1 && l < wall.max + 1) crossed = true

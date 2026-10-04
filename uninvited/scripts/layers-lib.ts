@@ -213,6 +213,8 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
   const layer = layerOfPath(fileRelPath)
   if (layer === 'other') return []
   const isTest = /\.test\.[cm]?[jt]sx?$/.test(fileRelPath)
+  /** Tests and the shared fixtures (core/testing.ts) may read the shipped config.json: they test the real numbers. */
+  const isFixture = isTest || /(^|\/)testing\.ts$/.test(fileRelPath)
   const { code, strings } = sanitize(source)
   const violations: Violation[] = []
   const add = (message: string): void => {
@@ -236,6 +238,7 @@ export function analyzeSource(fileRelPath: string, source: string): Violation[] 
     }
     const resolved = resolveSpecifier(fileRelPath, spec)
     const target = layerOfPath(resolved)
+    if (layer === 'core' && isFixture && resolved === 'config.json') return
     if (layer === 'core' && target !== layer) {
       add(`${where} ${layer}/ ${how} a file outside ${layer}/: "${spec}"`)
     } else if (layer === 'adapters' && (target === 'view' || target === 'input')) {

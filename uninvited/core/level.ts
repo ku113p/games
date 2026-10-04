@@ -1,30 +1,25 @@
-// The level data format (PLAN.md section 1): an ASCII floor plan on a grid + a list of entities.
-// Levels live in levels/*.ts as plain data; core/grid.ts turns the plan into the runtime grid.
-//
-// The network is an open data city (DESIGN 6): platforms over a dark void, slabs and hex towers of different heights,
-// open sky. Only `roofs` put a ceiling over a stretch (the short enclosed passages between arenas).
+// The level data format (PLAN 3.1): an ASCII floor plan on a grid + rooms, a retreat route, stages and a list of entities.
+// Levels live in levels/*.ts as plain data; core/grid.ts turns the plan into the runtime grid. One LevelDef per floor
+// (box, l1, l2, l3, roof); the exit cell leads to the next floor.
 //
 // Plan characters (one per cell, cell = LevelDef.cell metres; row 0 is the north edge, +z goes south, +x east):
-//   #  slab: a solid block standing on the cell, as tall as its `tops` character says (a clean NF6 slab)
-//   H  hex block: the same solid block, dressed in hex modules (NF4) - the two mix freely
-//   _  void: no floor, a drop into the dark. Falling in returns you to the last safe ground (config world.fall);
-//      walkers never path into it. A floor cell between void cells is a bridge.
+//   #  wall, full height to the room ceiling (ghosts pass through)
+//   W  wall with a window (impassable; a spawn point when a `spawn` entity stands in front of it)
+//   F  fireplace in a wall (impassable; a spawn point)
+//   X  broken door (burning / collapsed / webbed / roots, by its entity): impassable, a spawn point
 //   .  floor
-//   ~  low cover: a block about waist high - hides you only while you crouch; you can jump onto it
-//   n  niche: floor under a low roof (drones cannot fit under it); no special hiding rule - the slice uses server blocks
-//   ^ v  ramp along north-south;  < >  ramp along west-east. A run of ramp cells slopes linearly between the
-//        flat cells at its two ends (the arrow points uphill, for the reader only)
-//   =  laser grid (floor you can walk through - it burns and trips the alarm while it is on)
-//   D  red wall (blocks while closed; opened by a terminal or when the firewall drops)
-//   T  hack terminal (floor; the console sits on the neighbouring wall)
-//   C  checkpoint
-//   A  the artifact (the level's goal)
-//   S  the start
+//   ~  low furniture (a table, a sofa, ~0.9 m): the player and walkers cannot pass; the swarm climbs over it
+//   ^ v < >  stairs / ramps (the arrow points uphill)
+//   d  doorway (a floor cell with a frame)
+//   D  portcullis / grille: closed until a crank or a script opens it (a group of connected D and B cells)
+//   B  breakable wall (the tank's entrance): a `D` group the script opens with debris
+//   _  outside (the roof: beyond the parapet; no floor; never pathed)
+//   S  the start,  E  the exit (stairs up -> the next level; reaching it emits `levelDone`)
 // Heights: an optional second plan of the same size; a digit = floor height in `heightStep` metres, anything else = 0.
-//   For a block it is the height its foot stands at.
-// Tops: an optional third plan of the same size; on a block ('#' or 'H') a character from config world.tops = how tall
-//   the block is above its foot (e.g. '2' low cover you can jump onto, '9' a tower). '.' or no plan = blockTop.
-//   Anything but '.' on a cell that is not a block is an error.
+// Tops: an optional third plan; on a wall cell a character from config world.tops = how tall it is above its foot.
+//
+// Known leftovers WP5 removes with the grid rewrite: `Grid.blocks` (always empty now), the niche cell kind and `roofs`
+// (rooms build them for now).
 
 /** [col, row] on the plan. */
 export type Cell = readonly [number, number]
@@ -32,175 +27,143 @@ export type Cell = readonly [number, number]
 /** A wall side of a cell: the wall a device is mounted on, or a facing. */
 export type Side = 'n' | 'e' | 's' | 'w'
 
-export interface VideoCameraDef {
-  kind: 'videoCamera'
+export type MonsterKindId = 'rat' | 'spider' | 'beetle' | 'zombie' | 'skeleton' | 'witch' | 'gremlin' | 'bat' | 'ghost'
+
+/**
+ * A room: a rectangle of cells (corners inclusive) with its ceiling, camera zone and dressing. Every floor cell lies in
+ * exactly one room. Rooms build the ceilings (physics and view) and tell the camera how tall the space is.
+ */
+export interface RoomDef {
   id: string
-  at: Cell
-  /** Mounted on this wall of the cell, looking away from it. */
-  wall: Side
-  /** The sweep, in degrees relative to looking straight out of the wall (positive = turned to the left when looking out). */
-  sweep: readonly [number, number]
-  /** Overrides config videoCamera.sweepPeriodSec. */
-  periodSec?: number
-  /** Start phase 0..1 of the sweep. */
-  phase?: number
+  from: Cell
+  to: Cell
+  /** The ceiling's underside above the room's floor, m. */
+  ceiling: number
+  kind: 'hall' | 'room' | 'corridor' | 'stair' | 'roof'
+  wall?: 'panel' | 'stone' | 'paper'
+  floor?: 'oak' | 'marble' | 'carpet'
 }
 
-export interface SoundCameraDef {
-  kind: 'soundCamera'
-  id: string
-  at: Cell
-  wall: Side
+/** A stage's objective (DESIGN 2, 6). */
+export type StageObjective =
+  | { kind: 'crank'; id: string }
+  | { kind: 'reach'; from: Cell; to: Cell }
+  | { kind: 'tank' }
+  | { kind: 'holdout' }
+
+/** A pinch ambush: fires once when the player enters the rectangle. */
+export interface AmbushDef {
+  trigger: { from: Cell; to: Cell }
+  /** Spawn point ids that send the packs. */
+  points: readonly string[]
+  packs: readonly { kind: MonsterKindId; count: number }[]
 }
 
-export interface MotionSensorDef {
-  kind: 'motionSensor'
+/** A piece of the level the player fights through: the director profile and the active spawn points change with it. */
+export interface StageDef {
   id: string
-  at: Cell
-}
-
-export interface DroneDef {
-  kind: 'drone'
-  id: string
-  /** Patrol waypoints, looped. The drone starts at the first one. */
-  patrol: readonly Cell[]
-}
-
-export interface LaserDef {
-  kind: 'laser'
-  id: string
-  /** Any cell of the connected group of '=' cells. */
-  at: Cell
-}
-
-export interface RedWallDef {
-  kind: 'redWall'
-  id: string
-  /** Any cell of the connected group of 'D' cells. */
-  at: Cell
-}
-
-export interface TerminalDef {
-  kind: 'terminal'
-  id: string
-  at: Cell
-  /** Ids of what it controls: red walls open for good; lasers, drones, wardens and cameras (video or sound) are paused for terminal.pauseSec. */
-  targets: readonly string[]
-  /** 0..1, passed to the hacking mini-game. */
-  difficulty: number
-  /** Solving it is May's entrance (DESIGN 10): the first time, the core sets `mayMet` and emits `mayMet`. */
-  meetsMay?: boolean
+  /** Entering this rectangle (cells, corners inclusive) starts the stage. */
+  trigger: { from: Cell; to: Cell }
+  /** Where a death puts the hero back (the stage start), and where they look. */
+  respawn: Cell
+  facing: Side
+  /** A key of config director.profiles. */
+  profile: string
+  /** The ids of the spawn points active in this stage. */
+  spawns: readonly string[]
+  objective?: StageObjective
+  /** Ids of `sleepers` entities placed (asleep) in this stage. */
+  sleepers?: readonly string[]
+  ambush?: readonly AmbushDef[]
+  /** Spawn point ids allowed to send packs ahead of the player (pinch ambushes). */
+  ahead?: readonly string[]
 }
 
 /**
- * A spawn gate: a hatch alarm drones fly in through (and leave by). `at` is the floor cell in front of it; `wall` is
- * the side of that cell it is cut into: n/e/s/w = into the slab on that side; 'down' = a hatch in the floor of the
- * cell; 'up' (the default) = from above: a hatch in the roof over the cell, or in the open a portal in the sky.
+ * A spawn point: where monsters come from. `at` is the floor cell in front of it; `wall` is the side of that cell it is
+ * cut into: n/e/s/w = into the wall on that side (a window, a fireplace, a broken door, a wall for ghosts); 'down' = a
+ * crack in the floor; 'up' = an opening overhead (the roof's edge).
  */
-export interface SpawnDef {
+export interface SpawnPointDef {
   kind: 'spawn'
-  at: Cell
-  wall?: Side | 'up' | 'down'
-}
-
-/**
- * A server block: a solid box standing on the floor that you crouch behind. Tall enough to hide a crouched hero from
- * cameras and drones by geometry alone, low enough that a standing hero's head and shoulders show over it.
- */
-export interface CoverDef {
-  kind: 'cover'
-  /** The plan cell it stands in (its floor height is used). */
-  at: Cell
-  /** Width along x, depth along z, height, metres. */
-  size: readonly [number, number, number]
-  /** Shift of its centre from the cell centre, metres (x, z). */
-  offset?: readonly [number, number]
-}
-
-/**
- * A hex module (NF4): a solid hexagonal prism standing on the floor - low ones to crouch behind, tall ones as towers.
- * Two corners point along x (east-west), two flat sides face north and south. Mixes freely with `cover` boxes and slabs.
- */
-export interface HexDef {
-  kind: 'hex'
-  /** The plan cell it stands in (its floor height is used). */
-  at: Cell
-  /** Centre to corner, metres. */
-  radius: number
-  /** Height above its floor, metres. */
-  height: number
-  /** Shift of its centre from the cell centre, metres (x, z). */
-  offset?: readonly [number, number]
-  /** Names the module, for mechanics that move it later (sliding modules); unused by the rules so far. */
-  id?: string
-}
-
-/**
- * A landmark (view only): the glowing core tower far away that shows where the level's goal is. `at` may lie outside
- * the plan (it usually does); its foot stands at `base` metres (default: far below, in the void).
- */
-export interface LandmarkDef {
-  kind: 'landmark'
-  at: Cell
-  /** Top above y = 0, metres. */
-  height: number
-  /** Footprint half width, metres. */
-  radius: number
-  base?: number
-}
-
-/** A stop on a warden's route. */
-export interface WardenStop {
-  at: Cell
-  /** Stand here about this long, s (varied a little each time). Absent or 0: walk on (now and then it pauses anyway). */
-  waitSec?: number
-  /** While standing here, face this way: a side, or a yaw in degrees (0 = south / +z, 90 = east / +x). */
-  look?: Side | number
-}
-
-/**
- * A warden: a walking sentinel program (a guard, separate from the drones). It walks its `route` (looped, starting
- * at `at`), or without a route keeps its post at `at`, facing `post`. It sees in a forward cone that follows its
- * head, hears noise, investigates, and fights in melee or with a slow arm shot when it spots you.
- */
-export interface WardenDef {
-  kind: 'warden'
   id: string
   at: Cell
-  route?: readonly WardenStop[]
-  /** The facing at its post (no route). Default: south. */
-  post?: Side
-  /** A heavy warden: more hit points, slower, a frontal shield against rifle bolts. */
-  heavy?: boolean
+  wall: Side | 'up' | 'down'
+  type: 'window' | 'fireplace' | 'crack' | 'door' | 'wall' | 'edge'
+  look?: 'fire' | 'web' | 'roots' | 'rubble'
 }
 
-/**
- * A finding spot (story hook, not used by the rules yet): where a fragment of Jim's notes lies - an optional reward on a
- * guarded line. `textKey` names the text (texts/en.json) the narrative agent writes.
- */
-export interface FindingDef {
-  kind: 'finding'
+export interface MedkitDef {
+  kind: 'medkit'
+  at: Cell
+}
+
+export interface MannequinDef {
+  kind: 'mannequin'
+  at: Cell
+  facing: Side
+}
+
+export interface ChandelierDef {
+  kind: 'chandelier'
+  at: Cell
+  /** Hanging height above the floor, m. */
+  height: number
+  /** When it falls, the debris blocks these cells (an obstacle for the later retreat line). */
+  debris: { from: Cell; to: Cell }
+}
+
+export interface LetterDef {
+  kind: 'letter'
+  at: Cell
+}
+
+export interface CrankDef {
+  kind: 'crank'
   id: string
   at: Cell
-  textKey?: string
+  wall: Side
+  /** The id of the portcullis it opens. */
+  opens: string
 }
 
-export type EntityDef =
-  | VideoCameraDef
-  | SoundCameraDef
-  | MotionSensorDef
-  | DroneDef
-  | LaserDef
-  | RedWallDef
-  | TerminalDef
-  | SpawnDef
-  | CoverDef
-  | HexDef
-  | LandmarkDef
-  | WardenDef
-  | FindingDef
+export interface PortcullisDef {
+  kind: 'portcullis'
+  id: string
+  /** Any cell of the connected group of 'D' (or 'B') cells. */
+  at: Cell
+}
 
-/** A roof over a rectangle of cells (corners inclusive): the only ceilings in the open city. */
+export interface TankDef {
+  kind: 'tank'
+  at: Cell
+  /** The id of a 'B' group it breaks through first. */
+  breaks?: string
+}
+
+/** The packed corridor of L2: monsters that stand asleep until woken by proximity, a hit or the stage script. */
+export interface SleeperDef {
+  kind: 'sleepers'
+  id: string
+  from: Cell
+  to: Cell
+  monster: MonsterKindId
+  count: number
+}
+
+/** Dressing (view only): portraits, trophies, pumpkins. */
+export interface DecorDef {
+  kind: 'decor'
+  model: string
+  at: Cell
+  wall?: Side
+  offset?: readonly [number, number]
+  yaw?: number
+}
+
+export type EntityDef = SpawnPointDef | MedkitDef | MannequinDef | ChandelierDef | LetterDef | CrankDef | PortcullisDef | TankDef | SleeperDef | DecorDef
+
+/** A roof over a rectangle of cells (corners inclusive): built from the rooms' ceilings. */
 export interface RoofDef {
   from: Cell
   to: Cell
@@ -208,59 +171,30 @@ export interface RoofDef {
   height?: number
 }
 
-/**
- * An arena for the firewall (DESIGN 9): an alarm-3 lockdown is local. When its waves are cleared the firewall opens only
- * the red walls of the arena the player stands in (the nearest one when in a passage), and the alarm resets at the next
- * checkpoint. A level without `arenas` keeps the old rule: the firewall opens every red wall.
- */
-export interface ArenaDef {
-  id: string
-  /** Corner cells of the arena's rectangle, inclusive. */
-  from: Cell
-  to: Cell
-  /** Ids of the red walls this arena's firewall opens. */
-  walls: readonly string[]
-  /** Waves of a lockdown here (default: config alarm.firewallAfterWaves). */
-  waves?: number
-}
-
-/**
- * A primer zone (a rectangle of cells, inclusive): a safe teaching spot. A violation inside it does not raise the alarm
- * stage (whoever saw you still investigates).
- */
-export interface PrimerDef {
-  id: string
-  from: Cell
-  to: Cell
-}
-
 export interface LevelDef {
   id: string
   /** Key of the level name in texts/en.json. */
   nameKey: string
-  /** Size of one plan cell, metres. */
+  /** Size of one plan cell, metres (PLAN: 1 m; fall back to 2 m if something breaks - only level data differs). */
   cell: number
   heightStep: number
-  /**
-   * The nominal room height above y = 0, metres: the default height of roofs, red walls and the artifact's beam.
-   * The open city has no ceiling - only `roofs` have one.
-   */
+  /** The nominal room height above y = 0, metres: the default ceiling of a room without one. */
   ceiling: number
-  /** How tall a block ('#', 'H') is above its foot when its `tops` character is '.' (or there is no tops plan). */
+  /** How tall a wall ('#') is above its foot when its `tops` character is '.' (or there is no tops plan). */
   blockTop?: number
-  /** Low cover height above its floor. */
+  /** Low furniture height above its floor. */
   coverHeight: number
-  /** Niche roof height above its floor. */
+  /** Niche roof height above its floor (leftover, unused). */
   nicheHeight: number
   /** Initial facing at the start (where the camera looks). */
   startFacing: Side
-  /** May is already there from the first second (no meeting): the old test level. */
-  mayFromStart?: boolean
   plan: readonly string[]
   heights?: readonly string[]
   tops?: readonly string[]
   roofs?: readonly RoofDef[]
-  arenas?: readonly ArenaDef[]
-  primers?: readonly PrimerDef[]
+  rooms: readonly RoomDef[]
+  /** The retreat path through the level (a polyline of cells): the director's "front", the bot's route, the medkit check. */
+  route: readonly Cell[]
+  stages: readonly StageDef[]
   entities: readonly EntityDef[]
 }

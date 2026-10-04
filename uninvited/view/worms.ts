@@ -6,7 +6,7 @@
 // Everything is instanced (one draw call per part for all worms) and built once; updating never allocates.
 import { BoxGeometry, Color, ConeGeometry, Group, IcosahedronGeometry, InstancedMesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, SphereGeometry, TorusGeometry, Vector3 } from 'three'
 import cfgAll from '../config.json'
-import { gameTime, wormWindup, worms } from '../core/queries'
+import { gameTime, monsters as worms, monsterWindup as wormWindup } from '../core/queries'
 import type { GameState, Sim } from '../core/state'
 import { addRim, hdr, type Materials } from './look'
 

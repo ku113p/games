@@ -3,7 +3,7 @@
 // by indices. hasFloor() is the one place that says where a walker may stand (wardens, worms, the bot): never in a
 // block, never over the void.
 import type { WorldConfig } from './config'
-import type { Cell, CoverDef, HexDef, LevelDef, Side, WardenDef } from './level'
+import type { Cell, LevelDef, Side } from './level'
 
 export const CellKind = {
   Wall: 0,
@@ -11,11 +11,8 @@ export const CellKind = {
   Cover: 2,
   Ramp: 3,
   Niche: 4,
-  Laser: 5,
   RedWall: 6,
-  Terminal: 7,
-  Checkpoint: 8,
-  Artifact: 9,
+  Exit: 9,
   Start: 10,
   Void: 11,
 } as const
@@ -23,7 +20,9 @@ export type CellKind = (typeof CellKind)[keyof typeof CellKind]
 
 const CHAR_KIND: Record<string, CellKind> = {
   '#': CellKind.Wall,
-  H: CellKind.Wall,
+  W: CellKind.Wall,
+  F: CellKind.Wall,
+  X: CellKind.Wall,
   _: CellKind.Void,
   '.': CellKind.Floor,
   '~': CellKind.Cover,
@@ -32,11 +31,10 @@ const CHAR_KIND: Record<string, CellKind> = {
   '<': CellKind.Ramp,
   '>': CellKind.Ramp,
   n: CellKind.Niche,
-  '=': CellKind.Laser,
+  d: CellKind.Floor,
   D: CellKind.RedWall,
-  T: CellKind.Terminal,
-  C: CellKind.Checkpoint,
-  A: CellKind.Artifact,
+  B: CellKind.RedWall,
+  E: CellKind.Exit,
   S: CellKind.Start,
 }
 
@@ -57,17 +55,14 @@ export interface Grid {
   h0: Float32Array
   /** Floor height at the high-coordinate edge (east / south). */
   h1: Float32Array
-  /** Group id per cell for '=' and 'D' cells (connected groups), -1 elsewhere. */
+  /** Group id per cell for 'D' and 'B' cells (connected groups: portcullises, breakable walls), -1 elsewhere. */
   group: Int16Array
   start: number
-  artifact: number
-  checkpoints: number[]
-  terminals: number[]
-  /** Cells of each connected group of '=' cells, in group order. */
-  laserGroups: number[][]
-  /** Cells of each connected group of 'D' cells. */
+  /** The exit cell (E), -1 when the level has none. */
+  exit: number
+  /** Cells of each connected group of 'D' / 'B' cells (portcullises and breakable walls), in group order. */
   wallGroups: number[][]
-  /** Server blocks and hex modules (the level's `cover` and `hex` entities) as world boxes. */
+  /** Solid boxes standing on the floor: always empty since the pivot (the level format has no cover or hex entities); WP5 removes it. */
   blocks: Block[]
   /**
    * The highest solid surface in each cell: a block's top ('#', 'H'), the low cover's top ('~'), the floor (the
@@ -326,10 +321,7 @@ export function buildGrid(def: LevelDef, world?: WorldConfig): Grid {
     h1: new Float32Array(n),
     group: new Int16Array(n).fill(-1),
     start: -1,
-    artifact: -1,
-    checkpoints: [],
-    terminals: [],
-    laserGroups: [],
+    exit: -1,
     wallGroups: [],
     blocks: [],
     top: new Float32Array(n),
@@ -359,7 +351,6 @@ export function buildGrid(def: LevelDef, world?: WorldConfig): Grid {
       const h = hc >= '0' && hc <= '9' ? Number(hc) * def.heightStep : 0
       g.h0[i] = h
       g.h1[i] = h
-      if (ch === 'H') g.hex[i] = 1
       const tc = tline?.[c] ?? '.'
       if (tc !== '.' && k !== CellKind.Wall) throw new Error(`level ${def.id}: tops '${tc}' at [${c}, ${r}] is not on a block ('#' or 'H')`)
       let tall = blockTop
@@ -370,13 +361,10 @@ export function buildGrid(def: LevelDef, world?: WorldConfig): Grid {
       }
       g.top[i] = k === CellKind.Wall ? h + tall : k === CellKind.Cover ? h + def.coverHeight : h
       if (k === CellKind.Start) g.start = i
-      if (k === CellKind.Artifact) g.artifact = i
-      if (k === CellKind.Checkpoint) g.checkpoints.push(i)
-      if (k === CellKind.Terminal) g.terminals.push(i)
+      if (k === CellKind.Exit) g.exit = i
     }
   }
   if (g.start < 0) throw new Error(`level ${def.id}: no start (S)`)
-  if (g.artifact < 0) throw new Error(`level ${def.id}: no artifact (A)`)
   // Ramp runs: slope linearly between the flat cells at both ends.
   for (let i = 0; i < n; i++) {
     const axis = g.rampAxis[i] as RampAxis
@@ -412,38 +400,16 @@ export function buildGrid(def: LevelDef, world?: WorldConfig): Grid {
   g.bottom = (Number.isFinite(lowest) ? lowest : 0) - (world?.voidDepth ?? def.ceiling)
   for (let i = 0; i < n; i++) if (g.kind[i] === CellKind.Void) g.top[i] = g.bottom
   for (const roof of def.roofs ?? []) g.roofs.push(roofOf(g, def, roof.from, roof.to, roof.height ?? def.ceiling))
-  for (let i = 0; i < n; i++) {
-    if (g.group[i] !== -1) continue
-    if (g.kind[i] === CellKind.Laser) g.laserGroups.push(flood(g, i, CellKind.Laser, g.laserGroups.length))
+  // every room except the open roof has a ceiling over its rectangle
+  for (const room of def.rooms) {
+    if (room.kind === 'roof') continue
+    g.roofs.push(roofOf(g, def, room.from, room.to, (g.h0[cellIndex(g, room.from[0], room.from[1])] as number) + room.ceiling))
   }
   for (let i = 0; i < n; i++) {
     if (g.group[i] !== -1) continue
     if (g.kind[i] === CellKind.RedWall) g.wallGroups.push(flood(g, i, CellKind.RedWall, g.wallGroups.length))
   }
-  for (const e of def.entities) if (e.kind === 'cover') g.blocks.push(blockOf(g, def, e))
-  for (const e of def.entities) if (e.kind === 'hex') g.blocks.push(hexOf(g, def, e))
-  for (const e of def.entities) if (e.kind === 'warden') checkWarden(g, def, e)
   return g
-}
-
-const SIDES: readonly string[] = ['n', 'e', 's', 'w']
-
-/** A warden stands and walks on open floor; its looks and facing must be real directions. */
-function checkWarden(g: Grid, def: LevelDef, e: WardenDef): void {
-  const where = (c: Cell): string => `level ${def.id}: warden ${e.id} at [${c[0]}, ${c[1]}]`
-  const onFloor = (c: Cell, what: string): void => {
-    const k = kindAt(g, c[0], c[1])
-    if (k === CellKind.Wall || k === CellKind.Cover || k === CellKind.Niche || k === CellKind.RedWall || k === CellKind.Void)
-      throw new Error(`${where(c)}: its ${what} must be on open floor (not a wall, low cover, niche, red wall or the void)`)
-  }
-  onFloor(e.at, 'start')
-  if (e.route && e.post) throw new Error(`${where(e.at)}: give either a route or a post, not both`)
-  if (e.post !== undefined && !SIDES.includes(e.post)) throw new Error(`${where(e.at)}: post must be one of n, e, s, w`)
-  for (const stop of e.route ?? []) {
-    onFloor(stop.at, 'route stop')
-    if (stop.waitSec !== undefined && !(stop.waitSec >= 0)) throw new Error(`${where(stop.at)}: waitSec must be 0 or more`)
-    if (typeof stop.look === 'string' && !SIDES.includes(stop.look)) throw new Error(`${where(stop.at)}: look must be n, e, s, w or degrees`)
-  }
 }
 
 function roofOf(g: Grid, def: LevelDef, from: Cell, to: Cell, y: number): Roof {
@@ -462,35 +428,10 @@ function roofOf(g: Grid, def: LevelDef, from: Cell, to: Cell, y: number): Roof {
   return { minX: c0 * g.cell, minZ: r0 * g.cell, maxX: (c1 + 1) * g.cell, maxZ: (r1 + 1) * g.cell, y }
 }
 
-function hexOf(g: Grid, def: LevelDef, e: HexDef): Block {
-  const [c, r] = e.at
-  const k = kindAt(g, c, r)
-  if (k === CellKind.Wall || k === CellKind.Void) throw new Error(`level ${def.id}: hex module at [${c}, ${r}] must stand on a floor cell`)
-  if (!(e.radius > 0 && e.height > 0)) throw new Error(`level ${def.id}: hex module at [${c}, ${r}] needs a positive radius and height`)
-  const x = cellCenterX(g, c) + (e.offset?.[0] ?? 0)
-  const z = cellCenterZ(g, r) + (e.offset?.[1] ?? 0)
-  const y = cellFloor(g, cellIndex(g, c, r))
-  const hz = (e.radius * SQRT3) / 2
-  return { minX: x - e.radius, minZ: z - hz, maxX: x + e.radius, maxZ: z + hz, minY: y, maxY: y + e.height, hex: true }
-}
-
-function blockOf(g: Grid, def: LevelDef, e: CoverDef): Block {
-  const [c, r] = e.at
-  const k = kindAt(g, c, r)
-  if (k === CellKind.Wall) throw new Error(`level ${def.id}: server block at [${c}, ${r}] stands in a wall cell`)
-  if (k === CellKind.Void) throw new Error(`level ${def.id}: server block at [${c}, ${r}] stands over the void`)
-  const [w, d, h] = e.size
-  if (!(w > 0 && d > 0 && h > 0)) throw new Error(`level ${def.id}: server block at [${c}, ${r}] needs a positive size`)
-  const x = cellCenterX(g, c) + (e.offset?.[0] ?? 0)
-  const z = cellCenterZ(g, r) + (e.offset?.[1] ?? 0)
-  const y = cellFloor(g, cellIndex(g, c, r))
-  return { minX: x - w / 2, minZ: z - d / 2, maxX: x + w / 2, maxZ: z + d / 2, minY: y, maxY: y + h }
-}
-
-/** The group index of the '=' or 'D' group that contains a plan cell; throws if the cell is not one. */
-export function groupAt(g: Grid, at: Cell, kind: typeof CellKind.Laser | typeof CellKind.RedWall, what: string): number {
+/** The group index of the portcullis ('D' / 'B') group that contains a plan cell; throws if the cell is not one. */
+export function groupAt(g: Grid, at: Cell, what: string): number {
   const i = cellIndex(g, at[0], at[1])
-  if (g.kind[i] !== kind) throw new Error(`${what}: cell [${at[0]}, ${at[1]}] is not a ${kind === CellKind.Laser ? "'='" : "'D'"} cell`)
+  if (g.kind[i] !== CellKind.RedWall) throw new Error(`${what}: cell [${at[0]}, ${at[1]}] is not a 'D' or 'B' cell`)
   return g.group[i] as number
 }
 

@@ -5,11 +5,16 @@
 import cfgAll from '../config.json'
 import texts from '../texts/en.json'
 import { renderKeys } from './hud'
-import { holdSec } from './may-queue'
 import { STORY_ART } from './story-art'
 import type { Move, StorySpec, StoryShot } from './story-data'
 
 const C = cfgAll.story
+
+/** How long a shot's text is held: a base time plus a share per word (about 170 words a minute). */
+function holdSec(text: string, perWord: number, base: number): number {
+  const words = text.split(/\s+/).filter((w) => w.length > 0).length
+  return base + words * perWord
+}
 
 export const STORY_CSS = `
 .story { position: fixed; inset: 0; z-index: 200; background: #000; pointer-events: auto; cursor: pointer; overflow: hidden; opacity: 0; transition: opacity ${C.fadeInSec}s; }

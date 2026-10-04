@@ -1,8 +1,8 @@
 // Runs the in-game benchmark (`?bench=`, see view/bench.ts) in a headless browser, prints a table and saves the JSON.
-//   bun tools/bench.ts [scenario=all] [--level l1|slice] [--url http://localhost:3330] [--sec N] [--compare] [--gpu] [--profile]
+//   bun tools/bench.ts [scenario=all] [--level box|l1] [--url http://localhost:3330] [--sec N] [--compare] [--gpu] [--profile]
 // --alloc: a sampling heap profile (who allocates), prints the top allocation sites.
 // --profile: a CPU profile of the run (CDP), prints the functions with the most self time (JS side; GL calls show as native).
-// Scenarios: idle scan scan-walk scan-still scan-off wave fx fx-sword fx-shots fx-worm fx-drone fx-warden fx-hurt fx-audio fx-hud soak all (all = no soak).
+// Scenarios: idle horde fx fx-sword fx-shots fx-monster fx-hurt fx-audio fx-hud soak all (all = no soak).
 // Results: bench/results/<date>-<scenario>-<level>.json (gitignored). --compare diffs against the previous file of the same scenario.
 // Headless Chrome renders with SwiftShader (software GL): read the trends, spikes and counts, NOT the absolute frame
 // times. The real numbers come from opening the same ?bench= URL in a real browser on a real GPU.
@@ -15,7 +15,7 @@ const flag = (n: string): string | undefined => {
   return i >= 0 ? argv[i + 1] : undefined
 }
 const scenario = argv.find((a, i) => !a.startsWith('--') && !(i > 0 && argv[i - 1]?.startsWith('--') && ['--level', '--url', '--sec', '--w', '--h', '--q'].includes(argv[i - 1] as string))) ?? 'all'
-const level = flag('--level') ?? 'l1'
+const level = flag('--level') ?? 'box'
 const base = flag('--url') ?? 'http://localhost:3330'
 const sec = flag('--sec')
 const compare = argv.includes('--compare')

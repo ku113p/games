@@ -9,10 +9,10 @@ import cfgAll from '../config.json'
 export const TIPS_CFG = cfgAll.tips
 
 /** Highest priority first. */
-export const PROMPT_IDS = ['terminal', 'redWall', 'camera', 'sensor', 'sound', 'warden', 'cover', 'aim', 'dash'] as const
+export const PROMPT_IDS = ['charge', 'aim', 'strike', 'reload'] as const
 export type PromptId = (typeof PROMPT_IDS)[number]
 
-export const CARD_IDS = ['quiet', 'netvision', 'hacking', 'alarm', 'aim'] as const
+export const CARD_IDS = ['aim', 'strike', 'crank', 'letter'] as const
 export type CardId = (typeof CARD_IDS)[number]
 
 export interface PrompterConfig {

@@ -1,4 +1,4 @@
-// Renderer, scene, post-processing: the glossy-floor mirror pass, bloom that halos the thin neon lines, and a final
+// Renderer, scene, post-processing: bloom, and a final
 // pass for exposure and the grade (per-channel highlight roll-off keeps neon saturated, a black point keeps the
 // darkness deep), vignette, the alarm's red edge pulse, hurt flash, network-vision tint and the glitch.
 // Plus a small baked environment so glossy black reflects neon.
@@ -27,7 +27,6 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import cfgAll from '../config.json'
 import { palette } from './look'
-import { createMirror, type Mirror } from './reflect'
 
 const V = cfgAll.view
 const P = V.post
@@ -75,8 +74,6 @@ export interface Renderer {
   renderer: WebGLRenderer
   scene: Scene
   camera: PerspectiveCamera
-  /** The glossy floor's reflection. */
-  mirror: Mirror
   /** 0..1 effect strengths, set by the game view each frame; reflectY = the mirror plane height; fade = black. */
   fx: { hurt: number; glitch: number; scan: number; alarm: number; reflectY: number; fade: number }
   render(time: number): void
@@ -117,9 +114,6 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   pmrem.dispose()
 
   const camera = new PerspectiveCamera(V.fov, innerWidth / innerHeight, 0.05, V.far)
-  const size = new Vector2()
-  renderer.getDrawingBufferSize(size)
-  const mirror = createMirror(V.corridor.reflectScale, size.x, size.y)
   const target = new WebGLRenderTarget(innerWidth, innerHeight, { type: HalfFloatType })
   const composer = new EffectComposer(renderer, target)
   composer.addPass(new RenderPass(scene, camera))
@@ -162,7 +156,6 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     renderer,
     scene,
     camera,
-    mirror,
     fx,
     render(time: number): void {
       ;(u['uTime'] as { value: number }).value = time
@@ -171,14 +164,11 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       ;(u['uScan'] as { value: number }).value = fx.scan
       ;(u['uAlarm'] as { value: number }).value = fx.alarm
       ;(u['uFade'] as { value: number }).value = fx.fade
-      mirror.render(renderer, scene, camera, fx.reflectY)
       composer.render()
     },
     resize(): void {
       renderer.setSize(innerWidth, innerHeight)
       composer.setSize(innerWidth, innerHeight)
-      renderer.getDrawingBufferSize(size)
-      mirror.setSize(size.x, size.y)
       bloom.resolution.set(innerWidth * V.bloom.scale, innerHeight * V.bloom.scale)
       ;(u['uRes'] as { value: Vector2 }).value.set(innerWidth, innerHeight)
       camera.aspect = innerWidth / innerHeight

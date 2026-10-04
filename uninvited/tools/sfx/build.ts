@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     ...library,
   ];
   for (const f of readdirSync(OUT_DIR)) {
-    if (f.endsWith(`.${ENCODER.ext}`) && !wanted.has(f)) rmSync(join(OUT_DIR, f));
+    if (f.endsWith(`.${ENCODER.ext}`) && !wanted.has(f) && !f.startsWith("hw_")) rmSync(join(OUT_DIR, f));
   }
   writeFileSync(MANIFEST, JSON.stringify(entries, null, 1));
 
@@ -227,7 +227,27 @@ ${entries.filter((e) => e.loop).map((e) => `| \`${e.file}\` | ${e.samples} |`).j
 Variants (\`_v1.._vN\`) are meant to be picked at random each time so repeats do not sound mechanical.
 Voices: one syllable per typed character (or every second character), random variant each time.
 
-${tables}`;
+${tables}\n${hwSection()}`;
+}
+
+/** The Halloween set (tools/sfx/hw.ts, files hw_*) is rendered by its own script; list it from hw-manifest.json. */
+function hwSection(): string {
+  const p = join(HERE, "hw-manifest.json");
+  if (!existsSync(p)) return "";
+  const es = JSON.parse(readFileSync(p, "utf8")) as { file: string; group: string; name: string; label: string; desc: string; seconds: number; loop: boolean; variants: number }[];
+  const groups = [...new Set(es.map((e) => e.group))];
+  const names = [...new Set(es.map((e) => e.name))];
+  const tables = groups.map((g) => {
+    const rows = names.map((n) => es.filter((e) => e.name === n && e.group === g)).filter((x) => x.length > 0).map((x) => {
+      const secs = x.map((e) => e.seconds);
+      const lo = Math.min(...secs).toFixed(2);
+      const hi = Math.max(...secs).toFixed(2);
+      const files = x.length > 1 ? `\`${x[0]!.name}_v1..v${x.length}\`` : `\`${x[0]!.name}\``;
+      return `| ${files} | ${lo === hi ? lo : `${lo}-${hi}`} s${x[0]!.loop ? " (loop)" : ""} | ${x[0]!.desc} |`;
+    });
+    return `#### ${g}\n\n| File | Length | What it is |\n| --- | --- | --- |\n${rows.join("\n")}\n`;
+  });
+  return `### Halloween mansion set (hw_*)\n\nCandidates for the horde game, rendered by \`bun tools/sfx/hw.ts [word]\` (own synth recipes in \`hw.ts\`/\`recipes.ts\` plus Kenney CC0 impact layers; manifest in \`tools/sfx/hw-manifest.json\`). \`build.ts\` leaves \`hw_*\` files alone and lists them here.\n\n${tables.join("\n")}`;
 }
 
 await main();

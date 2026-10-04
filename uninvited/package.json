@@ -12,10 +12,6 @@
     "build": "bun scripts/music-manifest.ts && bun build index.html --outdir dist/uninvited --minify",
     "spike": "bun --port 3320 spike/index.html",
     "spike:build": "bun build spike/index.html --outdir dist/spike --minify",
-    "test:room": "bun tools/serve.ts 3325 tests/room-fp/index.html",
-    "test:engine-room": "bun tools/serve.ts 3323 tests/engine-room/index.html",
-    "test:hack": "bun tools/serve.ts 3327 tests/hack/index.html",
-    "bot": "bun tools/slice-bot.ts",
     "music:manifest": "bun scripts/music-manifest.ts",
     "music:placeholders": "bun tools/music/build.ts && bun scripts/music-manifest.ts"
   },
