@@ -71,11 +71,15 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
 - Enclosed office set replacing A3/A4/P2-P5: O3 master, O4 empty plate, OP2 Jim at the door, OP3 over Johnny's shoulder, OP4 Steve, OP5 leaving with the box.
 - The Microsoft model's safety filter falsely blocks some prompts; the runner falls back to Gemini 3.1 Flash Image automatically.
 
-### Next (after the designer chose first person, 2026-10-04)
+### Round 3 (2026-10-04): first-person real world, key art in the NN1 look
 
-- The real world is seen in **first person** with no animated character. The room and office plates (A1/A2, O3/O4) are third-person shots
-  and need first-person versions: the view from Johnny's chair at the rig, and from his desk in the cubicle (Jim at the door, OP2, is already a POV shot).
-  Not generated yet - waits for the designer's go.
+- The real world is seen in **first person** with no animated character (DESIGN.md section 5).
+- FP2 room plate from Johnny's chair (MAI-Image-2.6, ref A2; the Gemini edit FP1 kept an empty chair in the middle and was dropped).
+  `FP2-room-fp-depth.png` - its depth map from Depth Anything V2 Small (Apache-2.0; the Base model is non-commercial and was not used), run locally through transformers.js, for parallax and focus.
+- Close-ups with Johnny's hands (MAI-2.6-flash, ref FP2): CU1 water, CU2 noodles, CU3 tablet (an empty screen; news is overlaid in HTML), CU4 headset.
+- KA2 key art in the matte saturated NN1 look (MAI-2.6-flash, refs NN1, hero-1, enemy-1); a MAI-2.6 version was more photographic and dropped.
+  K2 cover 4:3 from KA2. These replace A5 and K1.
+- The office plates (O3/O4) are still third-person; first-person office shots come with the prologue work (OP2 is already a POV shot).
 
 ### D. Not now
 
