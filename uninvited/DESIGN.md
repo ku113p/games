@@ -29,9 +29,9 @@ Third person, browser, PC, keyboard and mouse.
 - **The gun charges only from monsters:** a sword kill charges the gun (picked up automatically). No ammo on the level. Reload exists.
 - Why both modes: the sword is for the crowd; the gun for single targets you cannot reach; only the gun takes ghosts; bats are fast and hard to hit with the gun, but you can always jump up to them and cut them in the air.
 - **Start:** the gun is empty, only the sword. A sword kill shows a hint: the gun is charged. This must be taught at the start.
-- ❓ Lore: what the gun shoots (monster blood? something else) - the designer decides later.
+- **Lore: the hunters' family secret.** Rune magic: the weapon feeds on the unclean - the runes on the blade light up, the charge turns to silver (the exact look does not matter). It is revealed at the start of L2: a book (or similar) lies there and can be clicked; L2 opens with a short pause, and once the hero moves some distance away the fight starts.
 - **Getting out of a crowd:** no dodge. Clear yourself with the sword. One skill: a **wide circular sword strike** on a long cooldown.
-- The shooting feel from the old build stays (camera kick, FOV punch, trauma, bolts, hit marks, the "tu-tu-tu" sound - the sound gets a light rework).
+- The combat feel from the old build stays (camera kick, FOV punch, trauma, bolts, hit marks - "you feel that you are fighting"). The sounds change for the new weapon: a revolver-like shot, a chopping sword.
 
 ## 4. Health and death
 
@@ -49,21 +49,22 @@ Mostly a crowd of weak ones that overwhelm by mass. About 10 % attack from range
 | Flyers | bats | fly in (through windows), bite and fly off; fast, hard to hit with the gun; **you can always jump up to them and cut them with the sword in the air** |
 | Flyers | ghosts | come **through walls**; **gun only**; only a few |
 | Ranged (~10 %) | witches (throw potions), gremlins/goblins (throw things) | attack from range |
-| Heavy | the tank (as in Left 4 Dead) | just cut/shoot it down; weak spots (eyes, belly - more damage); **grabs the hero, hits a few times and throws them**; **one per level, near the level's end** |
+| Heavy | the tank (as in Left 4 Dead) | just cut/shoot it down; weak spots (eyes, belly - more damage); **grabs the hero, hits a few times and throws them**; **no tank in L1**; tanks on the roof, backed by a few nasty witches or gremlins |
 
 - The look: concepts `MO-a...j`, all approved.
 
 ## 6. Levels
 
-- **3-4 floors, 3-5 minutes each.** Floors differ by **how the monsters come**, not by a separate style.
+- **Levels: L1, L2 and the roof** (the designer, 2026-10-05), 3-5 minutes each. Floors differ by **how the monsters come**, not by a separate style.
+- **Every level brings an enemy not seen before.** ❓ Which where (the agent's proposal: L1 - rats, zombies, bats, witches; L2 - + spiders, skeletons, ghosts, gremlins; the roof - + beetles and tanks).
 - **L1 - the hall.** A wide hall: the tutorial, then the first raids; it slowly prepares you to leave into the corridor. The end of L1: leave the hall through a corridor up to the second floor; the corridor is harder, faster reactions.
 - **L2 - the second floor.** Corridors, real small rooms, the library. The key moment: a corridor so packed you cannot just walk through - you must **cut your way forward with the sword** while a hard-to-kill wave pushes from behind; you keep going deeper.
-- ❓ L3 (and L4 if any) - the designer sorts it out later.
+- **If there is time - an L3 before the finale:** the hero falls down into the cellar (below ground), and there it is total hell too.
 - **The finale - the roof.** Hold out: monsters climb from everywhere, the spawn points multiply, you fall back to the centre. At first the helicopter is **gone** - someone already flew off in it. Then the helicopter sound slowly approaches ("is someone really coming for me?"). It saves you when there is no time left at all. Reference: the last mission of Warcraft III - at first you are in control, by the end it is total hell, and only the timer saves you.
   - **The timer is hidden.** On death only a percentage shows: "you got 80 % of the way".
 - Broken doors the monsters come through are impassable (burning, collapsed, webs, roots). Windows are visible. Fun antourage: hunter portraits, trophies, weapons on the walls.
-- **The L1 layout - option A "Long Hall"** (the designer, 2026-10-05; sketch `art/halloween/L1-A-long-hall.jpg`). A 28 x 52 m hall on one axis. The letter draws the player to the front door, the horde enters there; the retreat goes through **clear fallback lines** (fallen chandelier -> overturned table -> dais), a medkit behind each. On the dais - the **portcullis crank** under pressure. Then the hunters' gallery narrows to 4 m (a pinch: front and back). **The tank breaks the wall out of the burning kitchen** before the stairs, the horde behind. Up the stairs -> L2. About 4:20. Stages (restart points): start, C1, C2, C3.
-- **Who is in L1:** rats, zombies, bats, **about 4 ranged** (witches; gremlins allowed too) - not bosses, they just shoot now and then and get in the way - and the tank at the end. Spiders, beetles, skeletons, ghosts and gremlins are not cut: they come on later floors (or in L1 if the designer says so).
+- **The L1 layout - option A "Long Hall"** (the designer, 2026-10-05; sketch `art/halloween/L1-A-long-hall.jpg`). A 28 x 52 m hall on one axis. The letter draws the player to the front door, the horde enters there; the retreat goes through **clear fallback lines** (fallen chandelier -> overturned table -> dais), a medkit behind each. On the dais - the **portcullis crank** under pressure. Then the hunters' gallery narrows to 4 m (a pinch: front and back). ~~The tank breaks the wall out of the burning kitchen~~ - no tank in L1 (the designer, 2026-10-05); ❓ what replaces this moment before the stairs. Up the stairs -> L2. About 4:20. Stages (restart points): start, C1, C2, C3.
+- **Who is in L1:** rats, zombies, bats, **about 4 ranged** (witches; gremlins allowed too) - not bosses, they just shoot now and then and get in the way - no tank. Spiders, beetles, skeletons, ghosts and gremlins are not cut: they come on later floors (or in L1 if the designer says so).
 - **The portcullis crank** (the designer set the goal, the agent the details): crank it and the portcullis rises; at an unpredictable moment a wave comes - it must be sudden and stressful. The agent's proposal: the crank has ratchet stops (every ~25 %); let go between stops and the portcullis slowly slides back to the previous stop. The player chooses when to drop the crank and fight and when to reach the next stop. The wave comes at a random moment within a segment, from different sides.
 
 ## 7. Onboarding (the first 30 seconds)
@@ -87,8 +88,9 @@ Mostly a crowd of weak ones that overwhelm by mass. About 10 % attack from range
 
 ## 10. Sound and music
 
-- Keep the shot's feel, rework the sound a little.
-- ❓ Music: the old 10 tracks are cyberpunk; Halloween needs new ones (Lyria, the key works until 2026-10-11).
+- **The music must be very good.** The old 10 tracks are cyberpunk; new ones are needed. The designer wants control: first short samples of different styles to choose from (other models too, not only Lyria; the key works until 2026-10-11).
+- **Sounds - a second round like in the old build:** a revolver-like shot, a chopping sword; keep the kick and the combat feel.
+- **Paintings in the house** (hunter portraits etc.) - generated.
 
 ## 11. Controls
 
@@ -96,7 +98,7 @@ WASD move, mouse camera, LMB sword (shot while aiming), RMB (hold) aim, R reload
 
 ## 12. Open questions
 
-1. L3/L4 (section 6).
-2. Gun lore - what it shoots (section 3).
-3. Music (section 10).
+1. Which new enemy on which level (section 6).
+2. Music - pick the style from samples (section 10).
+3. What replaces the tank at the end of L1 (was: breaks the wall out of the kitchen) - section 6.
 
