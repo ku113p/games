@@ -27,7 +27,7 @@ Third person, browser, PC, keyboard and mouse.
 - **One weapon, sword and gun at once** (a gunblade). Our own, long, a hunter's; inspired by the Final Fantasy 8 gunblade, not a copy.
 - **LMB is always the sword.** **Hold RMB - aim, it is a gun, LMB shoots.** No weapon switching.
 - **The gun charges only from monsters:** a sword kill charges the gun (picked up automatically). No ammo on the level. Reload exists.
-- Why both modes: the sword is for the crowd; the gun for single targets you cannot reach; some enemies only the gun can take (the flyers).
+- Why both modes: the sword is for the crowd; the gun for single targets you cannot reach; only the gun takes ghosts; bats are fast and hard to hit with the gun, but you can always jump up to them and cut them in the air.
 - **Start:** the gun is empty, only the sword. A sword kill shows a hint: the gun is charged. This must be taught at the start.
 - ❓ Lore: what the gun shoots (monster blood? something else) - the designer decides later.
 - **Getting out of a crowd:** no dodge. Clear yourself with the sword. One skill: a **wide circular sword strike** on a long cooldown.
@@ -46,8 +46,8 @@ Mostly a crowd of weak ones that overwhelm by mass. About 10 % attack from range
 | --- | --- | --- |
 | Swarm | rats, spiders, beetles | fast, on the floor, must be clearly visible |
 | Infantry | zombies, skeletons | come in crowds |
-| Flyers | bats | fly in (through windows), bite and fly off; gun only |
-| Flyers | ghosts | come **through walls** |
+| Flyers | bats | fly in (through windows), bite and fly off; fast, hard to hit with the gun; **you can always jump up to them and cut them with the sword in the air** |
+| Flyers | ghosts | come **through walls**; **gun only**; only a few |
 | Ranged (~10 %) | witches (throw potions), gremlins/goblins (throw things) | attack from range |
 | Heavy | the tank (as in Left 4 Dead) | just cut/shoot it down; weak spots (eyes, belly - more damage); **grabs the hero, hits a few times and throws them**; **one per level, near the level's end** |
 
@@ -72,7 +72,6 @@ Mostly a crowd of weak ones that overwhelm by mass. About 10 % attack from range
 - After the training a **bat** happens to fly in through an open window; the hero cuts it down - the gun charges (hint: a sword kill charges the gun).
 - Then **shoot the chandelier**. The gun fires only while the aim is on the chandelier; pressing while aiming elsewhere fires nothing and the player gets an unobtrusive "aim at the target". The chandelier falls in the middle of the hall and becomes the first fallback line.
 - Then a **letter** is slipped under the door: "Midnight. Wait. Now it's our turn" (draft text). The clock strikes twelve, scratching, the first rats.
-- ❓ In normal fights bats are gun only; the tutorial bat can be cut with the sword (it flies low). Keep it that way?
 
 ## 8. Story and theme
 
@@ -93,13 +92,11 @@ Mostly a crowd of weak ones that overwhelm by mass. About 10 % attack from range
 
 ## 11. Controls
 
-WASD move, mouse camera, LMB sword (shot while aiming), RMB (hold) aim, reload ❓(key), circular strike ❓(key), jump ❓ (keep or not).
+WASD move, mouse camera, LMB sword (shot while aiming), RMB (hold) aim, R reload, Q circular strike, Space jump (and a sword strike in the air), Shift sprint (the designer, 2026-10-05).
 
 ## 12. Open questions
 
 1. L3/L4 (section 6).
 2. Gun lore - what it shoots (section 3).
 3. Music (section 10).
-4. Keys: proposed R reload, Q circular strike, Space jump, Shift sprint; keep the jump and sprint or not (section 11).
-5. The tutorial bat is cut with the sword while bats in fights are gun only (section 7).
-6. Does the sword hit ghosts (section 5).
+
