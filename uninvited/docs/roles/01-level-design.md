@@ -188,3 +188,38 @@ The river arena uses the void meaningfully - the one real choice. Checkpoints si
 - Do not place a patrol so that every cell is watched; leave real safe pockets.
 - Do not add Halloween props.
 - Do not change the level format silently - core/level.ts, README and DESIGN change together.
+
+## Review 2026-10-05
+
+Reviewed: `levels/l1.ts` as built (unchanged since 10-04 except T0 `meetsMay`), both bots (8 seeds), `seam-scan --niches`,
+shots at the vantage points, and the designer's feedback ("detours are boring", "monotonous", "unclear where you can slip
+through", "you want to dash along the edge", "empty corridors"). Full text: the session scratchpad `reviews2/01-level-design.md`.
+
+**Measured.** Quiet bot 8/8, 368-393 s; loud bot 8/8, 115-205 s. Quiet route 201 cells vs. a 102-cell shortest walk
+(A1 57, A3 79 with a T3 -> T2 -> vault back-and-forth). **Only 2 checkpoints** ([26,15], [37,15]) - DESIGN wants 3, README
+claims C1 in P1. 26 spawn gates, two under passage roofs ([11,41], [30,15]). Ever-watched floor: A1 45%, A2 33%, A3 65%;
+the never-watched cells are the arena rims, so the rim is the dominant route. Low hexes on watched cells: A1 8/18, A3 16/19.
+No jump-usable cover in L1. Niches: [9,25], [10,25].
+
+**Earlier items.** P1 partly (gates, no combat front); P2 partly; P3 open; P4 partly (river drone still over both bridges);
+P5 fixed; P6 open; P7 decided (takedown, not built); P8 partly (arenas still read alike); P9 fixed; route lights open (dropped
+from the top 5).
+
+**Rules added by this review.**
+- The quiet route is different, not longer: it goes through an arena on a readable lane, never round its rim.
+- A lane is a straight chain of one prop (the 1.4 m server block) at <= 3 m spacing, <= 2 m gaps, between tall blocks that
+  cut the main watcher's view. Tall = safe, waist-high = safe crouched, open floor = timed. No low cover on watched cells.
+- No free rim street: the arena edge either touches the inner blocks or carries the walking warden / the drone.
+- Patrols are loops with readable gaps: authored wardens without random pauses, a 20-30 s cycle with one >= 6 s window;
+  drones slower than walking (proposal 1.4 m/s) on straight back-and-forth lines.
+- A connector is <= 6-8 cells and has exactly one beat (checkpoint, sensor lesson, vista, May line, finding) or it is cut.
+- One identity, one threat, one set piece per arena; <= 50% ever-watched floor.
+
+**Top 5 (2026-10-05).**
+1. [M] Shrink L1 aimed at no detour tax and readable lanes; add C1 in P1; cut P2, T2, cam3, drone0, drone2, warden4, sensor2;
+   quiet path <= ~110 cells, quiet bot <= ~220 s.
+2. [S/M] One identity + set piece per arena: A1 the camera, A2 the river and T1's timed 30 s run, A3 the tower reacting to T3.
+3. [S] One elevated route per arena (ramps + 1.1 m steps) so height and jump matter.
+4. [M, game/combat owners] The takedown before L2/L3 content; a behind-the-back approach per warden. If it slips, cut wardens.
+5. [M] L2 and L3 as one arena + finale each with their own shape and twist (archive stacks with a top level; firewall ring),
+   2-3 gates on one side as a combat front, bot-checked before the 10-08 freeze.

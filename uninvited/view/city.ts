@@ -37,7 +37,7 @@ import {
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import cfgAll from '../config.json'
-import { CellKind, RampAxis, type Block, type Grid } from '../core/grid'
+import { CellKind, footBeside, RampAxis, type Block, type Grid } from '../core/grid'
 import type { GameState } from '../core/state'
 import { GeoBuilder, glowQuad, panel, tube, type Frame3, type P3 } from './geo'
 import { addRim, palette, type Materials } from './look'
@@ -981,7 +981,7 @@ export function buildCity(g: Grid, mats: Materials, sight: Sight, mirror: Mirror
       const ex: boolean[] = []
       const skirts: boolean[] = []
       for (const [dc, dr] of nb) {
-        const nTop = isSolid(c + dc, r + dr) ? topOf(c + dc, r + dr) : isVoid(c + dc, r + dr) ? voidFloor(c + dc, r + dr) : Math.min(topOf(c + dc, r + dr), g.h0[(r + dr) * g.cols + c + dc] as number)
+        const nTop = isSolid(c + dc, r + dr) ? topOf(c + dc, r + dr) : isVoid(c + dc, r + dr) ? voidFloor(c + dc, r + dr) : footBeside(g, (r + dr) * g.cols + c + dc)
         lows.push(nTop)
         ex.push(nTop < tb - 0.01)
         feet.push(nTop)

@@ -159,3 +159,35 @@ The reviewer flagged two points as checked from code only: the hit/clip desync a
 - Do not put balance numbers in code. Everything goes in `config.json`.
 - Do not make combat the easy path: Breaker must stay "much harder" than Hacker (DESIGN section 7).
 - Do not add Halloween dressing to enemies or effects (DESIGN section 14).
+
+## Review 2026-10-05
+
+The full review is in the session's `scratchpad/reviews2/03-combat-design.md`. The designer said the shooting and the hits feel "artificial" and the fights "monotonous"; the reference is modern Doom (2016 / Eternal).
+
+**Status of the earlier items.**
+- Tokens and waves (9 / 16 / 19): done. The loud L1 bot wins 8/8 normal and 4/6 sloppy.
+- Shards and the checkpoint heal: done.
+- Swing responsiveness: partly done.
+  - Open: the facing lock during recovery; no sprint or jump cancel; cooldowns still 0.32 / 0.5 s.
+  - The damage/contact desync is confirmed in play: damage lands about 0.1 s before the blade reaches the target.
+- ET1: not built. **Recommend cutting it** (the producer's cut order).
+- **The numbers in this guide are stale.** Config: bite 14, warden strike 35, warden bolt 18, shard heal 2 HP. The heavy strike is 45.5 = 30 % of max HP, above the 26 % ceiling. DESIGN 9 says the worm windup is 0.42 s, config has 0.36.
+
+**Why it feels artificial.**
+- The shot is a static 0.05 m line shown for 0.08 s.
+- Kick is 0.8 deg, and the shot sound is a thin laser.
+- No hit or kill marker at the crosshair.
+- Every rifle bolt makes a warden play the same full flinch and knockback, and hits never interrupt an attack.
+- Every kill gets the same burst and a full-screen glitch.
+- Worms die before biting (1-3 bites per run).
+- Aiming forces walk speed.
+
+**Top 5.**
+
+| # | Item | Effort |
+| --- | --- | --- |
+| 1 | Shot + confirmation pack. A travelling bolt tracer (keep hitscan damage). Muzzle flash 0.35 / light 10. Kick 0.03 / push 0.08, a spine recoil impulse, crosshair bloom. A layered `rifle_shot` at 0.8. Crosshair hit and kill markers with confirm sounds. Impacts in the enemy's colour and a body flash. `glitchKill` 0.25 for small kills. | S-M |
+| 2 | Hit reactions with a stagger state. Rifle hits = a twitch, sword hits = knockback. 60 damage within 1 s = a 0.8 s stagger that cancels aim or strike, with a white visor flicker. Plates shed below 50 % HP. | S-M |
+| 3 | Sword contact sync and recovery. Delay the sword hit presentation 0.06 s in the view. Mouse turn during recovery. Sprint/jump cancel after 0.18 s. Cooldowns 0.28 / 0.45 s. | S |
+| 4 | Push-forward loop and the worm threat. Shard heal 4, magnet 4 m. Aimed move 4.0 m/s, hip spread 1.5 deg. Release packs 2-3 s apart; bite tokens 4; windup 0.42; heavy factor 1.1. Re-run the loud bot (normal ≥ 7/8, sloppy 3-5/6). | S |
+| 5 | Optional "glory kill lite": sword on a staggered warden = an instant kill with a dash-lunge, `slash_c`, i-frames and 3 big shards. Cut it first if time runs short. | M |

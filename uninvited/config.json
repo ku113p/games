@@ -96,6 +96,11 @@
       "alarmEdge": 0.25, "alarmHz": 1.1, "edgeRed": [0.9, 0.02, 0.03],
       "scanTint": [0.55, 1.0, 1.2], "scanLift": 0.01, "scanLines": 0.1
     },
+    "enemyLook": {
+      "rimPower": 2.2, "wardenRim": [0.55, 0.13, 0.05], "wardenRimArmor": 1.6, "wardenRimUnder": 1.1, "droneRim": [0.7, 0.1, 0.07], "droneRimStrength": 1.6,
+      "wardenLines": 1.5, "wardenVisor": 1.9, "wardenBlade": 1.5, "wardenAuraW": 1.8, "wardenAuraH": 3.0, "wardenAuraOpacity": 0.3,
+      "droneHalo": 2.4, "droneHaloOpacity": 0.5, "droneSeam": 1.8, "droneRing": 1.6, "droneRingThick": 2.2
+    },
     "light": { "hemi": 0.3, "envStrips": 0.8, "rim": [0.03, 0.1, 0.13], "heroRim": 5, "heroRimDistance": 5 },
     "corridor": {
       "ribRadius": 0.015, "ribIntensity": 0.5, "floorPlate": 0.004,
@@ -161,8 +166,13 @@
     },
     "fx": { "sparks": 700, "trailPoints": 32, "flashes": 12, "tracers": 24, "tracerSec": 0.08, "noiseRings": 8, "noiseRingSec": 0.6 },
     "footstep": { "walkStride": 0.7, "runStride": 0.95, "crouchStride": 0.55 },
-    "hud": { "toastSec": 2.8, "hintSec": 6, "hintsAfterSec": 8 },
+    "hud": { "toastSec": 2.8, "hintsAfterSec": 8 },
     "heroLight": { "intensity": 6, "distance": 9, "height": 2.6, "back": 1.6 },
+    "heroAim": {
+      "smoothSec": 0.08, "pitchMaxDeg": 65, "yawMaxDeg": 70, "minReach": 1.0,
+      "yawShare": [0.2, 0.3, 0.35, 0.15], "pitchShare": [0.25, 0.3, 0.3, 0.15],
+      "look": { "yawMaxDeg": 28, "pitchMaxDeg": 18, "share": 0.4, "smoothSec": 0.15 }
+    },
     "droneAim": { "chest": 1.15, "wide": 0.05, "thin": 0.012 },
     "worms": { "segments": 7, "spacing": 0.27, "headRadius": 0.25, "tailRadius": 0.09, "wiggle": 0.16, "wiggleStride": 0.55, "rearUp": 0.5, "deathSec": 0.5 },
     "netVision": { "linkRadius": 0.022, "linkStrength": 0.8, "routeWidth": 0.36, "routeStrength": 0.35, "zoneHeight": 2.4, "noiseStrength": 0.5 }
@@ -197,8 +207,20 @@
       "duckDb": -6, "duckSec": 0.25, "stingDuckSec": 2.5, "stingGain": 0.8,
       "stemGain": { "calm": [1, 0, 0, 0], "tension": [1, 1, 0, 0], "combat": [1, 1, 1, 1] }
     },
-    "settings": { "master": 1.0, "music": 0.7, "sfx": 1.0, "sensitivity": 1.0, "invertY": false, "reduceFx": false, "hudScale": 100,
+    "settings": { "master": 1.0, "music": 0.7, "sfx": 1.0, "sensitivity": 1.0, "invertY": false, "reduceFx": false, "hudScale": 100, "tipsOn": true,
       "sensMin": 0.3, "sensMax": 2.0, "hudScales": [100, 125, 150] }
+  },
+  "may": {
+    "perWordSec": 0.35, "baseSec": 1.2, "gapSec": 0.7, "maxWaitSec": 20, "endHoldMaxSec": 9,
+    "meeting": { "introSec": 0.8, "perWordSec": 0.2, "baseSec": 0.6, "skipAfterSec": 1.0, "outroSec": 0.25 },
+    "voice": { "volume": 0.5, "syllableSec": 0.105, "commaPauseSec": 0.16, "stopPauseSec": 0.32, "pitch": 1.0, "pitchJitter": 0.1, "stopDrop": 0.09 },
+    "watch": { "tickSec": 0.25, "cameraDist": 18, "wardenDist": 20, "coneDeg": 40 },
+    "glyph": { "size": 0.5, "lift": 0.16, "flickerSec": 0.07, "px": 128 },
+    "screenGlitchSec": 0.7,
+    "deathEvery": 3
+  },
+  "tips": {
+    "promptMinSec": 3, "promptMaxShows": 2, "promptGapSec": 1.2, "promptFadeSec": 0.4, "cardGapSec": 25, "quietCardAfterSec": 1.5, "cardPercent": 58
   },
   "hack": {
     "codes": ["1C", "BD", "55", "E9", "7A", "FF"],

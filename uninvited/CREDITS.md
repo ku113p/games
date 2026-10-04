@@ -54,6 +54,18 @@ our own Blender script `tools/warden/build.py` (`--variant sentinel|enforcer`) o
 Characters male body, from the concept images EW1 and EW2. The drone (EM1: orb, shader iris, orbiting rings, scanning fan)
 is built procedurally in `view/drones.ts`. Both were written with Claude Code (Anthropic), 2026-10-04.
 
+## Music (`audio/music/`)
+
+All music files were generated with **Google Lyria 3** (Lyria 3 Pro for the loops, Lyria 3 Clip for `hack` and the stingers)
+through OpenRouter, 2026-10-05, from our own text prompts (no artist names), by the team. Lyria returns a finished stereo mix;
+we only pitch-shifted, trimmed, looped (cut on bar lines, loop-seam crossfade), loudness-matched (-16 LUFS, stingers -19) and
+encoded the takes with ffmpeg. No other music or samples.
+
+| Files | Tool / model |
+| --- | --- |
+| `net_calm`, `net_tension`, `net_combat`, `room`, `office`, `menu` | Google Lyria 3 Pro via OpenRouter |
+| `hack`, `sting_win`, `sting_death`, `sting_end` | Google Lyria 3 Clip via OpenRouter |
+
 ## Sound effects (`audio/sfx/`)
 
 Two sources. Most files are procedurally synthesized by our own code in `tools/sfx/` (no AI audio models). The

@@ -10,6 +10,7 @@ import {
   AdditiveBlending,
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -18,11 +19,14 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   Object3D,
   Quaternion,
   RingGeometry,
   ShaderMaterial,
   SphereGeometry,
+  Sprite,
+  SpriteMaterial,
   TorusGeometry,
   Vector3,
   type Camera,
@@ -32,7 +36,7 @@ import cfgAll from '../config.json'
 import type { GameState, Sim } from '../core/state'
 import { droneAim, drones, gameTime, playerPos } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
-import { palette, type Materials } from './look'
+import { addRim, palette, type Materials } from './look'
 import { DRONE_KEY, fanSpread, NO_FAN, type Sight } from './sight'
 
 const D = cfgAll.drone
@@ -51,6 +55,7 @@ interface DroneView {
   irisMat: ShaderMaterial
   ringMat: MeshBasicMaterial
   seamMat: MeshBasicMaterial
+  haloMat: SpriteMaterial
   crackMat: MeshBasicMaterial
   crack: Mesh
   ringA: Group
@@ -99,6 +104,7 @@ const eyeW = new Vector3()
 const toHero = new Vector3()
 const invQ = new Quaternion()
 
+const E = cfgAll.view.enemyLook
 const R = 0.3 // the orb's radius (a ~60 cm lens)
 const CAP = 0.62 // the iris cap's angular radius, rad
 const CAP_R = R * 1.004 * Math.sin(CAP)
@@ -202,14 +208,14 @@ function buildShellGeometry(): { shell: BufferGeometry; seams: BufferGeometry } 
 
   const lines: BufferGeometry[] = []
   // panel seams: a ring around the lens, a meridian over the top, and a lit back panel
-  const sRing = new TorusGeometry(R * Math.sin(0.98), 0.0032, 6, 64)
+  const sRing = new TorusGeometry(R * Math.sin(0.98), 0.0032 * E.droneSeam, 6, 64)
   sRing.translate(0, 0, R * Math.cos(0.98))
   lines.push(sRing)
   // a seam around the back half of the equator, and a second one round the back (the lit back panel sits between them)
-  const sEq = new TorusGeometry(R * 1.003, 0.0028, 6, 40, Math.PI)
+  const sEq = new TorusGeometry(R * 1.003, 0.0028 * E.droneSeam, 6, 40, Math.PI)
   sEq.rotateX(-Math.PI / 2)
   lines.push(sEq)
-  const sUp = new TorusGeometry(R * 1.003, 0.0028, 6, 40, Math.PI * 0.8)
+  const sUp = new TorusGeometry(R * 1.003, 0.0028 * E.droneSeam, 6, 40, Math.PI * 0.8)
   sUp.rotateY(Math.PI / 2)
   sUp.rotateZ(Math.PI * 0.6)
   lines.push(sUp)
@@ -226,6 +232,21 @@ function buildShellGeometry(): { shell: BufferGeometry; seams: BufferGeometry } 
   const seams = mergeGeometries(lines.map((g) => g.toNonIndexed()), false)
   lines.forEach((g) => g.dispose())
   return { shell, seams }
+}
+
+/** A radial falloff for the halo sprite. */
+function makeHaloTexture(): CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const x = c.getContext('2d') as CanvasRenderingContext2D
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32)
+  g.addColorStop(0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.25, 'rgba(255,255,255,0.45)')
+  g.addColorStop(0.6, 'rgba(255,255,255,0.1)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  x.fillStyle = g
+  x.fillRect(0, 0, 64, 64)
+  return new CanvasTexture(c)
 }
 
 /** A zig-zag crack across the shell's front-upper side, as a thin ribbon on the sphere. */
@@ -250,7 +271,7 @@ function buildCrackGeometry(): BufferGeometry {
   return g
 }
 
-export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Sim): DroneViews {
+export function buildDrones(s: GameState, _mats: Materials, sight: Sight, sim: Sim): DroneViews {
   const root = new Group()
   const beamGeo = new CylinderGeometry(1, 1, 1, 6, 1, true)
   beamGeo.translate(0, 0.5, 0)
@@ -259,9 +280,9 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
   // the iris: a spherical cap on the lens, its pole turned to +z
   const capGeo = new SphereGeometry(R * 1.004, 36, 10, 0, Math.PI * 2, 0, CAP)
   capGeo.rotateX(Math.PI / 2)
-  const ringGeoA = new TorusGeometry(RING_A, 0.0075, 6, 72)
-  const ringGeoB = new TorusGeometry(RING_B, 0.0065, 6, 72)
-  const beadGeo = new SphereGeometry(0.02, 8, 6)
+  const ringGeoA = new TorusGeometry(RING_A, 0.0075 * E.droneRingThick, 6, 72)
+  const ringGeoB = new TorusGeometry(RING_B, 0.0065 * E.droneRingThick, 6, 72)
+  const beadGeo = new SphereGeometry(0.03, 8, 6)
   const dotGeo = new SphereGeometry(0.022, 8, 6)
   // the scanning fan: an open cone, tip up (at the drone), base down; scaled to the height each frame
   const fanGeo = new ConeGeometry(1, 1, 36, 1, true)
@@ -277,6 +298,10 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
   const arcs: RingGeometry[] = []
   for (let i = 0; i <= SUS_SEGMENTS; i++) arcs.push(new RingGeometry(0.2, 0.27, 24, 1, Math.PI / 2, Math.max(0.0001, (i / SUS_SEGMENTS) * Math.PI * 2)))
 
+  // the shell: the shared glossy black plus a red-tinted fresnel rim, so the orb keeps its outline against dark slabs and sky
+  const shellMat = new MeshStandardMaterial({ color: 0x080b10, metalness: 0.85, roughness: 0.26, envMapIntensity: 1.2 })
+  addRim(shellMat, E.droneRimStrength, E.droneRim, E.rimPower)
+  const haloTex = makeHaloTexture()
   const views: DroneView[] = drones(s).map((_, i) => {
     const g = new Group()
     const body = new Group()
@@ -289,7 +314,7 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
       vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: IRIS_FRAG,
     })
-    const shell = new Mesh(shellGeo, mats.glossBlack)
+    const shell = new Mesh(shellGeo, shellMat)
     const seams = new Mesh(seamGeo, seamMat)
     const iris = new Mesh(capGeo, irisMat)
     const crack = new Mesh(crackGeo, crackMat)
@@ -320,8 +345,14 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
     ringB.add(spinB)
     ringA.userData['spin'] = spinA
     ringB.userData['spin'] = spinB
+    // a soft red halo behind the orb (additive, always facing the camera): readable from the side and the back, at range
+    const haloMat = new SpriteMaterial({ map: haloTex, color: palette.security.clone(), transparent: true, opacity: E.droneHaloOpacity, blending: AdditiveBlending, depthWrite: false, toneMapped: false })
+    const halo = new Sprite(haloMat)
+    halo.scale.setScalar(E.droneHalo)
+    halo.userData['noReflect'] = true
     const eye = new Object3D()
     eye.position.z = R
+    body.add(halo)
     lean.add(shell, seams, iris, crack, dot, ringA, ringB, eye)
     body.add(lean)
     const cone = createCone(D.range, D.halfAngleDeg * DEG, sight.texture)
@@ -368,7 +399,7 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
     g.visible = false
     root.add(g)
     return {
-      root: g, body, lean, eye, irisMat, ringMat, seamMat, crackMat, crack, ringA, ringB, beadA, beadB, fan, fanMat, beam, beamMat, cone, look, sus, susMat,
+      root: g, body, lean, eye, haloMat, irisMat, ringMat, seamMat, crackMat, crack, ringA, ringB, beadA, beadB, fan, fanMat, beam, beamMat, cone, look, sus, susMat,
       bob: i * 1.7, lastSusSeg: 0, pupil: 0.3, lastX: 0, lastY: 0, lastZ: 0, px: 0, pz: 0, pitch: 0, roll: 0, wasAlive: false, lastHp: 0, hitT: 0,
     }
   })
@@ -514,8 +545,9 @@ export function buildDrones(s: GameState, mats: Materials, sight: Sight, sim: Si
         const jolt = v.hitT * Math.sin(time * 70) * 0.08
         v.ringA.scale.setScalar((aiming ? 1 - aim * 0.18 : 1) + jolt)
         v.ringB.scale.setScalar((aiming ? 1 - aim * 0.12 : 1) - jolt)
-        v.ringMat.color.copy(paused ? palette.paused : palette.security).multiplyScalar((alert ? 0.95 + 0.45 * Math.sin(time * 12) : 0.75) + v.hitT * 2 + (aiming ? aim : 0))
-        v.seamMat.color.copy(tmp).multiplyScalar(0.28 + (aiming ? aim * 0.5 : 0))
+        v.ringMat.color.copy(paused ? palette.paused : palette.security).multiplyScalar(E.droneRing * (alert ? 0.95 + 0.45 * Math.sin(time * 12) : 0.75) + v.hitT * 2 + (aiming ? aim : 0))
+        v.haloMat.color.copy(tmp).multiplyScalar(paused ? 0.5 : alert ? 1.3 : 1)
+        v.seamMat.color.copy(tmp).multiplyScalar(0.8 + (aiming ? aim * 0.5 : 0))
         // the crack flash on a hit
         v.crack.visible = v.hitT > 0.02
         v.crackMat.color.copy(palette.heroWhite).lerp(tmp, 1 - v.hitT).multiplyScalar(2.5 * v.hitT)

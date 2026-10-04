@@ -196,3 +196,36 @@ Shots 1, 6 and 7 stay mostly still so the pushes in 3, 5 and 8 are felt. The who
 - No triumph or explosion shots in the endings - they are quiet (DESIGN 4).
 - No Halloween props, palette or framing gags (DESIGN 14).
 - Do not regenerate stills to fix grade differences - unify them in the shader.
+
+## Review 2026-10-05
+
+Played in Playwright (L1, 960x540). Evidence: `scratchpad/reviews2/04-camera-staging.md` and `shots/04-camera/`.
+The camera config and `view/camera.ts` are unchanged since 10-04. The designer's new feedback ("the shooting and hits feel
+artificial, the detours are boring, everything is monotonous", with modern DOOM as the reference) is largely a camera problem.
+
+**Status of the earlier items.** Look-ahead and lead room: open (the hero spans 0.46-0.78 of the frame height at x 0.44 and hides
+the terminal you use). Combat distance and occluder fade: open (in a wave, 0-1 of 9 active worms are on screen). Vantage pitch: open.
+Aim framing: open and worse (the hero spans 0.40 to 1.12 of the frame height). Juice: built but too weak (a shot moves the frame
+about 1% for 60 ms). The dash FOV stacks with sprint to **75.5°** (cap 70). Prologue, room and CCTV: not started (no scenes, no new
+stills, no prologue text).
+
+**Rule change.** "Shake never rotates the view" becomes "**the aim** never rotates". Small visual rotational shake is what reads in
+3D (Eiserloh, GDC 2016), and `aimPoint()` uses yaw/pitch, not the camera transform. Crouched shots keep the muzzle flash; `calm`
+gates only the shake, kick and hit-stop.
+
+**Top 5 (to the feature freeze on 10-08).**
+1. **Shot and hit feel (S):** view punch 1.6° plus ±0.4° yaw (recovery about 80 ms), push 0.12 m, FOV punch -1.2° per shot
+   (-3° cap) and +2° on a kill, gun recoil 9-10 cm plus a 4-5° spine kick, the muzzle flash always on, rotational trauma shake with
+   per-event budgets (shot 0.12, sword hit 0.25, kill 0.3-0.4, hurt 0.35, firewall 0.6, death 0.8; cap 0.8;
+   max 1.5° pitch/yaw, 2° roll), dash FOV = max(dash, sprint), capped at 70.
+2. **Framing zones (S-M):** passage 3.7 m / FOV 58; arena 4.6 m, pitch at least 0.28; vantage rect 5.8 m, pivot +0.8, pitch
+   at least 0.38; fight (3 or more enemies within 10 m) 5.2 m, pivot +0.25, plus a lead of up to 0.5 m toward the nearest off-screen
+   attacker. Shoulder 0.75 by default; aim at 3.1 m with shoulder 0.9.
+3. **The prologue as montage (M):** the 9-shot storyboard, with shot 4 = a crop of OP3's hands and shot 9 = a crop of P6's left 60%
+   with a gate wipe (P6 uncropped reads as walking *into* the corporation). One still player is reused for the room and the CCTV
+   encounter. If time runs short, keep shots 1, 3, 5, 8 and 9 (about 38 s).
+4. **Stage the beats (S):** the May meeting at a 3/4 side angle to the wrist (yaw +70°, 2.4 m, FOV 50, while input is locked);
+   alarm 3 as a beat (a 120 ms stop, trauma 0.5, FOV +4° out), with its card held until wave 1 is on screen; the firewall at 35% time
+   scale for 0.8 s; the file taken as a 2.5 s crane up and back under the end screen.
+5. **Establishing glance on the first arena entry (S, needs the designer's yes):** standing still on a vantage at alarm 0, the yaw
+   eases toward a `lookHint` over 1.2 s; any mouse movement cancels it; it plays once per arena.

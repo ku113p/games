@@ -28,7 +28,7 @@ the `audio` block of `config.json`, and the sound lines of `CREDITS.md`. DESIGN.
 - **~20-minute game** (DESIGN 6): ~5 min per level, ~5 min of real-world scenes. A 60 s loop repeats about 5 times per level; prefer longer loops.
 - **The mixer as built** (`view/audio.ts`, `config.json audio.mixer`): buses player 1.0 / enemy 0.85 / ui 1.0 / music 0.55 / ambience 0.8 -> master (0.75) -> low-HP lowpass -> limiter (threshold -10 dB, knee 6, ratio 8, attack 3 ms, release 0.15 s). Voice limits: kill 4, footstep 3, hit 5, shot 4, glitch 3, derez 3, default 10, total 36; derez at most once per 80 ms, glitch per 50 ms; pitch jitter 5%; StereoPanner width 0.85; the drone hum and camera servo use the 3 nearest sources as panned loop voices; the world ducks -9 dB under a hack.
 - **Cues as built** (`view/cues.ts`, `audio.cues`): a continuous suspicion tone 180-560 Hz following the strongest watcher, a "spotted" and an "all clear" sting (3 s apart at least), a 2 s wave-incoming riser and a wave-cleared sting; low HP (below 30%) gives a heartbeat 62-112 BPM, a 900 Hz muffle and -4 dB on the music. Footstep loudness follows `noiseRadius / noise.run` (8 m) between floor 0.18 and 1.0 (crouch from 0.14).
-- **The music player as built** (`view/music.ts`, `audio.music`): one shared clock, 120 BPM, 4/4; every change happens on a bar line as a 1.2 s crossfade; intensity drops only after holding 6 s; -6 dB duck under a hack, May and the pause menu. Intensity: 0 calm (hidden), 1 tension (suspicion over 0.15, not hidden, alarm 1-2), 2 combat (alarm 3 or a wave). It accepts either four vertical stems `net_a.stem1-4` or three horizontal versions `net_calm/net_tension/net_combat`, plus `hack`, `room`, `office`, `menu`, `sting_win`, `sting_death`, `sting_end`. Missing files fall back (hack -> level track at tension; stingers -> a synthesized stand-in). Today `audio/music/` holds 16 s placeholder loops from `tools/music/build.ts`.
+- **The music player as built** (`view/music.ts`, `audio.music`): one shared clock, 120 BPM, 4/4; every change happens on a bar line as a 1.2 s equal-power crossfade (sin in, cos out, no 3 dB dip); the files are fetched at page load (level tracks first, then `hack`, then the rest) in parallel with the SFX and decoded as soon as the audio context exists; the set is complete-aware: a version that finishes decoding later joins the playing set on the next bar line, until then tension falls back to calm and combat to tension or calm (`pickVersion` in `view/music-pick.ts`, tested in `scripts/music-pick.test.ts`), so it never sticks on one version; intensity drops only after holding 6 s; -6 dB duck under a hack, May and the pause menu. Intensity: 0 calm (hidden), 1 tension (suspicion over 0.15, not hidden, alarm 1-2), 2 combat (alarm 3 or a wave). It accepts either four vertical stems `net_a.stem1-4` or three horizontal versions `net_calm/net_tension/net_combat`, plus `hack`, `room`, `office`, `menu`, `sting_win`, `sting_death`, `sting_end`. Missing files fall back (hack -> level track at tension; stingers -> a synthesized stand-in). `audio/music/` now holds the real Lyria tracks (2026-10-05, see the status below).
 - **Settings:** master / music / SFX sliders exist (`view/settings-ui.ts`, defaults 1.0 / 0.7 / 1.0).
 
 Where the review disagrees with DESIGN.md, DESIGN.md wins: the review's "victory" stinger becomes a quiet ending sting.
@@ -65,6 +65,21 @@ All tracks 120 BPM, D minor, so crossfades never clash (`audio.music.bpm` = 120)
 | `sting_win` / `sting_death` / `sting_end` | 3-6 s | quiet end of level, death, sad final chord | Level end, death, endings |
 
 If Lyria's three versions do not match in tempo or key, the fallback is one take, cut into sections by bars with ffmpeg and crossfaded on bar lines (horizontal only) - never layer unsynced files. Normalize all music files to one loudness so crossfades do not jump; the music bus (0.55) keeps it under the SFX, with -6 dB under May and the hack.
+
+## Music status (2026-10-05) - done
+
+All ten files are in `audio/music/`, generated with Lyria 3 ($1.32 of the OpenRouter budget, 22 generations, 5 rejected/failed). Lyria ignores "D minor" and only roughly keeps "120 BPM" (takes came out at 120, 123, 124, 125 and 126 BPM; measured by autocorrelation of the onset envelope at 8-16 bar lags), so we rerolled until the take was exactly 120 and then fixed the key with ffmpeg `rubberband` pitch shifts. Our estimate of the key by ear-free analysis: calm / tension / combat share one pitch set (E minor / G), pitched down 2 semitones to D minor; `hack` down 1.
+| File | Take | Length | LUFS | Style |
+| --- | --- | --- | --- | --- |
+| `net_calm` | `net_calm_1`, -2 st | 56 s, 28 bars | -16 | C ambient dread + A darksynth |
+| `net_tension` | `net_tension_3`, -2 st (takes 1 and 2 were 126 / 124 BPM) | 56 s, 28 bars | -16 | A darksynth + drums |
+| `net_combat` | `net_combat_1`, -2 st | 56 s, 28 bars | -16 | E combat + B industrial |
+| `hack` | `hack_1`, -1 st | 24 s, 12 bars | -16 | D glitch (Clip gives 30 s, its tail fades) |
+| `room` | `room_1` | 56 s, 28 bars | -16 | pad + soft piano, not retuned |
+| `office` | `office_1`, tempo 123 -> 120 | 56 s, 28 bars | -16 | drone + faint pulse |
+| `menu` | cut from `net_calm_1` (bars 9-28) | 40 s, 20 bars | -16 | calm |
+| `sting_win` / `sting_death` / `sting_end` | Clip takes `_2`, `_3`, `_2` | 5 / 4.5 / 6.5 s | -19 | cut with fades (Clip ignores "4 seconds" and returns 30 s) |
+Loops: cut at 0 s of the take, the last second folded into the head (linear crossfade, 3 s equal-power for room / office), mp3 160 kbps with the LAME delay patched for a pre/post-roll, so the decoder returns exactly N samples and the wrap is continuous (checked in Chromium: 2 469 600 samples for 56 s). Raw takes: scratchpad `or/music/full/`. **Weak spots:** the beat phase of each take inside its file is unverified by ear (the tempo is exact, the downbeat is assumed at 0 s); the key was judged by pitch-class statistics, not by ear; `net_combat` has two quieter passages (about 12 s and 32-40 s); the stingers are cut from continuous takes. The designer should listen to the calm -> tension -> combat crossfades.
 
 ## Music prompts
 
@@ -115,7 +130,7 @@ Judged from code and lists, not by ear.
 
 ## Release checklist
 
-- [ ] Every music file from the plan is in `audio/music/` (at least `net_calm/tension/combat`, `hack`, `room`, `office`, stingers) and `music-files.ts` is regenerated.
+- [x] (2026-10-05) Every music file from the plan is in `audio/music/` (at least `net_calm/tension/combat`, `hack`, `room`, `office`, stingers) and `music-files.ts` is regenerated.
 - [ ] All music shares 120 BPM and D minor; calm -> tension -> combat -> calm crossfades heard in play with no beat jump.
 - [ ] Footsteps replaced (done, Kenney layers); the designer re-listened to the board and nothing is still marked "replace".
 - [ ] A full 15-enemy wave played by ear: no clipping, hits and windups readable.
@@ -138,3 +153,17 @@ Judged from code and lists, not by ear.
 - Do not use non-CC0 or unclear-license packs, and do not ship any asset that is not in `CREDITS.md`.
 - No Halloween clichés, no triumphant ending music.
 - Do not leave music generation for the last days: the OpenRouter key expires 2026-10-11.
+
+## Review 2026-10-05
+
+Measured, not heard (ffmpeg, the audit, an offline Chromium render of a 15-enemy wave through the real mixer numbers; scripts in the review scratchpad `reviews2/audio-an/`).
+**Earlier items:** limiter/buses/voice limits, panning, suspicion/alarm/HP cues, variants and May's beep voice are **done**. A wave render peaks at -2.1 dBFS, so it never clips. Music is **in**: 10 tracks at -16 LUFS, all exactly 120 BPM, the three net versions phase-locked, seamless loops. The room/office loops, `jack_out` and the knock stay **open** until the scenes exist.
+**Designer feedback 2026-10-05:** "shooting and hits feel artificial, everything is monotonous". The measurements agree. The rifle (volume 0.55) is about as loud as a sprint footstep and the music. In a wave, `player_hit` sits 6 dB and the worm windup 11 dB under the bed of music + loops + steps. There is no reverb, and distance changes only the volume. The worm kill has no low end and no blade contact. A rifle hit on a warden plays the same sample as a miss into a wall. There is no hit/kill confirm. Sneaking is one 56 s calm loop, repeated about 7 times per quiet run, with no ambience. All music sits at one loudness (calm = combat = room).
+**Bug:** `view/music.ts` builds the `net` set from the first decoded `net_*` file and never rebuilds it while it plays. With a slow download the level stays on one version, for example calm through every wave (reproduced).
+
+**Top 5:**
+1. Combat feel pass (M). Mix numbers in config first (rifle 1.0, footsteps ceil 0.55, skitter 0.25, alarm loop 0.18, player hit 1.6, windup 1.0). Then a shared hit tick and kill pop. Then one shared Convolver send plus a far bus. Then rebuild the rifle (transient / body / sub 90->45 Hz / mechanical / slap tail), the worm death (sub + contact) and the warden hit and death in `library.ts`, Doom-style layers.
+2. Fix the music race, preload the music bytes at page load, and use equal-power crossfades (S).
+3. Stealth soundscape (M): a live ambience bed, random distant one-shots every 5-14 s, 3-5 positional emitters on L1 landmarks; calm music -4 dB vs combat and resting 8-16 bars after two loops.
+4. Lyria before the key expires (by 10-09, about $0.5): a second calm take `net_calm_b` at exactly 120 BPM, -2 st.
+5. When the scene flow lands: room/office ambience and music at a lower level, `jack_in`/`jack_out`, the knock, quiet endings with silence after `sting_death`/`sting_end`.

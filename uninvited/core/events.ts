@@ -94,3 +94,5 @@ export type GameEvent =
   /** A wave warden comes out of spawn gate `gate`. */
   | { type: 'wardenSpawned'; index: number; gate: number; heavy: boolean }
   | { type: 'artifactTaken' }
+  /** Johnny met May (a terminal with `meetsMay` was solved for the first time): the view plays the meeting. */
+  | { type: 'mayMet' }

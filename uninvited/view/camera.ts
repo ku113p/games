@@ -35,7 +35,7 @@ export interface CameraRig {
   /** A hit or a shot: the camera jumps back by `push` m and tips up by `pitch` rad, then settles (view.juice.kickRate). */
   kick(pitch: number, push: number): void
   /** Where the crosshair points: written into out (a world point up to aimRange away). */
-  aimPoint(out: Vector3): void
+  aimPoint(out: Vector3, pick?: (ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number) => number): void
   snap(): void
 }
 
@@ -194,11 +194,14 @@ export function createCameraRig(camera: PerspectiveCamera, ray: RayFn, startYaw:
       kickPitch = Math.max(kickPitch, pitchKick)
       kickPush = Math.max(kickPush, push)
     },
-    aimPoint(out: Vector3): void {
+    aimPoint(out: Vector3, pick?: (ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number) => number): void {
       // along the look of this frame (the mouse was applied before the camera moves), from where the camera stands
       const cp = Math.cos(pitch)
       look.set(Math.sin(yaw) * cp, -Math.sin(pitch), Math.cos(yaw) * cp)
-      const d = ray(camera.position.x, camera.position.y, camera.position.z, look.x, look.y, look.z, C.aimRange)
+      let d = ray(camera.position.x, camera.position.y, camera.position.z, look.x, look.y, look.z, C.aimRange)
+      // a target under the crosshair in front of the wall: aim at it, not at the wall behind (the muzzle is off the camera's line)
+      const t = pick ? pick(camera.position.x, camera.position.y, camera.position.z, look.x, look.y, look.z, d) : -1
+      if (t >= 0) d = t
       out.copy(camera.position).addScaledVector(look, d)
     },
     snap(): void {

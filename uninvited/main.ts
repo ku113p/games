@@ -6,7 +6,7 @@ import cfgJson from './config.json'
 import { attack, beginFrame, cancelHack, createIntent, hackPick, interact, jump, moveTap, setAim, switchMode, tick, toggleCrouch, TAP_BACK, TAP_FORWARD, TAP_LEFT, TAP_RIGHT } from './core/commands'
 import type { GameConfig } from './core/config'
 import { buildGrid } from './core/grid'
-import type { HackSession } from './core/hack/index'
+import { solveHack, type HackSession } from './core/hack/index'
 import { alarmStage, endingCounter, hackSession, phase, runStats } from './core/queries'
 import { applyLoadedState, parseSave, serializeState } from './core/save'
 import { createSim, createState, type GameState } from './core/state'
@@ -17,7 +17,11 @@ import { createGameView } from './view/game-view'
 import { createHackView, type HackView } from './view/hack/index'
 import { createSettings } from './view/settings'
 import { hackOutcome } from './view/hack/outcome'
-import { t } from './view/hud'
+import { createTips } from './view/tips'
+import { perfProbe } from './view/perf'
+import type { Bench, BenchCtx } from './view/bench'
+import { raiseAlarm } from './core/rules/alarm'
+import { cardSpec, t, type CardSpec } from './view/hud'
 
 const cfg: GameConfig = cfgJson
 const level = levelById(new URLSearchParams(location.search).get('level'))
@@ -36,12 +40,15 @@ const canvas = document.getElementById('game') as HTMLCanvasElement
 const ui = document.getElementById('ui') as HTMLElement
 document.getElementById('loading')?.remove()
 const settings = createSettings(store)
-const view = createGameView(canvas, ui, state, sim, (ox, oy, oz, dx, dy, dz, max) => physics.raycast(ox, oy, oz, dx, dy, dz, max), settings)
+const tips = createTips(store, () => settings.values.tipsOn)
+const view = createGameView(canvas, ui, state, sim, (ox, oy, oz, dx, dy, dz, max) => physics.raycast(ox, oy, oz, dx, dy, dz, max), settings, tips, store)
 const input = bindGameInput(canvas)
 const intent = createIntent()
 const aim = { yaw: 0, pitch: 0 }
 
-type Mode = 'start' | 'playing' | 'paused' | 'hack' | 'resume' | 'dead' | 'won'
+/** card: a tutorial card is open - the game is paused like on the pause screen (no sim, no input), the pointer is released. */
+/** meeting: May's entrance after the T0 hack (view/may.ts): the sim stands still and the input is locked until her three lines are done (Enter or a click skips). */
+type Mode = 'start' | 'playing' | 'paused' | 'hack' | 'resume' | 'card' | 'meeting' | 'dead' | 'won'
 let mode: Mode = 'start'
 let lockGrace = 0
 let endTimer = 0
@@ -57,7 +64,8 @@ let hackToast = ''
 let hackEscAt = -10
 const HACK_ESC_SEC = 2
 /** Headless screenshots cannot lock the pointer: ?nolock plays without it. */
-const noLock = new URLSearchParams(location.search).has('nolock')
+const benchName = new URLSearchParams(location.search).get('bench')
+const noLock = new URLSearchParams(location.search).has('nolock') || benchName !== null
 
 function lock(): void {
   lockGrace = 0.6
@@ -69,6 +77,27 @@ function play(): void {
   mode = 'playing'
   input.setEnabled(true)
   lock()
+}
+
+/** A tutorial card: the sim stands still, the pointer is released; Enter or a click runs `then` (back to play, or on to the hack overlay). */
+function openCard(spec: CardSpec, then: () => void): void {
+  mode = 'card'
+  input.setEnabled(false)
+  if (document.pointerLockElement) document.exitPointerLock()
+  view.hud.showCard(spec, false, then)
+}
+
+/** May's entrance: the sim stands still, the input is locked, the pointer stays captured; her lines run on real time. */
+function startMeeting(): void {
+  view.hud.hideScreens()
+  mode = 'meeting'
+  input.setEnabled(false)
+  lock()
+  view.may.beginMeeting()
+}
+
+function endMeeting(): void {
+  play() // the Enter / click that skipped it (or the lock kept through the beat) allows the pointer lock
 }
 
 function flushEvents(): void {
@@ -107,7 +136,8 @@ function endHackOutro(): void {
   if (hackToast) view.hud.toast(hackToast, hackOutroSolved ? 'good' : 'alarm')
   hackToast = ''
   if (phase(state) !== 'playing') return
-  if (hackOutroSolved) play() // the last pick's user activation usually still allows the lock; if not, the pause screen asks for a click
+  if (hackOutroSolved && view.may.takeMeeting()) startMeeting()
+  else if (hackOutroSolved) play() // the last pick's user activation usually still allows the lock; if not, the pause screen asks for a click
   else {
     mode = 'resume'
     view.hud.showResume(true)
@@ -168,6 +198,7 @@ function showEnd(): void {
       () => loadState(parseSave(store.read(SAVE_SLOT), level.id) ?? (parseSave(levelStart, level.id) as GameState)),
       () => {
         store.clear(SAVE_SLOT)
+        view.may.restart()
         loadState(parseSave(levelStart, level.id) as GameState)
       },
     )
@@ -181,7 +212,10 @@ function showEnd(): void {
     const red = endingCounter(state)
     const ending = `${t('won.ending', { red, total: state.checkpoints.length })} ${r.alarmsRaised === 0 ? t('won.quiet') : red > 0 ? t('won.loud') : ''}`
     store.clear(SAVE_SLOT)
-    view.hud.showWon(stats, ending, () => loadState(parseSave(levelStart, level.id) as GameState))
+    view.hud.showWon(stats, ending, () => {
+      view.may.restart()
+      loadState(parseSave(levelStart, level.id) as GameState)
+    })
   }
 }
 
@@ -200,6 +234,23 @@ ui.addEventListener('click', (e) => {
   }
 })
 
+// the meeting is skipped with Enter or a click once its first line has been read
+document.addEventListener(
+  'keydown',
+  (e) => {
+    if (mode !== 'meeting' || (e.code !== 'Enter' && e.code !== 'NumpadEnter') || e.repeat) return
+    if (view.may.skipMeeting()) {
+      e.preventDefault()
+      e.stopPropagation()
+      endMeeting()
+    }
+  },
+  true,
+)
+ui.addEventListener('click', () => {
+  if (mode === 'meeting' && view.may.skipMeeting()) endMeeting()
+})
+
 view.hud.showStart(() => {
   void view.sound.unlock()
   view.sound.play('jack_in', 0.7)
@@ -209,9 +260,23 @@ view.hud.showStart(() => {
 let last = performance.now()
 let fps = 60
 
+/** `?bench=<scenario>`: the deterministic benchmark (view/bench.ts); loaded only then. */
+const bench: Bench | null =
+  benchName === null
+    ? null
+    : (await import('./view/bench')).createBench(
+        { state: () => state, sim, view, input: input as unknown as BenchCtx['input'], level: level.id, start: () => {
+          void view.sound.unlock()
+          play()
+        },
+      },
+        benchName,
+      )
+if (bench) settings.set('tipsOn', false)
+
 function frame(now: number): void {
   requestAnimationFrame(frame)
-  const raw = Math.min(0.1, (now - last) / 1000)
+  let raw = Math.min(0.1, (now - last) / 1000)
   last = now
   fps += (1 / Math.max(raw, 1e-3) - fps) * 0.05
   lockGrace -= raw
@@ -227,9 +292,14 @@ function frame(now: number): void {
     view.hitStop -= raw
     dt = 0
   }
-  if (mode === 'paused' || mode === 'resume' || mode === 'start') dt = 0
+  if (mode === 'paused' || mode === 'resume' || mode === 'start' || mode === 'card' || mode === 'meeting') dt = 0
+  if (mode === 'playing') tips.tick(raw)
 
   beginFrame(sim)
+  if (bench) {
+    raw = bench.pre(now)
+    if (dt > 0 || raw === 0) dt = raw
+  }
   const held = input.held
   const pressed = input.pressed
   if (mode === 'playing') {
@@ -263,7 +333,15 @@ function frame(now: number): void {
     hackOutro -= raw
     if (hackShown) hackView?.update(hackShown)
     if (hackOutro <= 0 || phase(state) !== 'playing') endHackOutro()
-  } else if (session && mode !== 'hack') openHackUi()
+  } else if (session && mode !== 'hack' && mode !== 'card') {
+    // the first hack of a save: the card comes before the overlay (the sim has not moved since the key press)
+    if (tips.claim('hacking')) {
+      openCard(cardSpec('hacking'), () => {
+        view.hud.hideScreens()
+        openHackUi()
+      })
+    } else openHackUi()
+  }
   else if (session && hackView) hackView.update(session)
   else if (!session && mode === 'hack') {
     if (phase(state) === 'playing' && hackShown?.status === 'timedOut') beginHackOutro() // timed out: show it, then resume
@@ -283,17 +361,33 @@ function frame(now: number): void {
 
   if (phase(state) !== 'playing' && (mode === 'playing' || mode === 'hack' || mode === 'resume')) {
     endTimer += raw
-    if (endTimer > (phase(state) === 'dead' ? 1.6 : 2.2)) {
+    const endAfter = phase(state) === 'dead' ? 1.6 : 2.2
+    // the file is taken: May's line about Jim's notes finishes before the end screen comes up
+    const mayHolds = phase(state) === 'won' && view.may.holdingEnd() && endTimer < endAfter + cfgJson.may.endHoldMaxSec
+    if (endTimer > endAfter && !mayHolds) {
       if (mode === 'hack') closeHackUi()
       showEnd()
     }
   }
 
+  if (mode === 'meeting' && !view.may.meetingActive()) endMeeting()
+  // May: lines wait while the game is not calm; the end screens show only the lines made for them
+  view.may.mode = phase(state) === 'dead' ? 'blocked' : mode === 'playing' || mode === 'meeting' ? 'play' : mode === 'won' ? 'end' : 'blocked'
   const mf = view.music.flags
   mf.menu = mode === 'start' || mode === 'dead' || mode === 'won'
-  mf.paused = mode === 'paused' || mode === 'resume'
+  mf.paused = mode === 'paused' || mode === 'resume' || mode === 'card'
   mf.hack = mode === 'hack'
-  view.update(mode === 'paused' || mode === 'start' ? 0 : raw, state, sim, raw)
+  view.update(mode === 'paused' || mode === 'start' || mode === 'card' ? 0 : raw, state, sim, raw)
+  // a card requested by what just happened (a first meeting): never in a hack, never at the end screens
+  if (bench) bench.post()
+  if (!bench && mode === 'playing' && phase(state) === 'playing' && !hackSession(state) && hackOutro <= 0) {
+    const id = tips.take()
+    if (id) openCard(cardSpec(id), play)
+    else {
+      const custom = view.guide.takeCard()
+      if (custom) openCard(custom, play)
+    }
+  }
 }
 
 // a hidden tab: the lock is gone with it - pause at once (the pointerlockchange path does the same for Esc)
@@ -318,6 +412,43 @@ requestAnimationFrame(frame)
   view,
   get fps() {
     return fps
+  },
+  perf: perfProbe,
+  /** Renderer and scene counters for the perf tools (see tools/perf-fight.ts). */
+  perfInfo(): Record<string, number> {
+    const r = view.renderer.renderer
+    let objects = 0
+    let visible = 0
+    view.renderer.scene.traverse((o) => {
+      objects++
+      if (o.visible) visible++
+    })
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
+    return {
+      geometries: r.info.memory.geometries,
+      textures: r.info.memory.textures,
+      programs: r.info.programs?.length ?? 0,
+      calls: r.info.render.calls,
+      triangles: r.info.render.triangles,
+      objects,
+      visible,
+      heapMB: mem ? mem.usedJSHeapSize / 1048576 : 0,
+    }
+  },
+  /** Debug: raise the alarm to the given stage at the player's feet. */
+  alarm(stage: number): void {
+    for (let i = 0; i < 4 && state.alarm.stage < stage; i++) {
+      state.alarm.cooldown = 0
+      raiseAlarm(state, sim, 'camera', state.player.pos.x, state.player.pos.y, state.player.pos.z)
+    }
+  },
+  /** Debug: solve the open hack the way the overlay's picks would (the screenshot scripts). */
+  hackSolve(): void {
+    const session = hackSession(state)
+    if (!session) return
+    for (const cell of solveHack(session) ?? []) hackPick(state, sim, Math.floor(cell / session.size), cell % session.size)
+    if (!hackSession(state)) beginHackOutro()
+    flushEvents()
   },
   start(): void {
     void view.sound.unlock()

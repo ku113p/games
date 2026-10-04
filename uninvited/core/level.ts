@@ -88,6 +88,8 @@ export interface TerminalDef {
   targets: readonly string[]
   /** 0..1, passed to the hacking mini-game. */
   difficulty: number
+  /** Solving it is May's entrance (DESIGN 10): the first time, the core sets `mayMet` and emits `mayMet`. */
+  meetsMay?: boolean
 }
 
 /**
@@ -214,6 +216,8 @@ export interface LevelDef {
   nicheHeight: number
   /** Initial facing at the start (where the camera looks). */
   startFacing: Side
+  /** May is already there from the first second (no meeting): the old test level. */
+  mayFromStart?: boolean
   plan: readonly string[]
   heights?: readonly string[]
   tops?: readonly string[]

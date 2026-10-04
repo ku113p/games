@@ -17,6 +17,16 @@ bun run test:hack   # the hacking mini-game on its own: http://localhost:3327/
 `?nolock` in the URL skips the pointer lock (handy for automated screenshots). `window.__game` exposes a few debug
 hooks (`state`, `sim`, `place(col, row, yaw, pitch)`, `hold(key, on)`, `press(key)`).
 
+### Benchmark (`?bench=`)
+
+Open `http://localhost:3330/?bench=all` (or `idle`, `wave`, `fx`, `fx-sword|shots|worm|drone|warden|hurt|audio|hud`, `soak`),
+add `&level=slice` for the other level and `&sec=N` to change the length. Click the button (it unlocks audio), keep the tab in
+front, and a panel with frame-time percentiles, slow-frame counts, draw calls, JS time, growth verdicts and a spike-cause guess
+appears at the end (the JSON is copied; "Download JSON" saves it). `?bench=all` reloads between scenarios; `soak` (5 min) is
+not part of it. Headless: `bun tools/bench.ts [scenario] [--level l1|slice] [--url http://localhost:3330] [--compare]`
+(JSON in `bench/results/`, gitignored; headless Chrome is software GL, so read counts and trends only - the real numbers are
+the ones from the browser on a real GPU). Without `?bench` none of it is loaded. Thresholds: `docs/roles/09-producer.md`.
+
 ## Controls
 
 | Key | Action |
@@ -29,12 +39,13 @@ hooks (`state`, `sim`, `place(col, row, yaw, pitch)`, `hold(key, on)`, `press(ke
 | C | crouch / stand (toggle) |
 | Ctrl (hold) | crouch while held |
 | LMB | attack: a 3-swing sword combo (click on, the third swing is a wide finisher; an early click is kept for 0.12 s) or rifle fire; a dash cancels a swing |
-| RMB (hold) | aim - the camera eases in over the right shoulder, a crosshair, slower mouse, walk speed, the rifle drawn (a sword comes back on release) with a tighter spread |
+| RMB (hold) | aim - the camera eases in over the right shoulder, a crosshair, slower mouse, walk speed, the rifle drawn (a sword comes back on release) and pointing at the crosshair, with a tighter spread |
 | Q / wheel | sword <-> rifle |
 | E | hack a terminal / take the artifact |
 | F3 | show / hide the frame-rate overlay (fps, frame time) |
 | Tab (hold) | network vision - terminal links, drone routes, camera cones through walls, sensor zones, your noise ring; an overheat meter warns before it calls the security |
-| Esc | pause |
+| Esc | pause (the pause screen has Settings and Tips) |
+| Enter / click | continue a tutorial card (the game pauses for it; Settings -> Tutorial tips turns the cards and prompts off) |
 
 During a hack: arrows + Enter (or click a lit code), Esc to abort.
 
@@ -42,7 +53,8 @@ During a hack: arrows + Enter (or click a lit code), Esc to abort.
 
 `?level=<id>` in the URL picks the level (registry: `levels/index.ts`); the default is **l1**, the slice is `?level=slice`.
 
-**Level 1, Jim's computer (`levels/l1.ts`)** - the tutorial, ~4.4 slices. A start ledge 2 m over the void (T0, May's first meeting, opens
+**Level 1, Jim's computer (`levels/l1.ts`)** - the tutorial, ~4.4 slices. A start ledge 2 m over the void (T0 is the meeting with May - she appears,
+speaks three lines and opens
 the red wall D1 at the end of a light bridge), arena 1 "the plaza" (a camera on the north slab, hex cover, a high drone, warden 1 on the
 west street where the exit is), the roofed passage P1 (C1, a motion sensor), arena 2 "the river" (a balcony 2 m up, a void river with a
 drone along it, a low bridge with a laser grid and a high bridge, warden 2 on the north bank; T1 pauses the laser and the drone), P2 (C2, a
@@ -84,7 +96,7 @@ sky; only the roofs put a ceiling over a stretch.
 | `.` | floor (a floor cell with the void on two opposite sides is drawn as a light bridge) |
 | `~` | low cover (waist high - hides you only while crouched; you can jump onto it) |
 | `n` | niche under a low roof (legacy - no longer hides you; use `cover` entities) |
-| `^ v < >` | ramp; a run of ramp cells slopes between the flat cells at its two ends |
+| `^ v < >` | ramp; a run of ramp cells slopes between the flat cells at its two ends (a block beside it is drawn down to the ramp's low end, so no wedge of void shows under the wall) |
 | `=` | laser grid floor |
 | `D` | red wall (part of a wall group opened by a terminal or the firewall) |
 | `T` | hack terminal position |
@@ -154,5 +166,8 @@ Drop looping mp3 files into `audio/music/` (the folder may be empty: the game th
 - `hack.mp3`, `room.mp3`, `office.mp3`, `menu.mp3` - one loop each (a missing hack plays the level track at tension, a missing menu its calm version)
 - `sting_win.mp3`, `sting_death.mp3`, `sting_end.mp3` - one-shot stingers (synthesized stand-ins play when missing)
 
-The three `net_*` files now there are placeholders from `bun tools/music/build.ts`; replace them with the real tracks.
-Use gapless-trimmed files: an mp3 encoder delay leaves a tiny gap at the loop seam.
+The files now there are the real tracks (Google Lyria 3 via OpenRouter, 2026-10-05): the `net_*` loops are 28 bars (56 s), `menu` 20 bars,
+`hack` 12 bars, `room` and `office` 28 bars, all at -16 LUFS; the stingers 4.5-6.5 s at -19 LUFS (see `CREDITS.md`). The old
+placeholder loops from `bun tools/music/build.ts` are gone (do not run it over the real files).
+Use gapless-trimmed files: an mp3 encoder delay leaves a tiny gap at the loop seam. The loops carry LAME delay/padding fields
+patched so that Chrome and Firefox decode exactly N samples with a continuous wrap.

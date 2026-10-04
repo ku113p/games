@@ -186,6 +186,16 @@ function edgeFloor(g: Grid, i: number, dc: number, dr: number): number {
   return (a + b) / 2
 }
 
+/**
+ * How far down the face of a block must reach on its side towards the floor neighbour at (dc, dr): the lowest the
+ * floor gets along their shared edge. A ramp slopes along that edge, so the face has to follow its low end or a wedge
+ * of void shows between the ramp and the wall's flat bottom.
+ */
+export function footBeside(g: Grid, neighbour: number): number {
+  const lo = Math.min(g.h0[neighbour] as number, g.h1[neighbour] as number)
+  return g.kind[neighbour] === CellKind.Ramp ? lo : Math.min(g.top[neighbour] as number, g.h0[neighbour] as number)
+}
+
 /** Is the point over the void (no floor - or outside the plan, which is the void too)? */
 export function isVoidAt(g: Grid, x: number, z: number): boolean {
   const i = cellAt(g, x, z)

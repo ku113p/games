@@ -260,7 +260,7 @@ export const l1: LevelDef = {
   ],
   entities: [
     // 1. the start ledge: T0 (May) opens the red wall D1 at the end of the bridge
-    { kind: 'terminal', id: 't0', at: [33, 62], targets: ['wall1'], difficulty: 0 },
+    { kind: 'terminal', id: 't0', at: [33, 62], targets: ['wall1'], difficulty: 0, meetsMay: true },
     { kind: 'redWall', id: 'wall1', at: [27, 56] },
     // 2. arena 1, the plaza: a camera on the north slab, hex cover, warden 1 on the west street (the exit)
     { kind: 'videoCamera', id: 'cam1', at: [28, 42], wall: 'n', sweep: [-55, 55], periodSec: 9 },

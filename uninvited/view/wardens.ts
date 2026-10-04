@@ -56,6 +56,7 @@ import { wardenBark, wardenCharge, wardenQuery, wardenServo, wardenStep, wardenS
 
 const W = cfgAll.warden
 const LOOK = cfgAll.view.cones.lookBeam
+const E = cfgAll.view.enemyLook
 const N = cfgAll.view.netVision
 const HEAR = cfgAll.audio.hearDist
 const DEG = Math.PI / 180
@@ -93,13 +94,14 @@ const SHOT_FIRE = 0.45 // share of the two-handed aim clip where the halberd is 
 const SHOT_TAIL = 0.6 // s of follow-through after a shot
 const FADE = 7
 const FADE_FAST = 20
-const RIM_UNDER = 0.9
-const RIM_ARMOR = 1.4
-const LINES_CALM = 0.7
+// a red-orange fresnel rim on the armor (the silhouette against the dark), brighter light lines and visor
+const RIM_UNDER = E.wardenRimUnder
+const RIM_ARMOR = E.wardenRimArmor
+const LINES_CALM = 0.7 * E.wardenLines
 // the lantern: a warm light from the visor that lights the floor and walls around it (it reads from far away)
 const LANTERN = 2.2
 const LANTERN_RANGE = 4.5
-const VISOR_K = 1.25
+const VISOR_K = E.wardenVisor
 const MARK_Y = 2.55
 const ALERT_MARK_SEC = 2
 
@@ -169,6 +171,7 @@ interface WardenView {
   armor: MeshStandardMaterial
   eyes: Group
   lantern: PointLight
+  aura: SpriteMaterial
   cone: ViewCone
   look: ViewCone
   mark: Sprite
@@ -200,6 +203,9 @@ export interface WardenViews {
   event(e: GameEvent, s: GameState): void
   /** scanFade: how far network vision has faded in (0..1) - the cones and rounds show only in it. */
   update(s: GameState, sim: Sim, dt: number, scanFade: number): void
+  /** Perf prewarm: builds both rigs (sentinel, heavy) of the first slot once their models are loaded, so the first warden of a
+   * wave does not compile its shaders and upload its meshes mid-fight. True when done (or nothing to build). */
+  warm(): boolean
 }
 
 /** A "?" or "!" drawn once into a small canvas. */
@@ -248,6 +254,18 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
   const list = wardens(s)
   const base = palette.security.clone().lerp(palette.sound, 0.3) // hostile red-orange
   const question = markTexture('?', palette.suspicious)
+  const auraTex = ((): CanvasTexture => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 64
+    const x = c.getContext('2d') as CanvasRenderingContext2D
+    const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32)
+    gr.addColorStop(0, 'rgba(255,255,255,0.8)')
+    gr.addColorStop(0.45, 'rgba(255,255,255,0.25)')
+    gr.addColorStop(1, 'rgba(255,255,255,0)')
+    x.fillStyle = gr
+    x.fillRect(0, 0, 64, 64)
+    return new CanvasTexture(c)
+  })()
   const bang = markTexture('!', palette.security)
   const beamGeo = new CylinderGeometry(1, 1, 1, 6, 1, true)
   beamGeo.translate(0, 0.5, 0)
@@ -278,16 +296,22 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
     beam.frustumCulled = false
     beam.userData['noReflect'] = true
     beam.renderOrder = 8
-    g.add(eyes, mark)
+    // a soft glow around the body: the silhouette reads at range even where the thin lines alias away
+    const aura = new SpriteMaterial({ map: auraTex, color: base.clone(), transparent: true, opacity: E.wardenAuraOpacity, blending: AdditiveBlending, depthWrite: false, toneMapped: false })
+    const auraSprite = new Sprite(aura)
+    auraSprite.scale.set(E.wardenAuraW, E.wardenAuraH, 1)
+    auraSprite.position.y = 1.15
+    auraSprite.userData['noReflect'] = true
+    g.add(eyes, mark, auraSprite)
     root.add(g, beam) // the beam lives in world space
     g.position.set(w.pos.x, w.pos.y, w.pos.z)
     g.rotation.y = w.yaw
     const under = new MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.55, metalness: 0.4 })
     const armor = new MeshStandardMaterial({ color: 0x15161a, roughness: 0.28, metalness: 0.8 })
     const coat = new MeshStandardMaterial({ color: 0x131419, roughness: 0.4, metalness: 0.6, side: DoubleSide })
-    addRim(under, RIM_UNDER)
-    addRim(armor, RIM_ARMOR)
-    addRim(coat, RIM_ARMOR)
+    addRim(under, RIM_UNDER, E.wardenRim, E.rimPower)
+    addRim(armor, RIM_ARMOR, E.wardenRim, E.rimPower)
+    addRim(coat, RIM_ARMOR, E.wardenRim, E.rimPower)
     const blade = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide })
     const shield = new MeshBasicMaterial({ color: base.clone(), toneMapped: false, side: DoubleSide, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false })
     return {
@@ -315,6 +339,7 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
       armor,
       eyes,
       lantern,
+      aura,
       cone,
       look,
       mark,
@@ -531,6 +556,17 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
 
   return {
     root,
+    warm(): boolean {
+      const v = views[0]
+      if (!v) return true
+      for (const k of [0, 1]) {
+        if (v.rigs[k]) continue
+        if (!gltfs[k]) return false
+        const rig = buildRig(v, k)
+        if (rig) v.rigs[k] = rig // hidden until ensureRig picks it; the prewarm render shows it once
+      }
+      return true
+    },
     event(e, st): void {
       if (!('index' in e) || typeof e.index !== 'number') return
       const w = wardens(st)[e.index]
@@ -610,10 +646,11 @@ export function buildWardens(s: GameState, sim: Sim, sight: Sight, sound: Sound)
         v.lines.color.multiplyScalar(flare)
         v.visor.color.copy(tmp).multiplyScalar(dead ? 0 : VISOR_K * (1 + charge * 1.5) * flare)
         // the blade: dim in a calm round, flares when it charges (the strike windup, the shot's aim) and at the shot
-        v.blade.color.copy(tmp).multiplyScalar(dead ? 0 : (0.9 + charge * 2.2 + (v.shotT < 0.15 ? 3 : 0)) * flare)
+        v.blade.color.copy(tmp).multiplyScalar(dead ? 0 : E.wardenBlade * (0.9 + charge * 2.2 + (v.shotT < 0.15 ? 3 : 0)) * flare)
         v.shield.color.copy(tmp).multiplyScalar(dead ? 0 : 0.7 + v.shieldT * 4)
         v.shield.opacity = dead ? 0 : 0.3 + v.shieldT * 0.6
         const m = Math.max(tmp.r, tmp.g, tmp.b, 1e-3)
+        v.aura.color.copy(tmp).multiplyScalar(dead ? 0 : 1)
         v.lantern.color.setRGB(tmp.r / m, tmp.g / m, tmp.b / m)
         v.lantern.intensity = dead ? 0 : LANTERN * (paused ? 0.4 : alert ? 1.4 : 1) * (1 + charge)
 

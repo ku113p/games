@@ -17,6 +17,8 @@ export interface Settings {
   reduceFx: boolean
   /** HUD size in percent: one of hudScales. */
   hudScale: number
+  /** Tutorial cards and on-screen prompts. */
+  tipsOn: boolean
 }
 
 export interface SettingsStore {
@@ -39,7 +41,7 @@ const SLOT = 'settings'
 const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x))
 
 export function defaultSettings(): Settings {
-  return { master: D.master, music: D.music, sfx: D.sfx, sensitivity: D.sensitivity, invertY: D.invertY, reduceFx: D.reduceFx, hudScale: D.hudScale }
+  return { master: D.master, music: D.music, sfx: D.sfx, sensitivity: D.sensitivity, invertY: D.invertY, reduceFx: D.reduceFx, hudScale: D.hudScale, tipsOn: D.tipsOn }
 }
 
 /** Reads what a saved string holds, keeping every value inside its range (a hand-edited or old save cannot break the game). */
@@ -61,6 +63,7 @@ export function parseSettings(raw: string | null): Settings {
   s.sensitivity = num(o['sensitivity'], SENS_MIN, SENS_MAX, s.sensitivity)
   if (typeof o['invertY'] === 'boolean') s.invertY = o['invertY']
   if (typeof o['reduceFx'] === 'boolean') s.reduceFx = o['reduceFx']
+  if (typeof o['tipsOn'] === 'boolean') s.tipsOn = o['tipsOn']
   if (typeof o['hudScale'] === 'number' && HUD_SCALES.includes(o['hudScale'])) s.hudScale = o['hudScale']
   return s
 }

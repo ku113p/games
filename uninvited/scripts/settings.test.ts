@@ -4,7 +4,7 @@ import { createSettings, defaultSettings, parseSettings } from '../view/settings
 test('settings: garbage and out-of-range values fall back to safe ones', () => {
   expect(parseSettings(null)).toEqual(defaultSettings())
   expect(parseSettings('{not json')).toEqual(defaultSettings())
-  const s = parseSettings(JSON.stringify({ master: 5, music: -1, sfx: 'x', sensitivity: 99, invertY: 1, reduceFx: true, hudScale: 130 }))
+  const s = parseSettings(JSON.stringify({ master: 5, music: -1, sfx: 'x', sensitivity: 99, invertY: 1, reduceFx: true, hudScale: 130, tipsOn: false }))
   expect(s.master).toBe(1)
   expect(s.music).toBe(0)
   expect(s.sfx).toBe(defaultSettings().sfx)
@@ -12,6 +12,8 @@ test('settings: garbage and out-of-range values fall back to safe ones', () => {
   expect(s.invertY).toBe(false)
   expect(s.reduceFx).toBe(true)
   expect(s.hudScale).toBe(100)
+  expect(s.tipsOn).toBe(false)
+  expect(parseSettings(JSON.stringify({ tipsOn: 'no' })).tipsOn).toBe(true)
 })
 
 test('settings: changes are saved and notified; a refusing store is fine', () => {

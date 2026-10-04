@@ -32,16 +32,17 @@ export const palette = {
 const RIM = cfgAll.view.light.rim
 
 /** A cold fresnel rim on a lit material, so dark bodies keep their silhouette against the dark (second look pass). */
-export function addRim(m: Material, strength = 1): void {
-  const color = new Color(RIM[0] ?? 0, RIM[1] ?? 0, RIM[2] ?? 0).multiplyScalar(strength)
+export function addRim(m: Material, strength = 1, tint?: readonly number[], power = 3): void {
+  const base = tint ?? RIM
+  const color = new Color(base[0] ?? 0, base[1] ?? 0, base[2] ?? 0).multiplyScalar(strength)
   m.onBeforeCompile = (sh): void => {
     sh.uniforms['uRim'] = { value: color }
     sh.fragmentShader = 'uniform vec3 uRim;\n' + sh.fragmentShader.replace(
       '#include <opaque_fragment>',
-      'outgoingLight += uRim * pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);\n#include <opaque_fragment>',
+      `outgoingLight += uRim * pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), ${power.toFixed(2)});\n#include <opaque_fragment>`,
     )
   }
-  m.customProgramCacheKey = (): string => 'rim'
+  m.customProgramCacheKey = (): string => `rim${power}`
 }
 
 /** Shared materials (one instance each, recolored in place when needed). The corridor lines have their own shader

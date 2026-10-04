@@ -103,6 +103,38 @@ states (menu/room, calm network, combat, hacking).
 
 Measure with F3 and `renderer.info` before and after every optimisation; never optimise by eye.
 
+**The benchmark** (`?bench=<scenario>`, `view/bench.ts`; CLI `bun tools/bench.ts`, see README) is the measuring tool. Scenarios:
+`idle`, `wave` (the biggest wave: 15 worms, drone, 2 wardens, heavy; a scripted hero fights it), `fx` and `fx-<category>`
+(synthetic bursts of every effect with the real handlers and sounds), `soak` (wave on repeat, 5 min), `all`. The F3 overlay shows
+its progress. **Pass thresholds** (real GPU, High preset, 1080p): p95 frame < 20 ms, p99 < 33 ms, nothing over 50 ms after the
+first 2 s, JS p95 < 8 ms, `soak`: zero growth (geometries, textures, programs, scene objects, audio voices; heap flat within
+25%), pool sizes unchanged (`core/waves-bounded.test.ts` guards the core side), `allocKB` < 100 KB per frame (see below),
+`fx-*` p95 within +4 ms of `idle`. Any category that fails its threshold is the place to look.
+
+**As built - the fight FPS drops (2026-10-05).** Method: headless Chrome (software GL, a loaded 24-core box, so only counts
+and trends count), l1, `?bench=soak` 180 s with a scripted hero fighting looping waves, plus CPU and heap-sampling profiles.
+- *No leak.* Over 180 s geometries/textures/programs/scene objects are constant, the heap is flat (45-53 MB), the state pools
+  never change size, audio voices stay under the limit (the effect pools in `view/fx.ts` and the worm/drone rigs are fixed).
+- *Cause 1: first-use compiles and uploads.* three compiles a program and uploads geometry/textures the first time a mesh is
+  drawn. Before: 4 programs, 14 geometries and 1 texture appeared during play (the first warden of a wave builds its rig and
+  compiles its skinned materials mid-fight: a 280-600 ms JS stall in the log at wave start; new areas and effects did the same).
+  Fix: `GameView.prewarm()` draws one frame with everything shown (lights untouched: their count must never change) once the
+  warden models are loaded, after `WardenViews.warm()` built the sentinel and heavy rigs of slot 0. After: 0 first-use events in
+  play, all 95 programs / 283 geometries / 56 textures exist before the first frame. `?nowarm` restores the old behaviour for A/B.
+- *Cause 2: GC churn from three's program lookup.* A transparent double-sided material is drawn in two passes and bumps its
+  version twice per object per frame, so ~130 glows (cones, rings, tracers, flashes, beams) re-derived their program parameters
+  and cache keys every frame (CPU-profile allocation top: `getParameters`/`join`). Fix: `forceSinglePass` for transparent
+  double-sided materials that are additive or depth-less (same look; also removes the back-face draw). Version-bumping materials
+  31 -> 2, draw calls 738 -> ~700 in a wave. The rest of the garbage (about 450 KB per frame, a young-gen GC every ~1 s; that is
+  three's per-object program check for materials shared by skinned and plain meshes or flipping light state between the mirror
+  and main pass) is NOT fixed - next candidates: separate materials per mesh kind in the hero/warden rigs, one light set for
+  the mirror pass (`light.layers.enable(1)` - tested: same picture, no measurable change in garbage, so not the main source).
+- *Not a bug, but it reads as stutter:* hit-stop freezes the sim 40-70 ms per hit/kill; 5% of the frames of the scripted wave
+  were frozen (`hitstop%` in the table). If the designer still feels periodic hitches on a real GPU, try `reduceFx` first.
+- *Open:* 600-730 draw calls per frame (main ~550 + floor mirror ~175; budget 150) is the biggest GPU-side cost and the first
+  thing to cut (merge city props, drop small meshes from the mirror, or lower the mirror's cost on the Low preset).
+- Headless frames show a ~2 s stall every few seconds even in `idle`: a software-GL artifact, not the game.
+
 ### Working rules
 
 - Every feature gets a timebox in the morning; when it runs out, ship what is there or cut it.
@@ -187,3 +219,46 @@ Measure with F3 and `renderer.info` before and after every optimisation; never o
 - Do not leave the draft upload or the cold playtest for 10-11.
 - Do not shrink the waves to save time - that is the designer's call; tune tokens and caps instead.
 - Do not spend OpenRouter credit on rerolls before the music is done.
+
+## Review 2026-10-05
+
+Note: 2026-10-05 is a **Monday** (the day plan above and PLAN.md are one weekday off); the team works in UTC+8, so the
+deadline is 10-13 05:00 local and the OpenRouter key dies 10-11 14:03 local. Designer feedback this day: shooting and hits
+feel artificial, the detours are boring, everything is monotonous - the plan below makes room for that first.
+
+### Status of the 10-04 items
+
+| # | Item | Status |
+| --- | --- | --- |
+| 1 | End-to-end run | **open** - no scene flow, no prologue/room/L2/L3/endings in the game, 0 words of story text |
+| 2 | Performance | **partly** - pass in progress, bench tool built; bench shows 520-735 draw calls on L1 (budget < 150); no Low preset |
+| 3 | Endless L1 polish | **partly** - L1 built, but not shrunk: bot quiet route 377-393 s (budget ~5 min for a human) |
+| 4 | Pointer lock in the itch iframe | **open** - no draft yet; a refused lock is handled |
+| 5 | WebGL context loss | **open** |
+| 6 | Size / stale dist | **partly** - fresh build 18 MB, 129 files, relative paths; `dist/uninvited/` still holds stale duplicates; no load progress |
+| 7 | Saves | **partly** - versioned, storage in try/catch; no reset button |
+| 8 | Outside testers | **open** (cold run 10-09) |
+| 9 | Music | **fixed** - 10 Lyria tracks approved and credited |
+| 10 | itch zip script | **open** |
+| 11 | Licences | **fixed** - CREDITS.md current |
+| - | Uncommitted work | **new, high** - 38 modified + 18 untracked files incl. the approved music; `bench/results/` not ignored |
+
+### Cut list applied now (to fund the feel days)
+
+The designer's 10-05 feedback (shooting/hits artificial - reference modern Doom; detours are empty corridors; lanes unclear,
+guards fast and everywhere; monotonous) gets 10-05 and 10-06 as feel days, in parallel with the flow skeleton. Paid for by:
+May's upgrade tree and points -> after the jam, with the **distraction ping as her fixed gift at T0** and the camera-pause
+active cut (designer to confirm); ET1 turret cut; L2 = one arena, L3 = finale arena + letters (fallback: merge L2 into L3);
+prologue and endings as still montages first, 2.5D office only if time remains; room = the `tests/room-fp/` port with the
+specials as story cards; glory-kill lite, data lifts, establishing glance, L1 sound camera, real voices, second level track:
+cut or only-if-slack (`net_calm_b` allowed until 10-08); perf timeboxed (pass closes 10-05, Low preset 10-06).
+Kept: the feel pack (gunplay, hit/kill markers, stagger, impact VFX, mix), the takedown, the L1 rebuild (quiet bot <= 220 s,
+one lane through each arena, drone 1.4 m/s, 3 checkpoints), arena identity, ambience. Generation closes 10-09 evening.
+
+### Top 5 (2026-10-05)
+
+1. **(L)** Flow skeleton + a reusable story-card screen today (menu -> prologue -> room -> L1 -> room -> L2 -> L3 choice -> ending); real scenes by 10-08.
+2. **(M)** Feel before content: gunplay pack 10-05/06, stealth verbs and lanes 10-05/06, arena variety 10-07 - L2/L3 are built on 10-07 with the fixed kit.
+3. **(S)** Commit the working tree today (designer's call), ignore `bench/results/`, commit every evening; one owner per file group.
+4. **(M)** Perf pass closed with numbers today; Low preset, context-lost handler and the music-race fix 10-06.
+5. **(S)** itch draft 10-06 through `build-itch.ts` (clean dist, zip, test lock, audio unlock, fullscreen, adaptive music).

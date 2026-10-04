@@ -9,6 +9,17 @@ export interface PerfOverlay {
 
 const WINDOW_SEC = 1
 
+/** Debug probe (off by default; `__game.perf.on = true`): every frame longer than `longMs` is logged with its timestamp, JS time and the draw calls. */
+export interface PerfProbe {
+  on: boolean
+  longMs: number
+  frames: number
+  /** Shown in the F3 overlay (the benchmark's progress). */
+  status: string
+  longs: { t: number; ms: number; cpu: number }[]
+}
+export const perfProbe: PerfProbe = { on: false, longMs: 50, frames: 0, status: '', longs: [] }
+
 export function createPerfOverlay(root: HTMLElement): PerfOverlay {
   const box = document.createElement('div')
   box.style.cssText =
@@ -32,6 +43,10 @@ export function createPerfOverlay(root: HTMLElement): PerfOverlay {
       const now = performance.now()
       const ms = now - last
       last = now
+      if (perfProbe.on) {
+        perfProbe.frames++
+        if (ms > perfProbe.longMs && perfProbe.longs.length < 2000) perfProbe.longs.push({ t: now, ms, cpu: cpuMs })
+      }
       if (!on) return
       acc += ms
       frames++
@@ -39,7 +54,7 @@ export function createPerfOverlay(root: HTMLElement): PerfOverlay {
       if (ms > worst) worst = ms
       if (acc < WINDOW_SEC * 1000) return
       const avg = acc / frames
-      box.textContent = `${(1000 / avg).toFixed(0)} fps   ${avg.toFixed(1)} ms avg   ${worst.toFixed(1)} ms worst\njs ${(cpu / frames).toFixed(1)} ms   (F3 hides)`
+      box.textContent = `${(1000 / avg).toFixed(0)} fps   ${avg.toFixed(1)} ms avg   ${worst.toFixed(1)} ms worst\njs ${(cpu / frames).toFixed(1)} ms   (F3 hides)${perfProbe.status ? '\n' + perfProbe.status : ''}`
       acc = 0
       frames = 0
       worst = 0

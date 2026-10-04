@@ -105,6 +105,12 @@ import wardenStepV5 from '../audio/sfx/warden_step_v5.mp3'
 import gateOpen from '../audio/sfx/gate_open.mp3'
 import wormSkitterLoop from '../audio/sfx/worm_skitter_loop.mp3'
 import wormSpawn from '../audio/sfx/worm_spawn.mp3'
+import voiceMayV1 from '../audio/sfx/voice_may_v1.mp3'
+import voiceMayV2 from '../audio/sfx/voice_may_v2.mp3'
+import voiceMayV3 from '../audio/sfx/voice_may_v3.mp3'
+import voiceMayV4 from '../audio/sfx/voice_may_v4.mp3'
+import voiceMayV5 from '../audio/sfx/voice_may_v5.mp3'
+import voiceMayV6 from '../audio/sfx/voice_may_v6.mp3'
 
 const FILES: Record<string, string> = {
   jump: jump,
@@ -204,6 +210,12 @@ const FILES: Record<string, string> = {
   worm_bite_v2: wormBiteV2,
   worm_skitter_loop: wormSkitterLoop,
   worm_spawn: wormSpawn,
+  voice_may_v1: voiceMayV1,
+  voice_may_v2: voiceMayV2,
+  voice_may_v3: voiceMayV3,
+  voice_may_v4: voiceMayV4,
+  voice_may_v5: voiceMayV5,
+  voice_may_v6: voiceMayV6,
 }
 
 const M = cfgAll.audio.mixer
@@ -251,6 +263,7 @@ const POLICY: Record<string, Policy> = {
   camera_spotted: P('ui'),
   sound_camera_ping: P('enemy'),
   motion_sensor_trip: P('enemy'),
+  voice_may: P('ui'),
 }
 const DEFAULT_PLAYER = P('player')
 const DEFAULT_ENEMY = P('enemy')
@@ -300,6 +313,7 @@ export class Sound {
   private volumes: Volumes = { master: 1, music: 1, sfx: 1 }
   private hackDuck = 1
   private readyFns: Array<() => void> = []
+  private ctxFns: Array<() => void> = []
   /** The listener (camera): position and yaw, set by the game view every frame. */
   private lx = 0
   private lz = 0
@@ -346,6 +360,8 @@ export class Sound {
     }
     this.bus = this.buses.get('ui') ?? null
     this.applyGains()
+    for (const fn of this.ctxFns) fn()
+    this.ctxFns = []
     await ctx.resume().catch(() => undefined)
     await Promise.all(
       [...this.raw].map(async ([name, bytes]) => {
@@ -367,6 +383,12 @@ export class Sound {
     this.ready = true
     for (const fn of this.readyFns) fn()
     this.readyFns = []
+  }
+
+  /** Runs fn as soon as the context and the buses exist (before the SFX are decoded), now if they already do. */
+  onContext(fn: () => void): void {
+    if (this.ctx && this.master) fn()
+    else this.ctxFns.push(fn)
   }
 
   /** Runs fn once the mixer exists (now, if it already does). */

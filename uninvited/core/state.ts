@@ -457,6 +457,8 @@ export interface GameState {
   hack: HackRun | null
   artifactTaken: boolean
   lastCheckpoint: number
+  /** May is present (DESIGN 10): set when the T0 hack is solved, or from the start on a level with `mayFromStart`. Saved. */
+  mayMet: boolean
 }
 
 /** What a terminal controls, resolved from the level's ids. */
@@ -469,6 +471,8 @@ export interface TerminalLinks {
   cameras: number[]
   soundCameras: number[]
   difficulty: number
+  /** Solving this terminal is May's entrance (TerminalDef.meetsMay). */
+  meetsMay: boolean
 }
 
 /** A noise made this tick (cleared at the end of every tick). */
@@ -668,7 +672,7 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
   const terminalLinks = level.entities
     .filter((e): e is TerminalDef => e.kind === 'terminal')
     .map((t) => {
-      const links: TerminalLinks = { walls: [], lasers: [], drones: [], wardens: [], cameras: [], soundCameras: [], difficulty: t.difficulty }
+      const links: TerminalLinks = { walls: [], lasers: [], drones: [], wardens: [], cameras: [], soundCameras: [], difficulty: t.difficulty, meetsMay: t.meetsMay === true }
       for (const id of t.targets) {
         const w = wallIds.get(id)
         const l = laserIds.get(id)
@@ -932,5 +936,6 @@ export function createState(sim: Sim, seed: number): GameState {
     hack: null,
     artifactTaken: false,
     lastCheckpoint: -1,
+    mayMet: level.mayFromStart === true,
   }
 }

@@ -157,3 +157,49 @@ passage-arena rhythm and checkpoints after arenas. Spawn gates, the drone's 0.7 
 - Do not let one camera pause or one terminal free a whole arena (DESIGN 6: arenas need two things at once).
 - Do not change a balance number in code - only in `config.json`, and update DESIGN.md if the behaviour changes.
 - Do not add Halloween dressing to rules or texts; the theme is "Uninvited" and the story carries it.
+
+## Review 2026-10-05
+
+**Status of earlier items.** Counter cascade: **fixed** (`alarm.ts` sets `segmentFight` on a wave spawn, `progress.ts` reads and clears it).
+Checkpoint full heal: **fixed**. Drone hp 40: **fixed**. Readability and hints: **partly** (lens glow, look beams, enemy rim/aura/halo,
+two-tier hints, Tab card; the forced cone reveal is open). Scope: **partly** (L1 built but still the 8-10 min layout; no L2/L3, scenes,
+choice, endings). Takedown, distraction, camera pause, May's tree: **open** (no code). Sound camera still in L1 P2. The wave numbers
+above (9/15/18) are outdated: `config.json` and DESIGN 9 have packs 5+3, 5+4+3, 6+5+4 = 9/16/19.
+
+**Measured (bots, 8 seeds, L1).** Loud 8/8 in 115-205 s (min HP 14-105, 57 kills); sloppy loud 5/8; quiet 8/8 in 368-393 s with 0 alarms.
+Hacking is ~41 % of the quiet run (4 hacks, ~162 s). The quiet bot waits only 7 s in total because the quiet line avoids the guards by
+geography (the edges). The firewall opens every red wall in the level, so loud skips T1-T3 and is 2.5x faster than quiet (against
+DESIGN 7). L1 has only 2 checkpoints, both after arena 2 (cells 26,15 and 37,15).
+
+**The designer's feedback (2026-10-05)** - "shooting and hits feel artificial (reference: Doom 2016/Eternal), detours are boring and empty,
+monotonous, unclear where to slip through, guards scurry everywhere and fast". System causes:
+- There is no stealth verb, yet the hint and May promise "go behind it", while a hit from behind raises the alarm.
+- Four identical hacks and one global wave ladder.
+- Hip shots snap to targets inside a 5 deg cone, and hit spheres are 2x the drawn size.
+- A warden is an 8-shot sponge with no weak side and one flinch for every hit.
+- A crouching player (1.5 m/s) is slower than a patrolling drone (2.2 m/s).
+- Wardens sweep +-55 deg while walking.
+- The A1 drone loops over the plaza centre.
+- Network vision overheats at 6 s, while patrol loops are 20-40 s.
+- The edge line is free and the interior pays nothing.
+
+**Top 5 (2026-10-05):**
+1. Active stealth (**M**): takedown (E from behind, 0.6 s, down 45 s, no noise, not a kill) + May's distraction ping (key 1, 15 m,
+   12-15 s cooldown); given at the T0 meeting.
+2. Readable, rewarding interior; L1 cut to ~5 min (**S-M**):
+   - guard numbers: crouch 2.0, drone patrol 1.4 with 3.5 s stops and a 26 deg / 10 m cone, wardens scan 30 deg while walking
+     (55 at stops);
+   - the A1 drone off the plaza centre;
+   - network vision: `scan.maxSec` 10, plus route stop rings;
+   - a coverage-scan tool (30-50 % coverage, at least 4 s windows on the quiet line);
+   - at most 1 hack per arena (merge T2 into T3), the sound camera moved to L2;
+   - the interior line 40-60 % shorter than the edge, with a finding or a shard cache in it;
+   - target: quiet bot ~200-220 s.
+3. Firewall per arena + 3 checkpoints per level (**S**): a lockdown opens only its arena's walls, the alarm resets at the next
+   checkpoint, L1 lockdowns are 2 waves; a checkpoint goes in P1.
+4. The 20-minute arc skeleton by 10-08 (**L**, with the producer): scenes, L2/L3 one arena each, the explicit two-button L3 choice, the
+   quiet endings; cut ET1 and May's passives/points screen if needed.
+5. Honest hits + the Doom link + distinct waves (**S-M**):
+   - hip assist 5 -> 2 deg (0 when aimed), hit spheres ~1.25x, warden back/flank x2;
+   - "shoot to stagger, cut to finish": the warden staggers at 50 % hp for 2 s, then any sword hit kills it for 6 shards;
+   - waves with one job each (worms / ranged / heavy).

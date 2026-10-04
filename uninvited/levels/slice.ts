@@ -6,11 +6,11 @@
 //  1. Start corridor: a light bridge over the void, then a video camera sweeps a widening with low cover; sneak behind
 //     the blocks. Ramp up to C1.
 //  2. East corridor (raised): a motion sensor - walk, do not sprint or jump. Drop down the ledge. Drone 1 patrols;
-//     the laser grid blocks the way. Terminal T2 on the north wall sits behind an L of server blocks: crouch there
+//     the laser grid blocks the way. Terminal T2 on the north wall has two free-standing server blocks (south and east of it, a gap between them, no niche): crouch there
 //     and the drone does not see you while you hack (it pauses the lasers and drone 1). C2 behind the lasers.
 //     A short roofed passage leads up to the hall.
 //  3. The hall (open sky): a sound camera (sprinting is loud), a second video camera, drone 2. Terminal T1 on the north wall,
-//     behind an L of server blocks, opens the red wall in the top corridor and pauses drone 2 - the window to slip out. C3 behind it, a ramp up to the artifact.
+//     with two free-standing server blocks beside it, opens the red wall in the top corridor and pauses drone 2 - the window to slip out. C3 behind it, a ramp up to the artifact.
 //  4. The top corridor to the artifact: warden 1 walks a round - it stands at the east end watching the way in, walks
 //     west and checks a server rack, walks back. Wait behind the rack east of the checkpoint until it walks away,
 //     follow it and slip past behind its back while it checks the rack.
@@ -30,6 +30,7 @@ export const slice: LevelDef = {
   coverHeight: 1.1,
   nicheHeight: 1.35, // unused: the slice has no niches (server blocks instead)
   startFacing: 'n',
+  mayFromStart: true,
   // The open city (DESIGN 6): the walkable platforms are ringed by slabs ('#') and hex blocks ('H'); low parapets
   // ('2' in tops) on the outer edges look out over the void ('_'), where towers rise from the dark and data rivers
   // flow far below. A one-cell light bridge crosses the void in the start corridor (rows 29-30).
@@ -162,9 +163,8 @@ export const slice: LevelDef = {
     { kind: 'drone', id: 'drone1', patrol: [[11, 15], [23, 15]] },
     { kind: 'laser', id: 'laser1', at: [17, 15] },
     { kind: 'terminal', id: 't2', at: [13, 14], targets: ['laser1', 'drone1'], difficulty: 0 },
-    // the L of server blocks in front of T2 (south, east); come in from the west
-    { kind: 'cover', at: [13, 14], size: [4, 0.6, 1.4], offset: [0, 0.5] },
-    { kind: 'cover', at: [13, 14], size: [0.6, 1.3, 1.4], offset: [1.7, -0.35] },
+    // a long free-standing server block south of T2, a metre off the wall (no niche, open at both ends): crouch behind it
+    { kind: 'cover', at: [13, 14], size: [6.8, 0.6, 1.4], offset: [1.6, 0.3] },
     // one more past the lasers, to wait for the drone's back
     { kind: 'cover', at: [21, 16], size: [1.6, 0.6, 1.4], offset: [0, -0.2] },
     { kind: 'spawn', at: [3, 14], wall: 'n' },
@@ -175,15 +175,14 @@ export const slice: LevelDef = {
     { kind: 'videoCamera', id: 'cam2', at: [17, 9], wall: 'w', sweep: [-40, 40], periodSec: 10, phase: 0.3 },
     { kind: 'drone', id: 'drone2', patrol: [[21, 10], [27, 10], [27, 6], [21, 6]] },
     { kind: 'terminal', id: 't1', at: [19, 5], targets: ['wall1', 'drone2'], difficulty: 0.3 },
-    // the L of server blocks in front of T1 (south, east); come in from the west
-    { kind: 'cover', at: [19, 5], size: [3.2, 0.6, 1.4], offset: [-0.1, 0.5] },
-    { kind: 'cover', at: [19, 5], size: [0.6, 1.3, 1.4], offset: [1.2, -0.35] },
+    // a long free-standing server block south of T1, a metre off the wall (no niche, open at both ends): crouch behind it
+    { kind: 'cover', at: [19, 5], size: [6, 0.8, 1.4], offset: [1.4, 0.4] },
     // a few hex modules in the hall to break the camera's view, and two hex towers in its corners
     { kind: 'hex', at: [22, 8], radius: 0.8, height: 1.4 },
     { kind: 'hex', at: [25, 10], radius: 0.8, height: 1.4 },
     { kind: 'hex', at: [28, 5], radius: 1.0, height: 7, offset: [0.3, -0.3] },
-    { kind: 'hex', at: [17, 11], radius: 0.9, height: 3.2, offset: [-0.2, 0.2] },
-    { kind: 'hex', at: [18, 11], radius: 0.55, height: 1.2, offset: [-0.3, 0.4] },
+    { kind: 'hex', at: [17, 10], radius: 0.9, height: 3.2, offset: [0.4, 0] },
+    { kind: 'hex', at: [20, 10], radius: 0.55, height: 1.2 },
     { kind: 'redWall', id: 'wall1', at: [20, 1] },
     { kind: 'motionSensor', id: 'sensor2', at: [24, 2] },
     { kind: 'spawn', at: [28, 11], wall: 'e' },

@@ -105,6 +105,23 @@ function targetCount(s: GameState, kind: TargetKind): number {
   return s.lasers.length * 2
 }
 
+/**
+ * Distance along a normalized ray to the nearest shootable target (its hit sphere), or -1; nothing beyond maxDist.
+ * The camera's aim point uses it, so a target under the crosshair is aimed at and not the wall behind it (DESIGN 9).
+ */
+export function pickTarget(s: GameState, sim: Sim, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): number {
+  let best = -1
+  for (const kind of KINDS) {
+    const n = targetCount(s, kind)
+    for (let i = 0; i < n; i++) {
+      if (!targetAt(s, sim, kind, i)) continue
+      const t = raySphere(ox, oy, oz, dx, dy, dz, tgt.x, tgt.y, tgt.z, tgt.r)
+      if (t >= 0 && t < maxDist && (best < 0 || t < best)) best = t
+    }
+  }
+  return best
+}
+
 const KINDS: readonly TargetKind[] = ['drone', 'warden', 'worm', 'videoCamera', 'soundCamera', 'laser']
 
 /** Applies damage; kills break things loudly and always bring someone to check (DESIGN 9). */

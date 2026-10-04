@@ -108,7 +108,7 @@ The narrative role owns every word the player reads and the order the player lea
 | C | The twist risks being predictable, and nothing between L1 and L2 shakes the player's certainty. | High | Open for the text. DESIGN already places the spreadsheet in L2 and the layoff news in the room, so the three shifts fit the structure. |
 | D | The endings read as reward and punishment (a box of cash; a grenade and "everyone dies"). | Medium | In progress. Quiet endings are decided (DESIGN 4) but not built. E1 still shows a box of cash. |
 | E | The theme lives in the plot, but the player does not hear the word. | Medium | Open. One recurring line from May, the level titles and the ending screen should carry it. |
-| F | May has no written voice. The only line, `may.l1.meet`, is narration. | Medium | Open. |
+| F | May has no written voice. The only line, `may.l1.meet`, is narration. | Medium | Partly done (2026-10-05). The L1 lines are written (15 in `texts/en.json` `may.l1.*`, 12 words or fewer each, about 135 words) and built: subtitles, beep voice, the meeting at T0, the triggers (DESIGN 10 "As built"). Open: the lines for L2 (the refusal) and L3 (before the choice), and the ammo line (no ammo-from-May mechanic yet). |
 | G | Too many findings for the playtime; jam players read 1-2 lines. | Medium | Open. The budget above sets limits. It is even tighter now because the game is 20 minutes. |
 | H | The itch pitch ("Let's see what comes of it") does not sell May, the theme or the style. | Medium | Open. DESIGN 1 says the agent polishes it at release. |
 | I | The abstract network has no story places, and the hero's colour gives the ending away too plainly. | Low-medium | Partly decided otherwise. The colour stays as a visible hint (DESIGN 4), but it is now pressure rather than the verdict, so the code's full red at `sadAt` is acceptable. The story places are open. |
@@ -147,3 +147,18 @@ The narrative role owns every word the player reads and the order the player lea
 - Do not multiply findings, and do not write a finding the player has to read twice to get.
 - Do not put the red-lit parcel (E2) or a money box (E1) on screen before the finale.
 - Do not write a story change only into this guide. Story decisions go into `DESIGN.ru.md` and `DESIGN.md`.
+
+## Review 2026-10-05
+
+Full text: `scratchpad/reviews2/08-narrative.md` (drafts D1-D9 and the L1 beat table are there).
+
+**Status of earlier items.** A partly (counter no longer cascades; the choice is not built; the won screen still prints the counter like a verdict). B, C, D, G, H, I open. E mostly fixed: the theme is heard in May's lines ("Nobody invites me in either", "doorbell", "like you were invited", "One door down"). F fixed for L1 (15 lines, 123 words, beep voice, subtitles, queue).
+
+**New, high:** Jim's framing notes, the L1 artifact, are never shown. The level ends on "FILE ACQUIRED" plus stats. The level title `level.l1` is never displayed. Jim is named once, by May, and Johnny's name never appears. The judge's whole story today is the tagline plus May. Also: the quiet path hears fewer May lines than the loud one, and the `death` line repeats.
+
+**Top 5.**
+1. (S-M) One reusable story card (still + 1-4 lines). Use it in L1 now for the title card, Jim's notes at the vault and the family-photo finding.
+2. (S) A writing pass into `en.json`: titles, L1 findings, May additions, prologue, CCTV/choice, endings (~470 words) first, then L2/L3/room.
+3. (M) A still-based prologue and endings before the freeze, upgraded to 2.5D only if time remains (the order differs from DESIGN 5; the goal does not).
+4. (S-M) L1 beats against monotony: May reacts to quiet play, a "REVOKED" flash, "Jim is online", and findings placed on the detours. Drop the counter sentence from the won screen.
+5. (M) The L3 choice + quiet endings, with the stored choice replacing `isSadEnding()`. If a level is cut, attach the choice to the last level.

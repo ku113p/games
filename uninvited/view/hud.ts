@@ -6,6 +6,7 @@
 import texts from '../texts/en.json'
 import type { SettingsHandle } from './settings'
 import { buildSettingsPanel, SETTINGS_CSS } from './settings-ui'
+import { TIPS_CFG, type CardId, type Tips } from './tips'
 
 type TextKey = Exclude<keyof typeof texts, 'controls'>
 
@@ -13,6 +14,50 @@ export function t(key: TextKey, vars?: Record<string, string | number>): string 
   let s = texts[key] as string
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v))
   return s
+}
+
+/** Who says a prompt or a card: none (the game) or May, the AI assistant (a name label and her accent colour). */
+export type Speaker = 'may'
+
+/** A contextual prompt: `text` may hold {Key} markup. */
+export interface PromptSpec {
+  id: string
+  text: string
+  speaker?: Speaker
+}
+
+/** A tutorial card: a title and up to three lines with {Key} markup. */
+export interface CardSpec {
+  id: string
+  title: string
+  lines: readonly string[]
+  speaker?: Speaker
+}
+
+const SPEAKER_NAME: Record<Speaker, string> = { may: 'MAY' }
+
+/** The built-in tutorial card `id`, from texts/en.json (card.<id>.title, card.<id>.1..3). */
+export function cardSpec(id: CardId): CardSpec {
+  const lines: string[] = []
+  for (const n of [1, 2, 3]) {
+    const line = texts[`card.${id}.${n}` as keyof typeof texts] as string | undefined
+    if (line) lines.push(line)
+  }
+  return { id, title: texts[`card.${id}.title` as keyof typeof texts] as string, lines }
+}
+
+/** Draws text with {Key} markup into an element: each {Key} becomes a keycap (a small bordered box), the rest stays text. */
+export function renderKeys(parent: HTMLElement, text: string): void {
+  parent.replaceChildren()
+  const parts = text.split(/\{([^}]+)\}/)
+  parts.forEach((p, i) => {
+    if (p === '') return
+    if (i % 2 === 1) {
+      const k = document.createElement('kbd')
+      k.textContent = p
+      parent.appendChild(k)
+    } else parent.appendChild(document.createTextNode(p))
+  })
 }
 
 /** A watcher noticing the player, as the HUD draws it. */
@@ -61,7 +106,10 @@ export interface HudState {
 export interface Hud {
   update(h: HudState): void
   toast(text: string, kind?: 'info' | 'alarm' | 'good'): void
-  hint(text: string): void
+  /** The contextual prompt (non-blocking, big, with keycaps): the text, or null to fade it out. It has no timer. */
+  hint(spec: PromptSpec | null): void
+  /** A tutorial card (the caller pauses the game). Enter or a click calls onContinue once. back: the footer says "go back". */
+  showCard(spec: CardSpec, back: boolean, onContinue: () => void): void
   setVisible(on: boolean): void
   /** Network vision held too long: the security is called - a clear banner. */
   traced(): void
@@ -127,6 +175,32 @@ const HACK_ESC_CSS = `
   pointer-events: none; }
 `
 
+/** The contextual prompt, the interact prompt, keycaps and the tutorial card. Font: about 2.6 % of the screen height, the card body 2.8 % like May's subtitles (the HUD size multiplies it). */
+const TIPS_CSS = `
+.hud-hint, .hud-prompt { position: absolute; left: 50%; transform: translateX(-50%); max-width: 88%; box-sizing: border-box; text-align: center;
+  font-size: clamp(18px, 2.6vh, 34px); line-height: 1.35; padding: 0.35em 0.9em; color: var(--white); letter-spacing: 0.02em;
+  background: rgba(0, 8, 14, 0.88); border: 1px solid rgba(111, 244, 255, 0.55); border-left: 0.2em solid var(--amber);
+  box-shadow: 0 0 22px rgba(0, 0, 0, 0.7); opacity: 0; pointer-events: none; }
+.hud-hint { bottom: 9vh; transition: opacity ${TIPS_CFG.promptFadeSec}s; }
+.hud-prompt { top: 60%; border-left-color: var(--cyan); transition: opacity 0.15s; }
+.hud-hint.on, .hud-prompt.on { opacity: 1; }
+.who { display: inline-block; margin-right: 0.8em; padding: 0 0.5em; font-size: 0.7em; font-weight: 700; letter-spacing: 0.2em; color: #04141a; background: var(--cyan); vertical-align: 0.1em; }
+.hud-hint.by-may { border-left-color: var(--cyan); }
+.screen.card .who { display: block; width: fit-content; margin: 0 0 0.6em; }
+.screen.card.by-may { border-top-color: var(--cyan); }
+kbd { display: inline-block; min-width: 1.3em; box-sizing: border-box; padding: 0 0.4em; margin: 0 0.18em; font: inherit; font-weight: 700; line-height: 1.35;
+  text-align: center; color: var(--white); background: #10303a; border: 1px solid var(--cyan); border-bottom-width: 0.18em; border-radius: 0.28em;
+  box-shadow: 0 0 8px rgba(111, 244, 255, 0.35); }
+.screen.card { box-sizing: border-box; width: ${TIPS_CFG.cardPercent}vw; max-width: none; text-align: left; cursor: pointer;
+  font-size: clamp(20px, 2.8vh, 36px); padding: 1.2em 1.7em 1.1em; max-height: 92vh; overflow: auto; background: rgba(0, 10, 16, 0.94); border: 1px solid var(--cyan);
+  border-top: 0.25em solid var(--amber); box-shadow: 0 0 40px rgba(111, 244, 255, 0.25); }
+.screen.card h2 { font-size: 1.6em; letter-spacing: 0.22em; margin: 0 0 0.6em; text-transform: uppercase; }
+.screen.card p { margin: 0.5em 0; line-height: 1.5; }
+.screen.card .go { display: block; text-align: center; margin: 1.2em 0 0; padding: 0.5em 1em; letter-spacing: 0.15em; }
+.tips-list { display: flex; flex-direction: column; gap: 4px; align-items: center; margin: 10px 0; }
+.tips-list .btn { margin-top: 6px; min-width: 260px; }
+`
+
 /** The aim crosshair and the hit cues. */
 const AIM_HIT_CSS = `
 .hud-aim { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
@@ -147,9 +221,9 @@ const AIM_HIT_CSS = `
 .hud-bar.hit .hud-bar-fill { background: #fff; box-shadow: 0 0 16px #ff3646; }
 `
 
-export function createHud(root: HTMLElement, toastSec: number, hintSec: number, settings?: SettingsHandle): Hud {
+export function createHud(root: HTMLElement, toastSec: number, settings?: SettingsHandle, tips?: Tips): Hud {
   const css = document.createElement('style')
-  css.textContent = TRACE_CSS + AIM_HIT_CSS + SETTINGS_CSS + HACK_ESC_CSS
+  css.textContent = TRACE_CSS + AIM_HIT_CSS + SETTINGS_CSS + HACK_ESC_CSS + TIPS_CSS
   document.head.appendChild(css)
   const hud = el('div', 'hud', root)
 
@@ -264,7 +338,7 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
     crouched: false,
   }
 
-  let hintTimer: ReturnType<typeof setTimeout> | null = null
+  let hintText = ''
 
   function screen(cls: string): HTMLElement {
     screens.replaceChildren()
@@ -289,6 +363,35 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
     })
   }
 
+  /** The Tips button of the pause screen: the cards seen so far, each re-opens; Back returns to the screen. */
+  function tipsButton(parent: HTMLElement, cls: string, rebuild: () => void): void {
+    if (!tips) return
+    const b = el('button', 'btn', parent, t('tips.open'))
+    b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const list = (): void => {
+        const s = screen(`${cls} tips-view`)
+        el('h2', '', s, t('tips.title'))
+        const box = el('div', 'tips-list', s)
+        const seen = tips.seen()
+        if (seen.length === 0) el('p', 'note', box, t('tips.empty'))
+        for (const id of seen) {
+          const c = el('button', 'btn', box, texts[`card.${id}.title` as keyof typeof texts] as string)
+          c.addEventListener('click', (ev) => {
+            ev.stopPropagation()
+            api.showCard(cardSpec(id), true, list)
+          })
+        }
+        const back = el('button', 'btn', s, t('settings.back'))
+        back.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          rebuild()
+        })
+      }
+      list()
+    })
+  }
+
   function controlsList(parent: HTMLElement): void {
     const list = el('div', 'controls', parent)
     for (const [k, v] of texts.controls) {
@@ -298,7 +401,7 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
     }
   }
 
-  return {
+  const api: Hud = {
     hackRoot,
     update(h: HudState): void {
       const hp = Math.round(h.hp * 100)
@@ -367,7 +470,7 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
         last.trace = traceKey
       }
       if (h.prompt !== last.prompt) {
-        prompt.textContent = h.prompt === 'terminal' ? t('prompt.terminal') : h.prompt === 'artifact' ? t('prompt.artifact') : ''
+        renderKeys(prompt, h.prompt === 'terminal' ? t('prompt.terminal') : h.prompt === 'artifact' ? t('prompt.artifact') : '')
         prompt.classList.toggle('on', h.prompt !== 'none')
         last.prompt = h.prompt
       }
@@ -424,11 +527,50 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
       setTimeout(() => e.classList.add('out'), toastSec * 1000)
       setTimeout(() => e.remove(), toastSec * 1000 + 600)
     },
-    hint(text: string): void {
-      hintBox.textContent = text
-      hintBox.classList.add('on')
-      if (hintTimer) clearTimeout(hintTimer)
-      hintTimer = setTimeout(() => hintBox.classList.remove('on'), hintSec * 1000)
+    hint(spec: PromptSpec | null): void {
+      if (spec !== null) {
+        const key = `${spec.speaker ?? ''}|${spec.text}`
+        if (key !== hintText) {
+          renderKeys(hintBox, spec.text)
+          if (spec.speaker) {
+            const who = document.createElement('span')
+            who.className = 'who'
+            who.textContent = SPEAKER_NAME[spec.speaker]
+            hintBox.prepend(who)
+          }
+          hintBox.className = `hud-hint${spec.speaker ? ` by-${spec.speaker}` : ''} on`
+          hintText = key
+        }
+        hintBox.classList.add('on')
+      } else hintBox.classList.remove('on')
+    },
+    showCard(spec: CardSpec, back: boolean, onContinue: () => void): void {
+      const s = screen('card')
+      const sc = settings?.values.hudScale ?? 100
+      s.style.setProperty('zoom', String(sc / 100))
+      if (spec.speaker) s.classList.add(`by-${spec.speaker}`)
+      if (spec.speaker) el('div', 'who', s, SPEAKER_NAME[spec.speaker])
+      el('h2', '', s, spec.title)
+      for (const line of spec.lines) renderKeys(el('p', '', s), line)
+      renderKeys(el('div', 'go', s), t(back ? 'card.back' : 'card.continue'))
+      let done = false
+      const finish = (): void => {
+        if (done) return
+        done = true
+        document.removeEventListener('keydown', onKey, true)
+        onContinue()
+      }
+      const onKey = (e: KeyboardEvent): void => {
+        if (e.code !== 'Enter' && e.code !== 'NumpadEnter') return
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) finish()
+      }
+      document.addEventListener('keydown', onKey, true)
+      s.addEventListener('click', (e) => {
+        e.stopPropagation()
+        finish()
+      })
     },
     hit(angle: number, strength: number): void {
       flash.classList.remove('on')
@@ -485,6 +627,7 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
         el('h2', '', s, t('pause.title'))
         el('div', 'go', s, t('pause.click'))
         settingsButton(s, 'pause', build)
+        tipsButton(s, 'pause', build)
         controlsList(s)
       }
       build()
@@ -541,4 +684,5 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number, 
       }, 2000)
     },
   }
+  return api
 }

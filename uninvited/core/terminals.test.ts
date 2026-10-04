@@ -82,6 +82,21 @@ describe('hack terminals', () => {
     expect(interactPrompt(f.s, f.sim)).toBe('none')
   })
 
+  test('a terminal that meets May sets mayMet and says so once; a plain one does not', () => {
+    const plain = atTerminal()
+    interact(plain.s, plain.sim)
+    solve(plain)
+    expect(plain.s.mayMet).toBe(false)
+    expect(plain.sim.events.map((e) => e.type)).not.toContain('mayMet')
+    const f = setup(PLAN, [ENTITIES[0] as EntityDef, ENTITIES[1] as EntityDef, { kind: 'terminal', id: 't', at: [1, 1], targets: ['w'], difficulty: 0, meetsMay: true }])
+    placePlayer(f, 1, 1)
+    expect(f.s.mayMet).toBe(false)
+    interact(f.s, f.sim)
+    solve(f)
+    expect(f.s.mayMet).toBe(true)
+    expect(f.sim.events.filter((e) => e.type === 'mayMet').length).toBe(1)
+  })
+
   test('running out of time raises the alarm one stage and closes the session; it can be hacked again', () => {
     const f = atTerminal()
     interact(f.s, f.sim)

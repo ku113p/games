@@ -1,6 +1,6 @@
 // The game view: builds the scene for a level and, every frame, reads the state through queries and reacts to the
 // core's events with animation, sound, shake, hit-stop, sparks, glitches and HUD messages (rule 2).
-import { Color, PointLight, Vector3, type Mesh, type Object3D } from 'three'
+import { AdditiveBlending, Color, DoubleSide, PointLight, Vector3, type Material, type Mesh, type Object3D } from 'three'
 import cfgAll from '../config.json'
 import type { GameEvent } from '../core/events'
 import {
@@ -27,6 +27,7 @@ import {
   noiseRadius,
   playerFacing,
   playerPos,
+  pickTarget,
   playerSpeed,
   redWalls,
   scanActive,
@@ -56,6 +57,7 @@ import { Sound } from './audio'
 import { Cues, type CueState } from './cues'
 import { Music } from './music'
 import type { SettingsHandle } from './settings'
+import { createPrompter, PROMPT_IDS, type CardId, type Tips } from './tips'
 import { createCameraRig, type CameraRig, type RayFn } from './camera'
 import { buildCity, MAX_CONES, type City } from './city'
 import { buildCityLife, type CityLife } from './city-life'
@@ -63,10 +65,12 @@ import { buildSkyline, type Skyline } from './skyline'
 import { buildDrones, type DroneViews } from './drones'
 import { buildWorms, type WormViews } from './worms'
 import { createFx, type Fx } from './fx'
-import { createHero, type HeroView } from './hero'
+import { createHero, type HeroAim, type HeroView } from './hero'
 import { setConesFade } from './cone'
 import { createPerfOverlay } from './perf'
-import { createHud, MAX_MARKS, t, type Hud, type HudMark, type HudState } from './hud'
+import { createMay, type MayView } from './may'
+import type { QueueStore } from './may-queue'
+import { createHud, MAX_MARKS, t, type CardSpec, type Hud, type HudMark, type HudState, type PromptSpec } from './hud'
 import { createMaterials, palette } from './look'
 import { buildProps, type Props } from './props'
 import { REFLECT_LAYER } from './reflect'
@@ -121,8 +125,26 @@ function pickNearest(list: readonly Emitter[], px: number, pz: number, radius: n
   return n
 }
 
+/**
+ * Custom prompts and cards from outside the built-in tips (for example May's lines, DESIGN 10). They go through the same
+ * machinery: one prompt at a time, never in a menu, a hack or a card; a card pauses the game like a tutorial card.
+ * `speaker: 'may'` adds her name label and accent. The setting "Tutorial tips: off" does not silence them (they are story).
+ */
+export interface Guide {
+  /** Shown (in turn with the other prompts) until `until()` returns true; at most 2 shows, like every prompt. */
+  prompt(spec: PromptSpec & { until: () => boolean }): void
+  /** Queued: the game pauses on it at the next calm moment (main.ts takes it, never during a hack or at the end screens). */
+  card(spec: CardSpec): void
+  /** For main.ts: the next queued custom card. */
+  takeCard(): CardSpec | null
+}
+
 export interface GameView {
   readonly hud: Hud
+  /** Custom prompts and cards (May). */
+  readonly guide: Guide
+  /** May: subtitles, voice, wrist glyph, the meeting (view/may.ts). */
+  readonly may: MayView
   readonly sound: Sound
   /** The adaptive music; main.ts sets its flags (menu / paused / hack) and plays its stingers. */
   readonly music: Music
@@ -145,6 +167,8 @@ const WHITE_SCALE = 2.5
 const red: Rgb = { r: palette.heroRed.r / WHITE_SCALE, g: palette.heroRed.g / WHITE_SCALE, b: palette.heroRed.b / WHITE_SCALE }
 const blue: Rgb = { r: palette.heroBlue.r / WHITE_SCALE, g: palette.heroBlue.g / WHITE_SCALE, b: palette.heroBlue.b / WHITE_SCALE }
 const aimPt = new Vector3()
+const heroAim: HeroAim = { on: false, target: null }
+let aimFresh = false // aim() has run at least once, so aimPt is a real point
 const muzzlePt = new Vector3()
 const hiltPt = new Vector3()
 const tipPt = new Vector3()
@@ -176,10 +200,12 @@ function markReflective(root: Object3D): void {
   })
 }
 
-export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s: GameState, sim: Sim, ray: RayFn, settings?: SettingsHandle): GameView {
+export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s: GameState, sim: Sim, ray: RayFn, settings?: SettingsHandle, tips?: Tips, store?: QueueStore): GameView {
   const r = createRenderer(canvas)
   const mats = createMaterials()
   const grid = levelGrid(sim)
+  let pickState: GameState = s
+  const pickFn = (ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number): number => pickTarget(pickState, sim, ox, oy, oz, dx, dy, dz, max)
   const sight: Sight = createSight(grid)
   const city: City = buildCity(grid, mats, sight, r.mirror, s)
   r.scene.add(city.root)
@@ -211,11 +237,12 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   // a muzzle flash lights the hero's surroundings for a few frames (always in the scene, so the light count never changes)
   const muzzleLight = new PointLight(0x9fdcff, 0, 7, 1.6)
   r.scene.add(muzzleLight)
-  const hud = createHud(uiRoot, V.hud.toastSec, V.hud.hintSec, settings)
+  const hud = createHud(uiRoot, V.hud.toastSec, settings, tips)
   const perf = createPerfOverlay(uiRoot)
   const sound = new Sound(A.master)
   const music = new Music(sound)
   const cues = new Cues(sound)
+  const may: MayView = createMay(uiRoot, r.scene, hero, sound, store ?? null, settings)
   const cueState: CueState = { playing: false, suspicion: 0, spotted: false, alarm: 0, hp: 1, waveIn: -1 }
   /** Settings: reduced shake and flash (no hit-stop, camera kick, flashes). */
   let reduceFx = false
@@ -232,6 +259,8 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     reduceFx = v.reduceFx
     hud.setScale(v.hudScale)
     hud.reduceFlash(v.reduceFx)
+    may.setScale(v.hudScale)
+    may.setReduced(v.reduceFx)
   })
 
   let shake = 0
@@ -246,7 +275,6 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   let emptyToastAt = -10
   let lastWallToast = -10
   let hintClock = 0
-  const hinted = new Set<string>()
   const hudState: HudState = {
     hp: 1,
     dash: 1,
@@ -294,29 +322,129 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     return Math.max(0.12, Math.min(1, 1 - d / A.hearDist))
   }
 
-  function hint(key: string, text: string): void {
-    if (hinted.has(key)) return
-    hinted.add(key)
-    hud.hint(text)
+  const TC = cfgAll.tips
+  const order: string[] = [...PROMPT_IDS]
+  const prompter = createPrompter({ minSec: TC.promptMinSec, maxShows: TC.promptMaxShows, gapSec: TC.promptGapSec }, order)
+  const customPrompts = new Map<string, PromptSpec & { until: () => boolean }>()
+  const customCards: CardSpec[] = []
+  const guide: Guide = {
+    prompt(spec): void {
+      if (!customPrompts.has(spec.id)) order.unshift(spec.id)
+      customPrompts.set(spec.id, spec)
+    },
+    card(spec): void {
+      customCards.push(spec)
+    },
+    takeCard: () => customCards.shift() ?? null,
+  }
+  /** Prompts whose situation holds now / whose action the player just did (events, since the last update). */
+  const promptActive = new Set<string>()
+  const promptDone = new Set<string>()
+  let tipsOn = true
+  settings?.onChange((v) => {
+    tipsOn = v.tipsOn
+  })
+
+  function card(id: CardId): void {
+    tips?.request(id)
   }
 
-  function hints(st: GameState): void {
+  /** Tips from what happens: cards for first meetings, and the actions that retire a prompt. */
+  function tipEvent(e: GameEvent): void {
+    switch (e.type) {
+      case 'scanOn':
+        promptDone.add('camera').add('sensor').add('sound')
+        tips?.skip('netvision')
+        break
+      case 'hackStarted':
+        promptDone.add('terminal')
+        break
+      case 'wallOpened':
+        promptDone.add('redWall')
+        break
+      case 'crouchChanged':
+        if (e.crouched) promptDone.add('cover')
+        break
+      case 'rifleShot':
+        promptDone.add('aim')
+        tips?.skip('aim')
+        break
+      case 'dashed':
+        promptDone.add('dash')
+        break
+      case 'alarmRaised':
+        if (e.stage >= 3) card('alarm')
+        break
+      case 'droneAlerted':
+      case 'droneAiming':
+        card('aim')
+        break
+    }
+  }
+
+  /** The prompts whose situation holds now (distances from the old proximity hints). */
+  function situations(st: GameState, sm: Sim, h: HudState): void {
+    promptActive.clear()
     const p = playerPos(st)
     const d2 = (x: number, z: number): number => (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z)
-    for (const c of videoCameras(st)) if (c.alive && d2(c.pos.x, c.pos.z) < 15 * 15) hint('camera', t('hint.camera'))
-    for (const m of motionSensors(st)) if (d2(m.pos.x, m.pos.z) < 9 * 9) hint('sensor', t('hint.sensor'))
-    for (const c of soundCameras(st)) if (c.alive && d2(c.pos.x, c.pos.z) < (cfgAll.soundCamera.radius + 4) ** 2) hint('sound', t('hint.sound'))
+    for (const c of videoCameras(st)) if (c.alive && d2(c.pos.x, c.pos.z) < 15 * 15) promptActive.add('camera')
+    for (const m of motionSensors(st)) if (d2(m.pos.x, m.pos.z) < 9 * 9) promptActive.add('sensor')
+    for (const c of soundCameras(st)) if (c.alive && d2(c.pos.x, c.pos.z) < (cfgAll.soundCamera.radius + 4) ** 2) promptActive.add('sound')
+    if (promptActive.size > 0) {
+      if (promptActive.has('camera') || promptActive.has('sensor') || promptActive.has('sound')) card('netvision')
+    }
     for (const w of redWalls(st)) {
       const mx = w.alongX ? w.coord : (w.min + w.max) / 2
       const mz = w.alongX ? (w.min + w.max) / 2 : w.coord
-      if (!w.open && d2(mx, mz) < 8 * 8) hint('redWall', t('hint.redWall'))
+      if (!w.open && d2(mx, mz) < 8 * 8) promptActive.add('redWall')
     }
-    for (const term of terminals(st)) if (!term.done && d2(term.pos.x, term.pos.z) < 4 * 4) hint('terminal', t('hint.terminal'))
-    for (const w of wardens(st)) if (w.alive && d2(w.pos.x, w.pos.z) < 14 * 14) hint('warden', t('hint.warden'))
+    // the interact prompt itself covers a terminal within reach
+    if (h.prompt === 'none') for (const term of terminals(st)) if (!term.done && d2(term.pos.x, term.pos.z) < 4 * 4) promptActive.add('terminal')
+    for (const w of wardens(st)) if (w.alive && d2(w.pos.x, w.pos.z) < 14 * 14) promptActive.add('warden')
+    if (h.suspicion > 0.1 && !h.crouched && h.status !== 'detected') promptActive.add('cover')
+    if (h.status === 'detected' && h.charges > 0 && h.aim === 0) promptActive.add('aim')
+    if (waves.active) promptActive.add('dash')
+    void sm
+  }
+
+  /**
+   * Shader and upload prewarm (once, cold path): three compiles a material's program and uploads a mesh's buffers and textures on
+   * the first frame it is drawn, which stalled the game for 0.2-2 s each time a new area, effect or enemy first showed up. This
+   * draws one frame with every hidden object shown (lights are left alone: their number must never change, or every program
+   * recompiles), so all of it happens before play. DESIGN-neutral: nothing is seen (the frame is drawn before the next present).
+   */
+  /**
+   * three draws a transparent double-sided material in two passes (back faces, then front) and, to do it, bumps the material's
+   * version twice per object per render: every frame, every such object re-derives its program parameters and cache key (strings,
+   * arrays: ~0.8 MB of garbage per frame in a fight, so a GC every second) and costs two draw calls. Additive and depth-less
+   * glows (cones, rings, tracers, flashes, beams) look the same drawn in one pass.
+   */
+  function singlePass(o: Object3D): void {
+    const m = (o as Mesh).material as Material | Material[] | undefined
+    if (!m) return
+    for (const x of Array.isArray(m) ? m : [m]) if (x.transparent && x.side === DoubleSide && (x.blending === AdditiveBlending || !x.depthWrite)) x.forceSinglePass = true
+  }
+  let warmLeft = location.search.includes('nowarm') ? 0 : 900 // ?nowarm: the old behaviour, for the benchmark's before/after
+  function prewarm(): void {
+    const undo: [Object3D, boolean, boolean][] = []
+    r.scene.traverse((o) => {
+      if ((o as { isLight?: boolean }).isLight) return
+      singlePass(o)
+      if (!o.visible || o.frustumCulled) undo.push([o, o.visible, o.frustumCulled])
+      o.visible = true
+      o.frustumCulled = false
+    })
+    r.render(time)
+    for (const [o, v, f] of undo) {
+      o.visible = v
+      o.frustumCulled = f
+    }
   }
 
   const view: GameView = {
     hud,
+    guide,
+    may,
     sound,
     music,
     rig,
@@ -324,6 +452,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     hitStop: 0,
     handle(events, st, sm): void {
       const p = playerPos(st)
+      may.handle(events, st)
       let hackSolvedNow = false
       calm = isCrouched(st) || reduceFx
       // one swing that kills several holds the freeze a little longer
@@ -331,6 +460,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       for (const e of events) if (e.type === 'targetHit' && e.killed) kills++
       const killStop = J.killHitStopSec + J.killHitStopStepSec * Math.max(0, kills - 1)
       for (const e of events) {
+        tipEvent(e)
         if (e.type.startsWith('warden') || e.type === 'shieldBlocked') wardenViews.event(e, st)
         switch (e.type) {
           case 'jumped':
@@ -622,7 +752,10 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       heroLineColor(st, sm, red, blue, rgb)
       heroColor.setRGB(rgb.r * WHITE_SCALE, rgb.g * WHITE_SCALE, rgb.b * WHITE_SCALE)
       hero.setLineColor(heroColor)
-      hero.update(fdt, anim, heroActionProgress(st, sm), playerSpeed(st), time, swordCombo(st))
+      // the crosshair's world point (from this frame's aim(), see below): the raised rifle points at it, the head glances at it
+      heroAim.on = isAiming(st)
+      heroAim.target = aimFresh ? aimPt : null
+      hero.update(fdt, anim, heroActionProgress(st, sm), playerSpeed(st), time, swordCombo(st), heroAim)
       // the sword trail follows the real blade while a swing plays (not while sneaking)
       if (anim === 'slash' && !isCrouched(st) && fdt > 0 && hero.blade(hiltPt, tipPt)) {
         trailColor.setRGB(rgb.r, rgb.g, rgb.b)
@@ -792,13 +925,23 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
         m.spotted = src.spotted
       }
       hud.update(h)
-      if (time > 1.5) hint('start', t('hint.start'))
-      if (h.niche) hint('niche', t('hint.niche'))
+      // tips: a card for the first minutes of play, the prompts after a short calm start
+      if (time > TC.quietCardAfterSec) card('quiet')
       hintClock -= dt
-      if (hintClock <= 0 && time > V.hud.hintsAfterSec) {
+      if (hintClock <= 0) {
         hintClock = 0.25
-        hints(st)
+        if (time > V.hud.hintsAfterSec) situations(st, sm, h)
+        else promptActive.clear()
+        for (const c of customPrompts.values()) {
+          if (c.until()) promptDone.add(c.id)
+          else promptActive.add(c.id)
+        }
       }
+      const mfl = music.flags
+      const shown = prompter.step(dt, promptActive, promptDone, (tipsOn || customPrompts.size > 0) && dt > 0 && st.phase === 'playing' && !mfl.hack && !mfl.menu && !mfl.paused)
+      promptDone.clear()
+      const custom = shown === null ? undefined : customPrompts.get(shown)
+      hud.hint(shown === null ? null : (custom ?? { id: shown, text: t(`hint.${shown}` as 'hint.camera') }))
 
       // the audio cues and the music follow the state
       const mf = music.flags
@@ -812,8 +955,14 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       cueState.waveIn = waveCountdown(st)
       cues.update(cueState)
       music.want = stage >= 3 || waves.active ? 2 : stage >= 1 || h.status !== 'hidden' || h.suspicion > 0.15 ? 1 : 0
+      may.update(rawDt, st, rig.yaw)
+      mf.dialogue = may.speaking()
       music.update(rawDt)
 
+      if (warmLeft > 0 && (wardenViews.warm() || --warmLeft === 0)) {
+        warmLeft = 0
+        prewarm()
+      }
       r.render(time)
       perf.frame(performance.now() - t0)
     },
@@ -821,6 +970,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       rig.yaw = playerFacing(st)
       rig.snap()
       props.reset(st)
+      may.reset()
       lastX = playerPos(st).x
       lastZ = playerPos(st).z
       shake = 0
@@ -829,7 +979,9 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       void sm
     },
     aim(st, out): void {
-      rig.aimPoint(aimPt)
+      pickState = st
+      rig.aimPoint(aimPt, pickFn)
+      aimFresh = true
       const p = playerPos(st)
       const mx = p.x
       const my = p.y + cfgAll.combat.rifle.muzzleHeight

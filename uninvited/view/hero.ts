@@ -34,19 +34,33 @@ import {
 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import heroUrl from '../assets/models/hero.glb'
+import cfgAll from '../config.json'
 import type { HeroAnim } from '../core/queries'
 import { palette } from './look'
+
+const AIMC = cfgAll.view.heroAim
+const DEG = Math.PI / 180
+
+/** What the camera points at: `on` while the player holds aim (the raised rifle also follows a shot), `target` is the world point
+ * under the crosshair (null: none known). While the rifle is raised the upper body turns so the barrel points at it; otherwise
+ * the head gently looks that way. */
+export interface HeroAim {
+  on: boolean
+  target: Vector3 | null
+}
 
 export interface HeroView {
   readonly root: Group
   setLineColor(c: Color): void
   setMode(mode: 'sword' | 'rifle'): void
   /** `combo` is the sword combo step (0, 1, 2 = finisher) of the swing being played. */
-  update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo?: number): void
-  /** World position of the gunblade's muzzle; false until the model has loaded. */
+  update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo?: number, aim?: HeroAim): void
+  /** World position of the gunblade's muzzle (the barrel tip, after the upper-body aim); false until the model has loaded. */
   muzzle(out: Vector3): boolean
   /** World positions of the blade's hilt and tip (for the sword trail); false until the model has loaded. */
   blade(hilt: Vector3, tip: Vector3): boolean
+  /** World position of the middle of the wrist display (left forearm), for May's glyph; false until the model has loaded. */
+  wrist(out: Vector3): boolean
 }
 
 // --- locomotion. Strides (m per cycle of the planted foot) measured on the blended clips (on the Universal Base Characters legs), see tools/hero/README.md.
@@ -146,6 +160,24 @@ interface Chain {
   vel: Vector3[] // ... and its velocity
   init: boolean
 }
+
+/** Critically damped smoothing (Unity's SmoothDamp): `v` is the velocity, `smoothSec` the time it takes to close most of the gap. */
+interface Damped {
+  x: number
+  v: number
+}
+function damp(st: Damped, to: number, smoothSec: number, dt: number): void {
+  if (dt <= 0) return
+  const w = 2 / Math.max(1e-3, smoothSec)
+  const x = w * dt
+  const e = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x)
+  const change = st.x - to
+  const tmp = (st.v + w * change) * dt
+  st.v = (st.v - w * tmp) * e
+  st.x = to + (change + tmp) * e
+}
+const wrapPi = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 2))
+const clampAbs = (x: number, m: number): number => (x < -m ? -m : x > m ? m : x)
 
 const smooth = (cur: number, to: number, rate: number, dt: number): number => cur + (to - cur) * Math.min(1, dt * rate)
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
@@ -401,10 +433,14 @@ export function createHero(): HeroView {
   let footR: Object3D | null = null
   let pelvis: Object3D | null = null
   let spine: Object3D | null = null
+  let spine1: Object3D | null = null
+  let spine3: Object3D | null = null
   let neck: Object3D | null = null
   let gunRoot: Object3D | null = null
   let bladeMesh: Object3D | null = null
   let muzzleNode: Object3D | null = null
+  let wristA: Object3D | null = null
+  let wristB: Object3D | null = null
   let bladeAxis: 'x' | 'y' | 'z' = 'y'
   let barrelSign = 1
   const swordPos = new Vector3()
@@ -432,6 +468,18 @@ export function createHero(): HeroView {
   let deathK = 0
   let shotGlow = 0
   let aimK = 0 // smoothed 0..1, the rifle-mode shoulder turn
+  // the upper-body aim: the extra turn (rad) of the spine chain, smoothed; its goal is the turn the barrel was still missing
+  const aimYaw: Damped = { x: 0, v: 0 }
+  const aimPitch: Damped = { x: 0, v: 0 }
+  let aimGoalYaw = 0
+  let aimGoalPitch = 0
+  let aimHeading = 0 // yaw of the direction from the muzzle to the target (the axis of the pitch turn)
+  const lookYaw: Damped = { x: 0, v: 0 } // the head's gentle look at the camera direction (rifle lowered)
+  const lookPitch: Damped = { x: 0, v: 0 }
+  const UP = new Vector3(0, 1, 0)
+  const pitchAxis = new Vector3()
+  const dirBarrel = new Vector3()
+  const dirWant = new Vector3()
 
   new GLTFLoader().load(
     heroUrl,
@@ -470,6 +518,8 @@ export function createHero(): HeroView {
       footR = bone('foot_r')
       pelvis = bone('pelvis')
       spine = bone('spine_02')
+      spine1 = bone('spine_01')
+      spine3 = bone('spine_03')
       neck = bone('neck_01')
       model.updateMatrixWorld(true)
       const pelInv = pelvis.getWorldQuaternion(new Quaternion()).premultiply(model.getWorldQuaternion(new Quaternion()).invert()).invert()
@@ -500,6 +550,8 @@ export function createHero(): HeroView {
       gunRoot = bone('Gunblade')
       bladeMesh = bone('Blade')
       muzzleNode = bone('Muzzle')
+      wristA = bone('lowerarm_l')
+      wristB = bone('hand_l')
       const rifle = bone('RifleHold')
       swordPos.copy(gunRoot.position)
       swordQuat.copy(gunRoot.quaternion)
@@ -688,6 +740,65 @@ export function createHero(): HeroView {
     b.quaternion.premultiply(qT)
   }
 
+  /** Turn a bone about a world axis (on top of what the clips set). */
+  function rotateWorld(b: Object3D, axis: Vector3, angle: number): void {
+    const p = b.parent
+    if (!p || Math.abs(angle) < 1e-5) return
+    p.getWorldQuaternion(qP)
+    tA.copy(axis).applyQuaternion(qInv.copy(qP).invert())
+    qT.setFromAxisAngle(tA, angle)
+    b.quaternion.premultiply(qT)
+  }
+
+  /** Raises the barrel to the target: the spine chain (and a small share of the neck) turns by the smoothed yaw and pitch the
+   * clips' pose still lacks; after turning, the barrel is measured again and the miss is added to the goal (so the shoulder
+   * offset, the recoil and the bones' own bends all cancel out). Lowered: the turn eases back to 0 and the head looks at the target. */
+  function aimUpper(dt: number, raised: boolean, target: Vector3 | null, look: boolean): void {
+    if (!spine1 || !spine || !spine3 || !neck || !muzzleNode || !gunRoot) return
+    const chain = [spine1, spine, spine3, neck]
+    const on = raised && target !== null
+    damp(aimYaw, on ? aimGoalYaw : 0, AIMC.smoothSec, dt)
+    damp(aimPitch, on ? aimGoalPitch : 0, AIMC.smoothSec, dt)
+    const lk = AIMC.look
+    let headYaw = 0
+    let headPitch = 0
+    if (look && !on && target) {
+      neck.getWorldPosition(tA)
+      tB.subVectors(target, tA)
+      const hd = Math.hypot(tB.x, tB.z)
+      if (hd > AIMC.minReach) {
+        headYaw = clampAbs(wrapPi(Math.atan2(tB.x, tB.z) - root.rotation.y), lk.yawMaxDeg * DEG) * lk.share
+        headPitch = clampAbs(Math.atan2(tB.y, hd), lk.pitchMaxDeg * DEG) * lk.share
+      }
+    }
+    damp(lookYaw, headYaw, lk.smoothSec, dt)
+    damp(lookPitch, headPitch, lk.smoothSec, dt)
+    const heading = on ? aimHeading : root.rotation.y + lookYaw.x
+    pitchAxis.set(Math.cos(heading), 0, -Math.sin(heading))
+    for (let i = 0; i < chain.length; i++) {
+      const b = chain[i] as Object3D
+      const ys = aimYaw.x * (AIMC.yawShare[i] ?? 0) + (i === 3 ? lookYaw.x : 0)
+      const ps = aimPitch.x * (AIMC.pitchShare[i] ?? 0) + (i === 3 ? lookPitch.x : 0)
+      rotateWorld(b, UP, ys)
+      rotateWorld(b, pitchAxis, -ps)
+    }
+    if (!on || !target) return
+    // what is still missing: the barrel (hilt -> muzzle) against the line from the muzzle to the target
+    root.updateMatrixWorld(true)
+    muzzleNode.getWorldPosition(tA)
+    gunRoot.getWorldPosition(tB)
+    dirBarrel.subVectors(tA, tB)
+    dirWant.subVectors(target, tA)
+    if (dirBarrel.lengthSq() < 1e-8 || dirWant.length() < AIMC.minReach) return
+    dirBarrel.normalize()
+    dirWant.normalize()
+    aimHeading = Math.atan2(dirWant.x, dirWant.z)
+    const dy = wrapPi(aimHeading - Math.atan2(dirBarrel.x, dirBarrel.z))
+    const dp = Math.asin(clampAbs(dirWant.y, 1)) - Math.asin(clampAbs(dirBarrel.y, 1))
+    aimGoalYaw = clampAbs(aimYaw.x + dy, AIMC.yawMaxDeg * DEG)
+    aimGoalPitch = clampAbs(aimPitch.x + dp, AIMC.pitchMaxDeg * DEG)
+  }
+
   function updateGun(dt: number, anim: HeroAnim, actionT: number): void {
     if (!gunRoot || !bladeMesh) return
     gunK = smooth(gunK, mode === 'rifle' ? 1 : 0, 24, dt)
@@ -735,13 +846,20 @@ export function createHero(): HeroView {
       muzzleNode.getWorldPosition(out)
       return true
     },
+    wrist(out: Vector3): boolean {
+      if (!wristA || !wristB) return false
+      wristA.getWorldPosition(out)
+      wristB.getWorldPosition(barrel)
+      out.lerp(barrel, 0.5)
+      return true
+    },
     blade(hilt: Vector3, tip: Vector3): boolean {
       if (!muzzleNode || !gunRoot) return false
       muzzleNode.getWorldPosition(tip)
       gunRoot.getWorldPosition(hilt)
       return true
     },
-    update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo = 0): void {
+    update(dt: number, anim: HeroAnim, actionT: number, speed: number, time: number, combo = 0, aim?: HeroAim): void {
       timeU.value = time
       if (!ready || !mixer) return
       const sword = mode === 'sword'
@@ -836,7 +954,7 @@ export function createHero(): HeroView {
         const r = SLASH_RANGE[slashVariant]
         const clip = over[slashVariant]
         if (r && clip) overTime[slashVariant] = (r[0] + (r[1] - r[0]) * easeOut(actionT)) * clip.getClip().duration
-      } else if (!sword && !fullBody && (anim === 'shoot' || time - lastShot < AIM_HOLD_SEC)) {
+      } else if (!sword && !fullBody && (anim === 'shoot' || time - lastShot < AIM_HOLD_SEC || aim?.on === true)) {
         if (anim === 'shoot') {
           overT[SHOOT] = 1
           const clip = over[SHOOT]
@@ -859,9 +977,11 @@ export function createHero(): HeroView {
         twist(spine, AIM_TWIST * aimK)
         twist(neck, -AIM_TWIST * aimK)
       }
+      updateGun(dt, anim, actionT)
+      const raised = (overT[AIM] ?? 0) > 0 || (overT[SHOOT] ?? 0) > 0
+      aimUpper(dt, raised, aim?.target ?? null, !fullBody)
       root.updateMatrixWorld(true)
       solveCoat(dt, anim === 'death' ? 0 : speed)
-      updateGun(dt, anim, actionT)
       holo.opacity = anim === 'hack' || anim === 'hackCrouched' ? 0.75 + 0.2 * Math.sin(time * 37) * Math.sin(time * 11) : 0.4
       prevAnim = anim
     },

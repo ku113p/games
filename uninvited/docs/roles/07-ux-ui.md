@@ -60,11 +60,26 @@ DESIGN.md is the source of truth; where the 2026-10-04 review disagrees with it,
 | Sound FX volume | 0-1, default 1.0 | sfx buses |
 | Mouse sensitivity | 0.3-2.0x of base `view.camera.sensitivity` 0.0022 (aim keeps its own 0.55 factor) | camera rig |
 | Invert Y | off | camera rig |
+| Tutorial tips | on | tutorial cards and contextual prompts (`view/tips.ts`) |
 | Reduce shake / flash | off | camera shake and kick, full-screen hit flash, kill flash, glitch strength, blinking HUD |
 | HUD size | 100 / 125 / 150 % | `hud.setScale` |
 
   Reachable from the start screen and the pause screen ("Settings" button); the pause screen also shows the controls list.
   Remapping is out for the jam; voice volume comes only if real voices land.
+
+- **Hints are two tiers** (decided 2026-10-04 after the designer found toasts too small, too fast and unclear; DESIGN 12 "as built"):
+  non-blocking **contextual prompts** (big lower-centre line, font `clamp(18px, 2.6vh, 34px)` times the HUD size, keycaps from `{Key}` markup, no
+  timer: they stay while the situation lasts and go when the player does the action or leaves, min 3 s, fade 0.4 s, one at a time, at most
+  2 shows each) and **pausing tutorial cards** for the first meeting with five mechanics (quiet movement, network vision, hacking, alarm 3,
+  aiming), once per browser, with a Tips list on the pause screen and a "Tutorial tips" setting that switches both tiers off. Code:
+  `view/tips.ts` (pure logic, tested in `scripts/tips.test.ts`), `view/hud.ts` (`hint`, `showCard`, `renderKeys`), triggers in `view/game-view.ts`
+  (`situations`, `tipEvent`), card mode in `main.ts`. `hud.hintSec` is gone; the numbers are `config.json` `tips`. The interact prompt
+  ("{E} hack the terminal") uses the same big keycap style. The rules below still hold for the text length (60 characters) and the wording;
+  rules 4-6 (calm only, 4 s between, 7 s hold) are replaced by the behaviour above.
+- **Speaker slot for May** (DESIGN 10): `view.guide.prompt({ id, text, speaker?: 'may', until })` shows a custom prompt (one at a time, in turn with
+  the built-in ones, until `until()` is true, at most 2 shows) and `view.guide.card({ id, title, lines, speaker? })` queues a pausing card
+  (`main.ts` takes it when calm). `speaker: 'may'` adds a MAY name label and a cyan accent (`by-may` class in `view/hud.ts`). These are story, so
+  "Tutorial tips: off" does not silence them. May's own lines do not use it: they have a subtitle box of their own (`view/may.ts`, above the hint bar, same style, 2.8 % of the screen height) so a May line and a tutorial prompt can show together. The slot stays for cards and prompts that need the label (types `PromptSpec`, `CardSpec`, `Speaker` in `view/hud.ts`). Sizes (2026-10-05): the card body is the same size as the prompt, `clamp(20px, 2.8vh, 36px)`, the title 1.6 times that; the card is 58 vw wide and scrolls inside 92 vh at large HUD sizes.
 
 ## Rules of thumb and metrics
 
@@ -173,6 +188,34 @@ Also found while writing this guide: `reason.*` strings are not shown anywhere.
 4. **[S] Second channel for colour**: "?"/"!" in the marks, diamond pips, one deuteranopia screenshot pass.
 5. **[S] First 60 seconds in the browser**: wire "Esc again", load progress, audio-refused note, fullscreen button, calm T0, all checked in
    the itch iframe on the 10-09 draft.
+
+## Review 2026-10-05
+
+Second review (the working tree on top of 15a3ec7, screenshots at 1280x720 and 1920x1080; full text in the session's `reviews2/07-ux-ui.md`).
+
+**Status of the 2026-10-04 items:** P1 settings - fixed. P3 hints - fixed (prompter, keycaps, no timer, one at a time), but the
+three-skills-at-1.5-s problem came back as the "Move quietly" card. P6 Esc - fixed (pause on `pointerlockchange`, alt-tab, hidden tab; Esc
+twice in a hack). P9 reduce shake/flash - mostly fixed (shake, kick, hit-stop, flashes, glitch); HUD blinks are not covered, and the
+traced banner blinks at 3.3 Hz. P5 and P8 - partly (toasts stack but keep their long texts; "TRACE RISK" plus two red bars). Open: P2
+HUD sizes (labels 9-10 px, status, alarm and toasts 10-13 px, fixed px at every resolution), P4 colour second channel, load progress,
+fullscreen button, the "sound is off" note, `reason.*` on screen.
+
+**New:** at HUD 150 % May's subtitle (`bottom: 17vh`) covers the interact prompt (`top: 60%`) and overlaps the hint bar. The meeting runs
+at 0.2 s/word (~300 wpm, against the 160-180 wpm subtitle norm). There is no hit, kill or block marker on the crosshair and no damage
+progress on wardens, which matches the designer's "the shooting and hits feel artificial". No level name or goal is shown. DESIGN 12 says
+cards are 50 % wide, but they are built at 58 vw.
+
+**Top 5 (freeze 10-08):**
+
+1. [S-M] Crosshair hit / kill / block markers with distinct UI ticks, plus a short HP sliver over a hit warden.
+2. [S] Calm the first minute: "Move quietly" on D1 opening with 2 lines (not at 1.5 s), the meeting at the normal reading speed with a
+   "{Enter} skip" hint.
+3. [S] One bottom column for May's line and the hint; the interact prompt moved out of the crosshair ring; re-check 100 / 150 % at both
+   resolutions.
+4. [S] HUD hierarchy in vh (status, toasts, labels), "?"/"!" marks and diamond pips, HUD blinks under Reduce shake/flash at 3 Hz or less,
+   shorter alarm toasts.
+5. [S] Level title and goal banner, load progress, Fullscreen button, "sound is off" note; run the release checklist in the itch iframe
+   (Chrome and Firefox, the card relock path) on the 10-09 draft.
 
 ## Release checklist
 

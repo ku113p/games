@@ -55,7 +55,7 @@ export function buildSettingsPanel(parent: HTMLElement, settings: SettingsHandle
     root.append(input, out)
   }
 
-  function check(key: 'invertY' | 'reduceFx', label: string): void {
+  function check(key: 'invertY' | 'reduceFx' | 'tipsOn', label: string): void {
     const l = row(label)
     const input = document.createElement('input')
     input.type = 'checkbox'
@@ -74,6 +74,7 @@ export function buildSettingsPanel(parent: HTMLElement, settings: SettingsHandle
   slider('sensitivity', texts['settings.sensitivity'], SENS_MIN, SENS_MAX, 0.05, (x) => `${x.toFixed(2)}x`)
   check('invertY', texts['settings.invertY'])
   check('reduceFx', texts['settings.reduceFx'])
+  check('tipsOn', texts['settings.tips'])
   row(texts['settings.hudSize'])
   const sizes = document.createElement('div')
   sizes.className = 'sizes'

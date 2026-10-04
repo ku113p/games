@@ -12,6 +12,7 @@ import { laserOn } from './rules/devices'
 import { wormWindupProgress } from './rules/worms'
 import type { Block, Grid } from './grid'
 
+export { pickTarget } from './rules/combat'
 export type { Rgb } from './rules/progress'
 export type { Interactable } from './rules/terminals'
 
@@ -416,6 +417,11 @@ export function bolts(s: GameState): readonly Readonly<BoltState>[] {
 
 export function artifactPos(sim: Sim): Readonly<{ x: number; y: number; z: number }> {
   return sim.artifact
+}
+
+/** May is in the game (she was met at her terminal, or the level has her from the start). */
+export function mayMet(s: GameState): boolean {
+  return s.mayMet === true
 }
 
 export function artifactTaken(s: GameState): boolean {

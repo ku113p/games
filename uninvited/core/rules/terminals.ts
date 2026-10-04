@@ -113,6 +113,10 @@ export function unlockTerminal(s: GameState, sim: Sim, terminal: number): void {
   const t = s.terminals[terminal]
   if (!links || !t) return
   const sec = sim.cfg.terminal.pauseSec
+  if (links.meetsMay && !s.mayMet) {
+    s.mayMet = true
+    emit(sim, { type: 'mayMet' })
+  }
   for (const w of links.walls) openWall(s, sim, w)
   for (const l of links.lasers) {
     const laser = s.lasers[l]

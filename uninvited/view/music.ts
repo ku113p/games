@@ -14,6 +14,7 @@
 import cfgAll from '../config.json'
 import type { Sound } from './audio'
 import { MUSIC_FILES } from './music-files'
+import { equalPowerCurve, loadGroups, versionGains } from './music-pick'
 
 const K = cfgAll.audio.music
 const LOWHP_DUCK = cfgAll.audio.mixer.lowHp.musicDuckDb
@@ -34,6 +35,8 @@ export interface MusicFlags {
 }
 
 interface Layer {
+  /** The stem number (0-3) or the version (0 calm, 1 tension, 2 combat) this layer plays. */
+  slot: number
   buf: AudioBuffer
   gain: GainNode
   src: AudioBufferSourceNode | null
@@ -42,8 +45,8 @@ interface Layer {
 interface TrackSet {
   key: string
   layers: Layer[]
-  /** Per intensity, the gain of each layer. */
-  gains: number[][]
+  /** The level track: 'stems' or the three 'versions' (layers are added as their files decode); '' for a single loop. */
+  mode: 'stems' | 'versions' | ''
   /** Started on the shared grid (the level track) instead of from its beginning. */
   phased: boolean
   out: GainNode
@@ -75,8 +78,28 @@ export class Music {
   private lastDuck = -1
 
   constructor(private readonly snd: Sound) {
-    snd.onReady(() => this.init())
+    // the files are fetched right now (level tracks, then hack, then the rest), in parallel with the SFX; they are
+    // decoded as soon as the context exists, and the player picks them up whenever they land
+    const bytes = new Map<string, Promise<ArrayBuffer | null>>()
+    const groups = loadGroups(Object.keys(MUSIC_FILES))
+    void (async () => {
+      for (const g of groups) {
+        for (const name of g) {
+          bytes.set(
+            name,
+            fetch(MUSIC_FILES[name] as string)
+              .then((r) => (r.ok ? r.arrayBuffer() : null))
+              .catch(() => null),
+          )
+        }
+        await Promise.all(g.map((n) => bytes.get(n)))
+      }
+    })()
+    this.bytes = bytes
+    snd.onContext(() => this.init())
   }
+
+  private readonly bytes: Map<string, Promise<ArrayBuffer | null>>
 
   private init(): void {
     const ctx = this.snd.ctx
@@ -86,60 +109,97 @@ export class Music {
     this.duck = ctx.createGain()
     this.duck.connect(bus)
     this.epoch = ctx.currentTime
-    // fetch + decode in the background; a missing or broken file stays out
-    for (const [name, url] of Object.entries(MUSIC_FILES)) {
-      fetch(url)
-        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('missing'))))
-        .then((data) => ctx.decodeAudioData(data))
+    // a missing or broken file stays out; every file that decodes marks the player dirty so it re-reads the set
+    const names = loadGroups(Object.keys(MUSIC_FILES)).flat()
+    for (const name of names) {
+      // the fetches of later groups only start after the earlier ones, so wait for the entry to exist
+      const take = async (): Promise<ArrayBuffer | null> => {
+        for (let i = 0; i < 6000 && !this.bytes.has(name); i++) await new Promise((r) => setTimeout(r, 10))
+        return (await this.bytes.get(name)) ?? null
+      }
+      take()
+        .then((data) => (data ? ctx.decodeAudioData(data) : Promise.reject(new Error('missing'))))
         .then((b) => {
           this.buffers.set(name, b)
-          const net = this.sets.get('net')
-          if (net && !net.playing) this.sets.delete('net') // rebuilt with the new file
           this.dirty = true
         })
         .catch(() => undefined)
     }
   }
 
-  /** Which file names make the set of this key (null when none of its files exist). */
+  /** The layers the set can have right now: the files that decoded, by slot. */
+  private wanted(set: TrackSet): Array<{ slot: number; buf: AudioBuffer }> {
+    const out: Array<{ slot: number; buf: AudioBuffer }> = []
+    if (set.key !== 'net') {
+      const b = this.buffers.get(set.key)
+      if (b) out.push({ slot: 0, buf: b })
+    } else if (set.mode === 'stems') {
+      for (let i = 0; i < 4; i++) {
+        const b = this.buffers.get(`net_a.stem${i + 1}`)
+        if (b) out.push({ slot: i, buf: b })
+      }
+    } else {
+      LEVELS.forEach((l, i) => {
+        const b = this.buffers.get(`net_${l}`)
+        if (b) out.push({ slot: i, buf: b })
+      })
+    }
+    return out
+  }
+
+  /** Adds the layers whose files decoded after the set was built; a playing set starts them on the grid at time t. */
+  private sync(set: TrackSet, t: number): void {
+    const ctx = this.ctx
+    if (!ctx) return
+    for (const w of this.wanted(set)) {
+      if (set.layers.some((l) => l.slot === w.slot)) continue
+      const g = ctx.createGain()
+      g.gain.value = 0
+      g.connect(set.out)
+      const layer: Layer = { slot: w.slot, buf: w.buf, gain: g, src: null }
+      set.layers.push(layer)
+      if (set.playing) this.startLayer(set, layer, t)
+    }
+  }
+
+  private startLayer(set: TrackSet, l: Layer, t: number): void {
+    const ctx = this.ctx
+    if (!ctx) return
+    const src = ctx.createBufferSource()
+    src.buffer = l.buf
+    src.loop = true
+    src.connect(l.gain)
+    const off = set.phased ? (((t - this.epoch) % l.buf.duration) + l.buf.duration) % l.buf.duration : 0
+    src.start(t, off)
+    l.src = src
+  }
+
+  /** The gain of each layer of a set at an intensity (an absent version falls back, see pickVersion). */
+  private gainsFor(set: TrackSet, level: Intensity): number[] {
+    if (set.mode === 'stems') return set.layers.map((l) => K.stemGain[LEVELS[level] as (typeof LEVELS)[number]][l.slot] ?? 0)
+    if (set.mode === 'versions') {
+      const have = LEVELS.map((_, i) => set.layers.some((l) => l.slot === i))
+      const g = versionGains(have, level)
+      return set.layers.map((l) => g[l.slot] ?? 0)
+    }
+    return set.layers.map(() => 1)
+  }
+
+  /** Builds the set of this key (null when none of its files has decoded yet). */
   private build(key: string): TrackSet | null {
     const ctx = this.ctx
     const out = this.duck
     if (!ctx || !out) return null
-    let bufs: AudioBuffer[] = []
-    let gains: number[][] = []
+    let mode: TrackSet['mode'] = ''
     if (key === 'net') {
-      const stems = [1, 2, 3, 4].map((i) => this.buffers.get(`net_a.stem${i}`)).filter((b): b is AudioBuffer => !!b)
-      if (stems.length > 0) {
-        bufs = stems
-        gains = LEVELS.map((l) => K.stemGain[l].slice(0, stems.length))
-      } else {
-        const vers = LEVELS.map((l) => this.buffers.get(`net_${l}`))
-        const have = vers.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
-        if (have.length === 0) return null
-        bufs = have.map((i) => vers[i] as AudioBuffer)
-        // each level plays the highest version at or under it (or the lowest one when it has none under it)
-        gains = [0, 1, 2].map((lv) => {
-          let pick = 0
-          for (let j = 0; j < have.length; j++) if ((have[j] as number) <= lv) pick = j
-          return bufs.map((_, j) => (j === pick ? 1 : 0))
-        })
-      }
-    } else {
-      const b = this.buffers.get(key)
-      if (!b) return null
-      bufs = [b]
-      gains = [[1], [1], [1]]
-    }
-    const set: TrackSet = { key, layers: [], gains, phased: key === 'net', out: ctx.createGain(), stopAt: 0, playing: false }
+      if ([1, 2, 3, 4].some((i) => this.buffers.has(`net_a.stem${i}`))) mode = 'stems'
+      else if (LEVELS.some((l) => this.buffers.has(`net_${l}`))) mode = 'versions'
+      else return null
+    } else if (!this.buffers.has(key)) return null
+    const set: TrackSet = { key, layers: [], mode, phased: key === 'net', out: ctx.createGain(), stopAt: 0, playing: false }
     set.out.gain.value = 0
     set.out.connect(out)
-    for (const b of bufs) {
-      const g = ctx.createGain()
-      g.gain.value = 0
-      g.connect(set.out)
-      set.layers.push({ buf: b, gain: g, src: null })
-    }
+    this.sync(set, 0)
     return set
   }
 
@@ -152,10 +212,12 @@ export class Music {
 
   private xfade(g: AudioParam, to: number, t: number): void {
     const now = this.ctx?.currentTime ?? 0
+    const from = g.value
     g.cancelScheduledValues(now)
-    g.setValueAtTime(g.value, now)
-    g.setValueAtTime(g.value, t)
-    g.linearRampToValueAtTime(to, t + K.xfadeSec)
+    g.setValueAtTime(from, now)
+    // equal power (sin in, cos out), not linear: two linear halves dip 3 dB in the middle
+    if (from === to) return
+    g.setValueCurveAtTime(equalPowerCurve(from, to), t, K.xfadeSec)
   }
 
   /** Which set and intensity the state asks for right now. */
@@ -193,19 +255,12 @@ export class Music {
     }
     if (!set.playing) {
       set.playing = true
-      for (const l of set.layers) {
-        const src = ctx.createBufferSource()
-        src.buffer = l.buf
-        src.loop = true
-        src.connect(l.gain)
-        const off = set.phased ? (((t - this.epoch) % l.buf.duration) + l.buf.duration) % l.buf.duration : 0
-        src.start(t, off)
-        l.src = src
-      }
+      for (const l of set.layers) this.startLayer(set, l, t)
     }
+    this.sync(set, t) // files that decoded since the last look join on this bar line
     set.stopAt = 0
     this.xfade(set.out.gain, 1, t)
-    const gains = set.gains[want.level] as number[]
+    const gains = this.gainsFor(set, want.level)
     for (let i = 0; i < set.layers.length; i++) this.xfade((set.layers[i] as Layer).gain.gain, gains[i] ?? 0, t)
   }
 

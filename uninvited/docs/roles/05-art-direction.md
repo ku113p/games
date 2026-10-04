@@ -205,3 +205,55 @@ contrast, and the glitch transition fits. KA3 is a strong cover: red dominant, h
 - Do not add Halloween dressing, cables in the network, or present-day chip parts (capacitors, pins, boards).
 - Watch the sad path: `heroRed` is almost the same red as `security`; if a fully red hero gets lost among guards, keep his
   white visor and hem filaments as the identifier rather than changing the design.
+
+## Review 2026-10-05
+
+Second review (`scratchpad/reviews2/05-art-direction.md`). It weighs the designer's new feedback: the hits feel
+artificial, the detours are boring, everything is monotonous; the shooting reference is modern Doom; the stealth lanes
+are unclear ("you just want to dash along the map edge").
+
+**Status of earlier items.**
+- P3 (hex as wallpaper): fixed.
+- P5 (enemy shapes): fixed. EW1, EW2 and EM1 read at play distance after the rim/aura pass (`view.enemyLook`). The
+  colour part is only partly done: amber is still on the sound camera, and amber is now also the accent of the UI cards
+  and prompts.
+- P1 (the open world): partly done. The far towers and the landmark beam work. The near city still reads as outlined
+  boxes, and the far city looks the same in every direction.
+- P4 (the hero lost in combat): partly done. Enemy effects are still white, there is no slab fade between camera and
+  hero, and in melee the hero blocks the view of the enemy he is hitting.
+- P6 (the void) and P7 (flat walls): partly done. One motif, a triple stripe, repeats on almost every wall.
+- **P2 (brightness hierarchy): still open.** The config is unchanged: the slab edges are about 2.0 effective, and the
+  route is a 2 cm tube at about 1.0.
+- P8 (cover and title): open. The start screen is a text list over the live HUD.
+
+**New findings, by impact.**
+- The impact VFX are 9 cm square points, mostly white, with no contact shape, no hit flash on wardens, no damage states
+  and no death dissolve (`view/fx.ts`, `view/game-view.ts` 497-570).
+- L1 has one palette, one wall motif and one light level in all three arenas, and no arena has its own set-piece.
+- Nothing in the art shows where the safe lanes are.
+- Amber is the UI accent, though amber means suspicion.
+
+**Top 5.**
+1. [M] **Impact VFX.**
+   - Streak sparks: line segments along the velocity instead of square points.
+   - A contact star sprite in the target's colour at 5-6x.
+   - A hit flash on wardens and worms in their own colour, never white.
+   - Warden damage states: broken, flickering lines below 50 % HP; leaking sparks below 25 %.
+   - A 0.4 s derez death with a red ring on the floor.
+   - A tracer with a 0.05 m radius that lasts 0.12 s, plus a glow where a shot hits a wall.
+2. [M] **Arena identity and lit/dark stealth language.**
+   - Per-zone overrides of slab tone, fog tint, edge intensity and windows: the plaza stays cyan, the river is lit from
+     below by a brighter data river, the core gets heavy red trim.
+   - One set-piece per arena and 3-4 wall motifs instead of one.
+   - Lit floor plates where patrols walk, dark lanes behind cover, and footlights linking the cover chains.
+   - The hero's lines drop to about 40 % while he is hidden (as in Mark of the Ninja).
+   - This is lighting, not view cones, so DESIGN 8 (cones only in network vision) still holds.
+3. [S] **Brightness hierarchy:** `edgeIntensity` 0.35, `cornerIntensity` 0.25, `railIntensity` 0.3, `routeRadius` 0.05,
+   and the route at about 2.2 effective. Check with the greyscale test.
+4. [S] **Colour roles:**
+   - Cyan for the UI cards and prompts.
+   - No white in enemy effects.
+   - `wormEye` at a peak of 1.5, magenta.
+   - The sound camera moved off amber.
+   - The M1 icon on May's chip.
+5. [S] **Title screen:** the logo over KA3, with no HUD. After items 1-3, make the 630x500 cover and 5 screenshots.
