@@ -1,6 +1,7 @@
 # Deploy to GitHub Pages on a push to main. Once per repository: Settings -> Pages -> Source: "GitHub Actions".
 # No base path is needed in the workflow: the build uses relative paths throughout (see tools/build.ts),
 # so the site works at /<repo>/ and /<repo>/<game>/ whatever the repository is called.
+# The collection lives in first-games/ (moved there when the Uninvited jam project started next to it).
 name: Deploy to GitHub Pages
 
 on:
@@ -26,6 +27,7 @@ jobs:
         with:
           bun-version: 1.4.2
       - name: Install, test, lint every game
+        working-directory: first-games
         run: |
           for d in games/*/; do
             [ -f "$d/package.json" ] || continue
@@ -33,10 +35,11 @@ jobs:
             (cd "$d" && bun install --frozen-lockfile && bun test && bun run lint:layers)
           done
       - name: Build all games and the landing
+        working-directory: first-games
         run: bun tools/build.ts
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: dist
+          path: first-games/dist
 
   deploy:
     needs: build
