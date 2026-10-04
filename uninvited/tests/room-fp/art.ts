@@ -1,10 +1,10 @@
 // Every picture this test may use, by file name. Bun bundles only static imports, so a new picture needs one line here;
 // config.json picks which ones are actually used (plate set, close-ups), so swapping a set is a config change.
-import cu1c from '../../art/generated/CU1c-water.jpg'
-import cu2c from '../../art/generated/CU2c-noodles.jpg'
-import cu3c from '../../art/generated/CU3c-tablet.jpg'
-import cu4c from '../../art/generated/CU4c-vr.jpg'
-import cu5 from '../../art/generated/CU5-window.jpg'
+import cu1 from '../../art/generated/CU1e-water.jpg'
+import cu2 from '../../art/generated/CU2e-noodles.jpg'
+import cu3 from '../../art/generated/CU3d-tablet.jpg'
+import cu4 from '../../art/generated/CU4e-vr-inside.jpg'
+import cu5 from '../../art/generated/CU5b-window.jpg'
 import fp4Depth from '../../art/generated/FP4-room-fp-depth.png'
 import fp4MasksA from '../../art/generated/FP4-room-fp-masks-a.png'
 import fp4MasksB from '../../art/generated/FP4-room-fp-masks-b.png'
@@ -13,11 +13,11 @@ import n1 from '../../art/generated/N1-news-layoffs.jpg'
 import nn1 from '../../art/generated/NN1-net-corridor.jpg'
 
 const ART: Record<string, string> = {
-  'CU1c-water.jpg': cu1c,
-  'CU2c-noodles.jpg': cu2c,
-  'CU3c-tablet.jpg': cu3c,
-  'CU4c-vr.jpg': cu4c,
-  'CU5-window.jpg': cu5,
+  'CU1e-water.jpg': cu1,
+  'CU2e-noodles.jpg': cu2,
+  'CU3d-tablet.jpg': cu3,
+  'CU4e-vr-inside.jpg': cu4,
+  'CU5b-window.jpg': cu5,
   'FP4-room-fp.jpg': fp4,
   'FP4-room-fp-depth.png': fp4Depth,
   'FP4-room-fp-masks-a.png': fp4MasksA,

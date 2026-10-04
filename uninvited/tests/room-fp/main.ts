@@ -148,7 +148,8 @@ const worldMat = new ShaderMaterial({
     uLamp: { value: lampUniform },
     uLampLevel: lampLevel,
     uRain: { value: new Vector4(cfg.rain.scale, cfg.rain.speed, cfg.rain.refraction, cfg.rain.fogLod) },
-    uNeon: { value: cfg.rain.neonFlicker },
+    uNeonForce: { value: 0 },
+    uNeon: { value: new Vector4(cfg.rain.neonFlicker, cfg.rain.neonMaskLod, cfg.rain.neonMaskRange[0]!, cfg.rain.neonMaskRange[1]!) },
     uScreenFx: { value: new Vector4(cfg.screensFx.scanline, cfg.screensFx.band, cfg.screensFx.flicker, cfg.screensFx.bandSpeed) },
     uHoverRect: { value: hoverRect },
     uHover: { value: 0 },
@@ -380,11 +381,11 @@ const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
 const easeInCubic = (x: number): number => x * x * x
 const easeOutCubic = (x: number): number => 1 - (1 - x) ** 3
 const easeInOutSine = (x: number): number => 0.5 - 0.5 * Math.cos(Math.PI * x)
+const easeInOutCubic = (x: number): number => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2)
 const easeInExpo = (x: number): number => (x <= 0 ? 0 : 2 ** (10 * x - 10))
 const EASES = [easeInCubic, easeOutCubic, easeInExpo] as const
 const EASE_IN = 0
 const EASE_OUT = 1
-const EASE_EXPO = 2
 /** Exponential smoothing factor for a half-life (frame-rate independent). */
 const follow = (dt: number, halfLife: number): number => 1 - 2 ** (-dt / Math.max(halfLife, 1e-4))
 
@@ -506,6 +507,11 @@ function enterCloseup(h: Hotspot): void {
   sound.play(h.sound, h.volume)
   sound.duck(h.duck)
   sound.rain(h.rain)
+  if (h.name === cfg.jackConfirm.hotspot) {
+    hintEl.textContent = ''
+    vrDark = 0
+    updateVrView() // first frame already starts low and small
+  }
   newsShown = false
   confirmShown = false
 }
@@ -534,18 +540,43 @@ function back(): void {
   setState('pull')
 }
 
+// The image-space push into the lens glow (jack in): from the current close-up view to the lens.
+const itw = { fx: 0, fy: 0, fz: 1 }
+
 function confirmJack(): void {
-  if (state !== 'closeup' && state !== 'room') return
+  const vr = byName(cfg.jackConfirm.hotspot)
+  if (!vr) return
+  if (state === 'room') {
+    // test hook shortcut: jump straight into the headset close-up, already on the face
+    active = vr
+    enterCloseup(vr)
+    stateT = cfg.vr.lowerTime
+    updateVrView()
+  }
+  if (state !== 'closeup' || active !== vr) return
   hideOverlays()
-  active = byName(cfg.jackConfirm.hotspot)
   sound.play('ui_confirm', cfg.audio.ui)
   sound.play('jack_in', cfg.audio.jack)
   sound.rain(1)
-  worldU['uImageMix']!.value = 0
-  const [x, y] = cfg.jack.target as [number, number]
-  tweenCam(x, y, cfg.jack.startZoom, x, y, cfg.jack.endZoom, cfg.jack.slamAt, EASE_EXPO)
-  flash = 0.25
+  itw.fx = imageView.x
+  itw.fy = imageView.y
+  itw.fz = imageView.z
+  flash = 0.15
   setState('jackPush')
+}
+
+/** The headset being lowered onto the face: starts lower and a little smaller, rises and grows toward the eyes. */
+let vrDark = 0
+function updateVrView(): void {
+  const v = cfg.vr
+  const p = clamp01(stateT / v.lowerTime)
+  const e = easeInOutCubic(p)
+  // a small settle at the end, as the padding meets the face
+  const bump = Math.sin(clamp01((stateT - v.lowerTime) / v.settleTime) * Math.PI) * v.settleBump
+  imageView.z = v.startZoom + (v.zoom - v.startZoom) * e + bump
+  imageView.x = v.start[0]! + (v.center[0]! - v.start[0]!) * e + head.x * cfg.head.closeupLookPan[0]! / imageView.z
+  imageView.y = v.start[1]! + (v.center[1]! - v.start[1]!) * e + head.y * cfg.head.closeupLookPan[1]! / imageView.z
+  vrDark = v.edgeDark * e
 }
 
 function enterNet(): void {
@@ -598,7 +629,10 @@ window.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return
   if (state === 'room' && hovered) act(hovered)
-  else if (state === 'closeup') back()
+  else if (state === 'closeup' && active?.name === cfg.jackConfirm.hotspot) {
+    // the headset: clicking again puts it on (once it is on its way to the face)
+    if (stateT >= cfg.vr.clickArmAt) confirmJack()
+  } else if (state === 'closeup') back()
 })
 window.addEventListener('contextmenu', (e) => {
   e.preventDefault()
@@ -616,11 +650,14 @@ jackOutBtn.addEventListener('click', jackOut)
 for (const b of [yesBtn, noBtn, jackOutBtn]) b.addEventListener('pointerenter', () => sound.play('ui_hover', cfg.audio.hover))
 
 // ------------------------------------------------------------------------------------------------ tablet overlay
-// Maps the news element (W x H css px) onto the 4 screen corners of the tablet in the close-up with a projective
-// matrix3d. Called every frame only while the tablet close-up is open (it builds one style string per frame).
+// Maps the news element (W x H css px) onto the 4 screen corners of the tablet in the close-up with a real projective
+// homography (matrix3d from the four corners; no rotate/skew), following the Ken Burns view. Runs every frame while the
+// news is open, without allocating; the matrix3d style string (the one accepted allocation) is rebuilt only when a
+// corner has moved more than tablet.redrawPx since the last write.
 const NEWS_W = 640
 const NEWS_H = 416
 const quad = new Float64Array(8)
+const quadShown = new Float64Array(8).fill(-1e9)
 function updateNews(): void {
   const corners = cfg.tablet.screen
   for (let i = 0; i < 4; i++) {
@@ -628,6 +665,10 @@ function updateNews(): void {
     quad[i * 2] = ((c[0]! - imageView.x) * imageView.z / imageFit.x + 0.5) * innerWidth
     quad[i * 2 + 1] = ((c[1]! - imageView.y) * imageView.z / imageFit.y + 0.5) * innerHeight
   }
+  let moved = 0
+  for (let i = 0; i < 8; i++) moved = Math.max(moved, Math.abs(quad[i]! - quadShown[i]!))
+  if (moved < cfg.tablet.redrawPx) return
+  quadShown.set(quad)
   const x0 = quad[0]!, y0 = quad[1]!, x1 = quad[2]!, y1 = quad[3]!, x2 = quad[4]!, y2 = quad[5]!, x3 = quad[6]!, y3 = quad[7]!
   // unit square -> quad (Heckbert), then scale the unit square to the element size
   const sx = x0 - x1 + x2 - x3
@@ -728,10 +769,12 @@ function updateState(dt: number): void {
       imageView.z = c.startZoom + (c.zoom - c.startZoom) * settle + dz * drift
       imageView.x = 0.5 + active.pan.x * drift + head.x * cfg.head.closeupLookPan[0]! / imageView.z
       imageView.y = 0.5 + active.pan.y * drift + head.y * cfg.head.closeupLookPan[1]! / imageView.z
+      if (active.name === cfg.jackConfirm.hotspot) updateVrView()
       if (active.name === cfg.tablet.hotspot) {
         if (!newsShown && stateT >= cfg.tablet.delay) {
           newsShown = true
           newsEl.style.display = 'block'
+          quadShown.fill(-1e9)
           void newsEl.offsetWidth // restart the CSS transition
           newsEl.classList.add('on')
           sound.play('tablet_swipe', cfg.audio.swipe)
@@ -747,7 +790,14 @@ function updateState(dt: number): void {
       break
     }
     case 'jackPush': {
-      const p = stepTween(dt)
+      // push into the lens glow of the headset close-up
+      const p = clamp01(stateT / cfg.jack.slamAt)
+      const e = easeInExpo(p)
+      const [lx, ly] = cfg.vr.lensTarget as [number, number]
+      imageView.x = itw.fx + (lx - itw.fx) * e
+      imageView.y = itw.fy + (ly - itw.fy) * e
+      imageView.z = itw.fz * (cfg.vr.pushZoom / itw.fz) ** e
+      vrDark = cfg.vr.edgeDark * (1 - e)
       glitchBase = Math.max(0, (p - 0.35) / 0.65) ** 2 * 0.9
       zoomBlur = 0.3 * p * p * p
       if (stateT > cfg.jack.slamAt - 0.25 && stateT - dt <= cfg.jack.slamAt - 0.25) sound.play('glitch', cfg.audio.glitch)
@@ -863,7 +913,12 @@ function frame(): void {
   const zc = postU['uZoomCenter']!.value as Vector2
   if (active && (state === 'push' || state === 'pull')) {
     zc.set((active.cx - plateView.x) * plateView.z / plateFit.x + 0.5, 0.5 - (active.cy - plateView.y) * plateView.z / plateFit.y)
+  } else if (state === 'jackPush') {
+    const [lx, ly] = cfg.vr.lensTarget as [number, number]
+    zc.set((lx - imageView.x) * imageView.z / imageFit.x + 0.5, 0.5 - (ly - imageView.y) * imageView.z / imageFit.y)
   } else zc.set(0.5, 0.5)
+  if (state !== 'closeup' && state !== 'jackPush') vrDark += (0 - vrDark) * follow(dt, 0.1)
+  postU['uVignette']!.value = cfg.post.vignette + vrDark
 
   renderer.info.reset()
   renderer.setRenderTarget(sceneRT)
@@ -907,6 +962,12 @@ function hoverByName(name: string | null): void {
   state: () => ({ state, t: stateT, audio: sound.ready, hotspots: hotspots.map((h) => ({ name: h.name, depth: h.depth })) }),
   timeScale: (k: number) => {
     timeScale = k
+  },
+  setTime: (t: number) => {
+    time.value = t
+  },
+  neonFlicker: (on: number) => {
+    worldU['uNeonForce']!.value = on
   },
   mouse: (x: number, y: number) => {
     mouse.x = x

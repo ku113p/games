@@ -42,21 +42,29 @@ Props: water bottle (drink), noodle shelf (eat), tablet (news), VR headset on th
   only over the actual prop. The rect of each hotspot is just a quick reject; the push-in aims at the mask's centroid.
 - **Push-in + close-up** - ease-in push toward the prop with a radial zoom blur, a flash cut to the close-up,
   which settles and then drifts slowly (Ken Burns). Back = reverse cut and an ease-out pull.
-- **Tablet** - an HTML news panel mapped onto the empty screen of the tablet close-up (`tablet.screen` corners) with a projective `matrix3d`
-  that follows the drift; `mix-blend-mode: multiply` lets the glow show through. The news copy is a placeholder.
+- **Tablet** - an HTML news panel mapped onto the pale screen of `CU3d-tablet.jpg` with a real 4-corner homography
+  (`matrix3d` computed from `tablet.screen`, the corners fitted to the screen's edges; the panel runs under the tape and
+  the text keeps clear of it) that follows the Ken Burns drift. The style string is rebuilt only when a corner moves
+  more than `tablet.redrawPx` (the one accepted allocation in the frame loop); `mix-blend-mode: multiply` lets the glow show through. The news copy is a placeholder.
 - **Noodles** - GPU-animated steam sprites over the cup.
 - **Rain** - drops and trails sliding down the glass with refraction, fogged glass blur except where drops clear it,
   only where the window-glass mask is (feathered inward by sampling a coarser mip), kept subtle (`rain.dropAmount`):
-  the plate already has painted drops. The neon behind flickers now and then; its mask and flicker band come from the
-  refracted coordinate with soft band edges, and the drop highlights go on after the flicker, so it stays behind the glass.
+  the plate already has painted drops. The neon behind flickers now and then. Its mask comes from a heavily blurred
+  sample (`rain.neonMaskLod`) around the refracted coordinate, so a whole sign (white core, coloured rim, glow) dims as one
+  soft blob - no dark outline around a white centre. The flicker band also follows the refracted coordinate and has soft
+  edges, and the drop highlights go on after the flicker, so it stays behind the glass.
 - **Look outside** - the window glass is a hotspot: push-in (the radial blur streams from the window, since the view
-  is clamped to the picture), `CU5-window.jpg` with a slow drift, the rain loop gets louder.
+  is clamped to the picture), `CU5b-window.jpg` with a slow drift, the rain loop gets louder.
 - **Screens** - scanlines, a scrolling glow line, a small flicker, only on their glowing pixels.
 - **Lamp** - warm pixels follow the lamp level; every few seconds the contact fails for a moment. Dust motes drift in its light
   (GPU-animated points, depth-blurred like the rest).
 - **Post** - vignette, film grain, chromatic aberration at the edges; glitch (row shifts, jumping blocks, RGB split,
   a rolling scanline tear), white flash and black fade for the transitions.
-- **Jack in** - confirm on the VR headset close-up -> exponential push into the centre screen with rising glitch, timed so
+- **Putting on the VR headset** - click the headset on the desk -> push-in -> `CU4e-vr-inside.jpg` (the inside of the
+  headset) animated as being lowered onto the face: it starts lower and smaller (black around it), rises and grows toward
+  the eyes with a small settle, and the edges darken (`vr.*`). A small "Jack in?" panel sits below the lenses.
+  Confirm with the button, Enter, or by clicking the image again; Cancel / Esc / right-click goes back.
+- **Jack in** - on confirm: exponential push into the left lens glow (`vr.lensTarget`, `vr.pushZoom`) with rising glitch, timed so
   the white flash lands on the slam of `jack_in.mp3` (1.565 s) -> the network fades in from white with a glitch settle and a drift.
   Jack out: `jack_out.mp3` glitch burst while the network falls away, black, and on its thump (1.40 s) back in the room.
 - **Audio** - one AudioContext created on the first click; files fetched at load and decoded once; `_vN` variants picked at random.
@@ -74,9 +82,10 @@ Props: water bottle (drink), noodle shelf (eat), tablet (news), VR headset on th
   rain level), the tablet screen corners in the tablet close-up, timings, volumes.
 
 Draw calls: 3 in the room (plate, dust, post), 2-3 in close-ups. No allocations in the frame loop except the tablet's
-transform string while the news is open.
+transform string, and only when it changes.
 
 ## Test hooks
 
 `window.__test`: `start()`, `hover(name | null)`, `click(name)`, `confirm()` / `jackIn()`, `back()`, `state()`,
-`timeScale(k)` (0 freezes the animation for screenshots), `mouse(x, y)` (-1..1).
+`timeScale(k)` (0 freezes the animation for screenshots), `setTime(t)`, `neonFlicker(0|1)` (forces every neon sign
+mid-flicker), `mouse(x, y)` (-1..1).

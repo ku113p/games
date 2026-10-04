@@ -47,7 +47,8 @@ export const WORLD_FRAG = /* glsl */ `
   uniform vec3 uLamp;
   uniform float uLampLevel;
   uniform vec4 uRain;
-  uniform float uNeon;
+  uniform float uNeonForce;
+  uniform vec4 uNeon;           // x flicker depth, y mask blur lod, z/w mask brightness range
   uniform vec4 uScreenFx;
   uniform sampler2D tMaskA;     // R window glass, G tablet, B water bottle
   uniform sampler2D tMaskB;     // R noodles, G VR headset
@@ -179,18 +180,22 @@ export const WORLD_FRAG = /* glsl */ `
     vec3 col = blurTap(t, lod);
 
     if (glass > 0.01) {
-      // neon signs live BEHIND the glass: mask and flicker band come from the refracted coordinate,
-      // band edges are soft, and the drop highlights go on after the flicker
+      // neon signs live BEHIND the glass. The mask comes from a heavily blurred sample around the refracted coordinate,
+      // so a whole sign (white-hot core + coloured rim + glow) is one soft blob that dims and brightens evenly;
+      // the flicker band also follows the refracted coordinate and has soft edges. Drop highlights go on afterwards.
       vec2 qr = vec2(t.x, 1.0 - t.y);
-      float sat = max(col.r, max(col.g, col.b)) - min(col.r, min(col.g, col.b));
-      float neonMask = S(0.2, 0.5, sat) * S(0.35, 0.75, max(col.r, max(col.g, col.b)));
+      vec3 hb = textureLod(tPlate, t, uNeon.y).rgb;
+      float hbMax = max(hb.r, max(hb.g, hb.b));
+      float hbSat = hbMax - min(hb.r, min(hb.g, hb.b));
+      float neonMask = S(uNeon.z, uNeon.w, hbMax) * S(0.04, 0.16, hbSat);
       float f = qr.x * 9.0 + qr.y * 4.0;
       float band = floor(f);
-      float soft = S(0.0, 0.25, fract(f)) * S(1.0, 0.75, fract(f));
+      float soft = S(0.0, 0.3, fract(f)) * S(1.0, 0.7, fract(f));
       float event = step(0.93, hash1(band * 7.13 + floor(uTime * 2.5)));
       float stutter = step(0.45, hash1(band + floor(uTime * 26.0)));
       float buzz = 0.96 + 0.04 * sin(uTime * 100.0 + band);
-      col *= mix(1.0, buzz * (1.0 - event * stutter * soft * uNeon), neonMask * glass);
+      float on = max(event * stutter, uNeonForce);  // uNeonForce: test hook, every sign mid-flicker
+      col *= mix(1.0, buzz * (1.0 - on * soft * uNeon.x), neonMask * glass);
       col += dropMask * vec3(0.05, 0.05, 0.07);
     }
 
@@ -238,8 +243,11 @@ export const WORLD_FRAG = /* glsl */ `
   }
 
   vec3 image(vec2 s) {
-    vec2 p = clamp(screenToImage(s, uImageView, uImageFit), vec2(0.001), vec2(0.999));
-    return texture2D(tImage, tc(p)).rgb;
+    vec2 pu = screenToImage(s, uImageView, uImageFit);
+    vec2 p = clamp(pu, vec2(0.001), vec2(0.999));
+    // outside the picture is black with a soft edge (the VR close-up starts smaller than the frame)
+    vec2 e = S(vec2(-0.012), vec2(0.004), pu) * S(vec2(1.012), vec2(0.996), pu);
+    return texture2D(tImage, tc(p)).rgb * e.x * e.y;
   }
 
   void main() {

@@ -45,15 +45,15 @@
   },
   "hotspots": [
     { "name": "water", "label": "Drink water", "rect": [0.905, 0.565, 0.968, 0.83], "mask": "a.b", "glow": 1.0,
-      "closeup": "CU1c-water.jpg", "sound": "water_drink", "volume": 0.85, "pushZoom": 2.4, "pan": [0.012, -0.01], "duck": 0.5, "rain": 1.0 },
+      "closeup": "CU1e-water.jpg", "sound": "water_drink", "volume": 0.85, "pushZoom": 2.4, "pan": [0.012, -0.01], "duck": 0.5, "rain": 1.0 },
     { "name": "noodles", "label": "Eat", "rect": [0.435, 0.08, 0.61, 0.32], "mask": "b.r", "glow": 1.0,
-      "closeup": "CU2c-noodles.jpg", "sound": "eat", "volume": 0.85, "pushZoom": 2.0, "pan": [-0.008, -0.012], "duck": 0.5, "rain": 1.0 },
+      "closeup": "CU2e-noodles.jpg", "sound": "eat", "volume": 0.85, "pushZoom": 2.0, "pan": [-0.008, -0.012], "duck": 0.5, "rain": 1.0 },
     { "name": "tablet", "label": "Read the news", "rect": [0.585, 0.775, 0.79, 0.94], "mask": "a.g", "glow": 1.0,
-      "closeup": "CU3c-tablet.jpg", "sound": "tablet_on", "volume": 0.7, "pushZoom": 2.2, "pan": [0.0, 0.0], "duck": 0.5, "rain": 1.0 },
+      "closeup": "CU3d-tablet.jpg", "sound": "tablet_on", "volume": 0.7, "pushZoom": 2.2, "pan": [0.0, 0.0], "duck": 0.5, "rain": 1.0 },
     { "name": "vr", "label": "Jack in", "rect": [0.485, 0.68, 0.625, 0.85], "mask": "b.g", "glow": 1.0,
-      "closeup": "CU4c-vr.jpg", "sound": "glitch", "volume": 0.3, "pushZoom": 2.2, "pan": [0.0, 0.012], "duck": 0.5, "rain": 1.0 },
+      "closeup": "CU4e-vr-inside.jpg", "sound": "glitch", "volume": 0.3, "pushZoom": 2.2, "pan": [0.0, 0.012], "duck": 0.5, "rain": 1.0 },
     { "name": "window", "label": "Look outside", "rect": [0.0, 0.02, 0.235, 0.68], "mask": "a.r", "glow": 0.45,
-      "closeup": "CU5-window.jpg", "sound": "", "volume": 0, "pushZoom": 1.9, "pan": [0.01, 0.008], "duck": 1.0, "rain": 1.8 }
+      "closeup": "CU5b-window.jpg", "sound": "", "volume": 0, "pushZoom": 1.9, "pan": [0.01, 0.008], "duck": 1.0, "rain": 1.8 }
   ],
   "regions": {
     "window": [0.0, 0.025, 0.232, 0.68],
@@ -73,7 +73,9 @@
     "dropAmount": 0.55,
     "maskFeatherLod": 2.5,
     "maskRange": [0.55, 0.95],
-    "neonFlicker": 0.55
+    "neonFlicker": 0.55,
+    "neonMaskLod": 4.0,
+    "neonMaskRange": [0.26, 0.5]
   },
   "screensFx": {
     "scanline": 0.07,
@@ -112,23 +114,37 @@
   },
   "tablet": {
     "hotspot": "tablet",
-    "screen": [[0.482, 0.445], [0.736, 0.484], [0.634, 0.827], [0.418, 0.71]],
+    "screen": [[0.375, 0.323], [0.6475, 0.34], [0.6424, 0.6849], [0.3517, 0.6589]],
+    "redrawPx": 0.25,
     "delay": 0.55,
     "driftZoom": 0.025
   },
   "jackConfirm": {
     "hotspot": "vr",
-    "delay": 0.45
+    "delay": 1.1
+  },
+  "vr": {
+    "start": [0.5, 0.33],
+    "startZoom": 0.9,
+    "center": [0.5, 0.45],
+    "zoom": 1.32,
+    "lowerTime": 1.3,
+    "settleTime": 0.35,
+    "settleBump": 0.025,
+    "edgeDark": 0.5,
+    "clickArmAt": 0.5,
+    "lensTarget": [0.342, 0.44],
+    "pushZoom": 7.0
   },
   "steam": {
     "hotspot": "noodles",
     "count": 70,
-    "origin": [0.5, 0.64],
+    "origin": [0.512, 0.545],
     "spread": 0.07,
-    "rise": 0.38,
+    "rise": 0.32,
     "life": 3.2,
     "size": [50, 180],
-    "opacity": 0.32
+    "opacity": 0.42
   },
   "jack": {
     "target": [0.601, 0.535],
