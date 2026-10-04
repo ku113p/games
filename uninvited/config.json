@@ -1,3 +1,95 @@
 {
-  "hack": {}
+  "sim": { "maxDt": 0.05, "maxEvents": 256 },
+  "player": {
+    "walkSpeed": 2.9, "runSpeed": 5.4, "crouchSpeed": 1.6,
+    "groundAccel": 16, "groundDecel": 20, "airAccel": 5, "turnRate": 10,
+    "jumpSpeed": 6.2, "gravity": 16, "maxFall": 24, "coyoteSec": 0.1, "jumpBufferSec": 0.12,
+    "dashSpeed": 10, "dashSec": 0.22, "dashCooldownSec": 0.9, "dashInvulnerable": true,
+    "maxHp": 100, "hurtInvulnSec": 0.4,
+    "eyeHeight": 1.55, "crouchEyeHeight": 0.7, "chestHeight": 1.15, "radius": 0.35,
+    "landNoiseSpeed": 7, "hitAnimSec": 0.3
+  },
+  "noise": { "run": 8, "jump": 5, "land": 7, "dash": 7, "sword": 6, "rifle": 16, "hit": 10, "kill": 14, "laser": 10, "runEverySec": 0.35 },
+  "combat": {
+    "switchSec": 0.25,
+    "sword": { "damage": 55, "range": 2.6, "arcDeg": 180, "cooldownSec": 0.42, "reachUp": 3.2, "reachDown": 1.0, "animSec": 0.32 },
+    "rifle": { "damage": 20, "intervalSec": 0.16, "spreadDeg": 2.5, "range": 40, "charges": 60, "aimAssistDeg": 5, "muzzleHeight": 1.35, "animSec": 0.12 },
+    "hitRadius": { "drone": 0.6, "camera": 0.45, "laser": 0.5 }
+  },
+  "detection": { "rate": 1.1, "decay": 0.35, "crouchFactor": 0.3, "runFactor": 1.5, "farFactor": 0.45, "nicheHideDist": 2.5 },
+  "videoCamera": { "range": 14, "halfAngleDeg": 24, "pitchDeg": 22, "mountHeight": 3.6, "sweepPeriodSec": 9, "holdShare": 0.25, "hp": 40, "respotSec": 6 },
+  "soundCamera": { "radius": 9, "mountHeight": 3.4, "hp": 40, "respotSec": 6, "hearGain": 0.34, "decay": 0.3, "pingSec": 2.5 },
+  "motionSensor": { "radius": 2.6, "tripSpeed": 3.4, "rearmSec": 5 },
+  "laser": { "damage": 20, "hp": 80, "tripCooldownSec": 1.2, "height": 2.4 },
+  "drone": {
+    "hp": 100, "hover": 2.2, "radius": 0.55,
+    "patrolSpeed": 2.2, "searchSpeed": 3.2, "chaseSpeed": 4.6, "turnRate": 3.2,
+    "range": 12, "halfAngleDeg": 32, "pitchDeg": 18,
+    "waypointPauseSec": 2.2, "lookAroundSec": 3.5, "keepDist": 7, "loseSec": 4,
+    "fireIntervalSec": 1.15, "fireWindupSec": 0.6, "boltSpeed": 15, "boltDamage": 7, "boltLifeSec": 2.5,
+    "hearFactor": 0.8, "maxExtra": 10, "spawnSec": 1.0
+  },
+  "alarm": {
+    "decaySec": [0, 30, 45, 0], "searchers": [0, 2, 3, 0], "searchRadius": [0, 14, 40, 60],
+    "waveSizes": [2, 3, 4], "waveFirstDelaySec": 3, "waveGapSec": 6, "firewallAfterWaves": 3, "maxWaveDrones": 5, "minSpawnDist": 12, "raiseCooldownSec": 4
+  },
+  "scan": { "warnSec": 3.5, "maxSec": 6, "cooldownSec": 1.5, "overheatCooldownSec": 6 },
+  "terminal": { "interactRadius": 1.7, "pauseSec": 30, "timeBonusSec": 0 },
+  "checkpoint": { "radius": 2.7 },
+  "artifact": { "radius": 1.8 },
+  "ending": { "sadAt": 4, "totalCheckpoints": 9 },
+  "physics": { "halfHeight": 0.55, "crouchHalfHeight": 0.2, "offset": 0.02, "autostep": 0.36, "autostepMinWidth": 0.15, "snapToGround": 0.35, "maxSlopeDeg": 50, "redWallThickness": 0.4 },
+  "view": {
+    "pixelRatioMax": 1.5,
+    "fov": 62,
+    "dashFov": 70,
+    "camera": {
+      "distance": 4.3, "crouchDistance": 3.5, "pivotHeight": 1.6, "crouchPivotHeight": 1.1, "shoulder": 0.55,
+      "sensitivity": 0.0022, "minPitch": -0.45, "maxPitch": 1.15, "startPitch": 0.22,
+      "followLerp": 16, "collisionPad": 0.25, "minDistance": 0.7, "aimRange": 60
+    },
+    "bloom": { "strength": 0.7, "radius": 0.25, "threshold": 0.82 },
+    "fog": { "color": "#010409", "density": 0.04 },
+    "colors": {
+      "wall": "#03060a", "floor": "#020408",
+      "seam": [0.25, 1.9, 2.4], "seamDim": [0.07, 0.5, 0.65],
+      "security": [3.2, 0.16, 0.12], "securityDim": [1.0, 0.05, 0.04], "suspicious": [2.8, 1.4, 0.1],
+      "sound": [2.8, 1.1, 0.15], "terminal": [0.35, 2.2, 2.8], "terminalDone": [1.6, 2.6, 2.0], "paused": [0.35, 0.5, 0.9],
+      "heroWhite": [2.4, 2.5, 2.7], "heroRed": [3.0, 0.16, 0.12], "heroBlue": [0.25, 0.75, 3.0],
+      "checkpoint": [0.4, 2.0, 2.9], "artifact": [2.6, 2.4, 1.6]
+    },
+    "juice": {
+      "hitStopSec": 0.045, "killHitStopSec": 0.11, "hurtHitStopSec": 0.05,
+      "shakeDecay": 7, "shakeHit": 0.22, "shakeKill": 0.5, "shakeHurt": 0.45, "shakeLand": 0.18, "shakeDash": 0.08, "shakeShot": 0.04,
+      "glitchKill": 0.7, "glitchAlarm": 0.55, "glitchWall": 1.0, "glitchHurt": 0.35, "glitchDecay": 3.5
+    },
+    "fx": { "sparks": 700, "tracers": 24, "tracerSec": 0.08, "slashSec": 0.16, "noiseRings": 8, "noiseRingSec": 0.6 },
+    "footstep": { "walkStride": 0.7, "runStride": 0.95, "crouchStride": 0.55 },
+    "hud": { "toastSec": 2.8, "hintSec": 6, "hintsAfterSec": 8 },
+    "heroLight": { "intensity": 6, "distance": 9, "height": 2.6, "back": 1.6 }
+  },
+  "audio": { "master": 0.75, "droneHum": 0.32, "cameraServo": 0.22, "alarmLoop": 0.32, "hearDist": 16, "hack": 1.0 },
+  "hack": {
+    "codes": ["1C", "BD", "55", "E9", "7A", "FF"],
+    "gridSize": { "easy": 5, "hard": 7 },
+    "codeCount": { "easy": 5, "hard": 5 },
+    "sequenceLength": { "easy": 3, "hard": 6 },
+    "hiddenCount": { "easy": 1, "hard": 2 },
+    "timeBaseSec": 15,
+    "timePerCodeSec": 4,
+    "timePerHiddenSec": 18,
+    "mistakePenaltySec": { "easy": 5, "hard": 7 },
+    "view": {
+      "hiddenLabel": "??",
+      "lowTimeSec": 10,
+      "volume": 0.8,
+      "tickVolume": 0.32,
+      "tickRateLow": 1.45,
+      "hoverVolume": 0.35,
+      "selectVolume": 0.7,
+      "glitchVolume": 0.55,
+      "correctPitchStep": 0.05,
+      "cellCascadeMs": 14
+    }
+  }
 }
