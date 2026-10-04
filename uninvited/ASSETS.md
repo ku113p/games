@@ -81,6 +81,13 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
   K2 cover 4:3 from KA2. These replace A5 and K1.
 - The office plates (O3/O4) are still third-person; first-person office shots come with the prologue work (OP2 is already a POV shot).
 
+### Round 4 (2026-10-04): hero redesign
+
+- `hero-1` was too close to the Tron suit. H1-H6: the hero between Tron, a cyber-ninja runner and street cyberpunk; armor and gear,
+  white light only on a few seams (the color later follows the ending counter), the face hidden. 9:16, no refs (refs pulled it back to Tron).
+- H5 was blocked by the Azure safety filter with a policy error (not the BlockList one), so it was made with Gemini and looks off-style.
+- After the designer picks a hero, NN1-style scenes and the KA2/K2 key art get regenerated with the new hero.
+
 ### D. Not now
 
 - Seamless textures for a 3D room/office - not needed: the real world is 2.5D (generated plates, see `DESIGN.md` section 5).

@@ -228,11 +228,13 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 
 - The agent generates concept images in sets to choose from; the designer says what fits.
 
+❓ The hero's look in the network - pick from `art/generated/H1`-`H6` (ninja, techwear, coat, cables, home-made armor, asymmetric) or say what to mix.
+
 **Chosen concepts** (in `concept-art/`):
 | What | File | How to read it |
 | --- | --- | --- |
 | Network | `art/generated/NN1-net-corridor.jpg` | a **narrow enclosed corridor**; the designer loves the **matte saturation, slightly cartoony**: cyan lines along the edges, red security - a laser grid, a drone's camera cone, a hack terminal in the wall |
-| Hero in the network | `hero-1.jpg` | black light suit with thin cyan lines, smooth helmet |
+| Hero in the network | - | `hero-1` is too direct a copy of the Tron suit, rejected. The hero must be **between Tron, Ghostrunner and Cyberpunk**: armor and gear, only some seams glow (white - the color follows the counter, section 4), the helmet hides the face |
 | Security | `enemy-1.jpg` | glossy black drones with a red ring and a single red eye |
 | Office (prologue) | `art/generated/O3`, `O4`, `OP2`-`OP5` | the new enclosed office - liked; the boss as in `office-1.jpg` |
 | Room | `room-2.jpg`, **but without the garbage** | not a dump but poor: everything cheap, "fourth-rate", home-made; cables, metal, a window with rain and neon |
@@ -250,4 +252,4 @@ Alarm levels 1 and 2 last for a while and then **decay**. Level 3 does not decay
 
 ## 16. Open
 
-No open questions right now.
+1. The hero's look in the network: pick from `art/generated/H1`-`H6` or say what to mix (section 14).
