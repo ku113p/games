@@ -8,7 +8,8 @@ import type { GameState, Sim, Vec3 } from '../state'
 import { dist2, emit } from '../util'
 import { flyable, navDistance } from './nav'
 import { openWall } from './terminals'
-import { spawnDrone, startInvestigating } from './drones'
+import { startInvestigating } from './drones'
+import { pickGate, spawnDrone } from './gates'
 
 export function raiseAlarm(s: GameState, sim: Sim, reason: AlarmReason, x: number, y: number, z: number): void {
   const a = s.alarm
@@ -43,57 +44,24 @@ export function raiseAlarm(s: GameState, sim: Sim, reason: AlarmReason, x: numbe
   }
 }
 
-/** Spawn point to bring a drone in from: the nearest one to (x, z) that is not too close to the player. */
-function pickSpawn(s: GameState, sim: Sim, x: number, z: number, skip: number): Vec3 | null {
-  const p = s.player.pos
-  const minD = sim.cfg.alarm.minSpawnDist
-  let best: Vec3 | null = null
-  let bestD = Infinity
-  let rank = 0
-  // the `skip`-th best, so a wave spreads over several spawn points
-  for (let pass = 0; pass <= skip; pass++) {
-    best = null
-    bestD = Infinity
-    for (const sp of sim.spawns) {
-      const dp = dist2(sp.x, sp.z, p.x, p.z)
-      if (dp < minD * minD) continue
-      const d = dist2(sp.x, sp.z, x, z)
-      if (d < bestD && (pass === 0 || d > rank)) {
-        bestD = d
-        best = sp
-      }
-    }
-    if (best === null) break
-    rank = bestD
-  }
-  if (best === null) {
-    // every spawn is close to the player: take the farthest
-    for (const sp of sim.spawns) {
-      const d = dist2(sp.x, sp.z, p.x, p.z)
-      if (best === null || d > bestD) {
-        best = sp
-        bestD = d
-      }
-    }
-  }
-  return best
-}
-
 function spawnSearcher(s: GameState, sim: Sim, role: 'searcher' | 'checker' | 'wave', x: number, z: number, skip = 0): number {
-  const sp = pickSpawn(s, sim, x, z, skip)
-  if (!sp) return -1
-  return spawnDrone(s, sim, role, sp.x, sp.y, sp.z)
+  const g = pickGate(s, sim, x, z, skip)
+  if (g < 0) return -1
+  return spawnDrone(s, sim, role, g)
 }
 
-/** "Kill a camera - someone always comes to check": the nearest free drone, or a new one from a spawn point. */
-export function callCheck(s: GameState, sim: Sim, x: number, y: number, z: number): void {
-  if (s.alarm.stage >= 3) return // everyone is hunting already
+/**
+ * "Kill a camera - someone always comes to check": the nearest free drone, or a new one through a spawn gate.
+ * Returns the drone that comes (-1 none).
+ */
+export function callCheck(s: GameState, sim: Sim, x: number, y: number, z: number): number {
+  if (s.alarm.stage >= 3) return -1 // everyone is hunting already
   emit(sim, { type: 'checkCalled', x, y, z })
   let best = -1
   let bestD = Infinity
   for (let i = 0; i < s.drones.length; i++) {
     const d = s.drones[i]
-    if (!d || !d.active || !d.alive || d.mode === 'alert' || d.pausedTime > 0 || d.spawnTime > 0) continue
+    if (!d || !d.active || !d.alive || d.mode === 'alert' || d.pausedTime > 0 || d.spawnTime > 0 || d.gateTime > 0) continue
     const dd = dist2(d.pos.x, d.pos.z, x, z)
     if (dd < bestD) {
       bestD = dd
@@ -102,6 +70,7 @@ export function callCheck(s: GameState, sim: Sim, x: number, y: number, z: numbe
   }
   if (best < 0) best = spawnSearcher(s, sim, 'checker', x, z)
   if (best >= 0) startInvestigating(s, sim, best, x, z)
+  return best
 }
 
 /** Something is actively wrong right now: the alarm does not cool down meanwhile. */
@@ -158,7 +127,7 @@ export function updateAlarm(s: GameState, sim: Sim, dt: number): void {
   const n = Math.min(size, room)
   const p = s.player.pos
   let spawned = 0
-  for (let k = 0; k < n; k++) if (spawnSearcher(s, sim, 'wave', p.x, p.z, k % Math.max(1, sim.spawns.length)) >= 0) spawned++
+  for (let k = 0; k < n; k++) if (spawnSearcher(s, sim, 'wave', p.x, p.z, k) >= 0) spawned++
   a.wave++
   a.waveActive = spawned > 0
   if (!a.waveActive) a.waveTimer = cfg.waveGapSec

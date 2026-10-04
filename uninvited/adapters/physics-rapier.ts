@@ -105,6 +105,8 @@ export function createRapierWorld(g: Grid, shape: CharacterShape): RapierWorld {
       if (g.kind[i] === CellKind.Niche) cuboid(c * cell, h + g.nicheHeight, r * cell, (c + 1) * cell, top + 1, (r + 1) * cell)
     }
   }
+  // server blocks (the level's cover entities)
+  for (const b of g.blocks) cuboid(b.minX, b.minY - 0.5, b.minZ, b.maxX, b.maxY, b.maxZ)
   // the ceiling
   cuboid(-10, top, -10, g.cols * cell + 10, top + 2, g.rows * cell + 10)
 

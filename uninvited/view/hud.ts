@@ -24,6 +24,10 @@ export interface HudState {
   scanActive: boolean
   scanHeat: number
   scanCooldown: number
+  /** Heat (0..1) where the trace warning starts (config scan.warnAt). */
+  scanWarnAt?: number
+  /** Past the warning point while scanning. */
+  scanWarning?: boolean
   prompt: 'none' | 'terminal' | 'artifact'
   wave: number
   wavesCleared: number
@@ -37,6 +41,8 @@ export interface Hud {
   toast(text: string, kind?: 'info' | 'alarm' | 'good'): void
   hint(text: string): void
   setVisible(on: boolean): void
+  /** Network vision held too long: the security is called - a clear banner. */
+  traced(): void
   showStart(onStart: () => void): void
   showPause(on: boolean): void
   showResume(on: boolean): void
@@ -55,7 +61,28 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
   return e
 }
 
+/** The trace meter and the traced banner (their styles live here, not in index.html). */
+const TRACE_CSS = `
+.hud-trace { position: absolute; left: 50%; top: 68%; width: 300px; margin-left: -150px; text-align: center;
+  font-size: 11px; letter-spacing: 0.3em; color: #9fefff; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.hud-trace.on { opacity: 1; }
+.hud-trace-bar { position: relative; height: 5px; margin-top: 6px; background: rgba(120, 220, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(120, 220, 255, 0.25); }
+.hud-trace-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #8ff0ff; box-shadow: 0 0 8px #4fe0ff; }
+.hud-trace-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #ff4a3a; box-shadow: 0 0 6px #ff3020; }
+.hud-trace.risk { color: #ff5a48; animation: traceRisk 0.45s steps(2, start) infinite; }
+.hud-trace.risk .hud-trace-fill { background: #ff3a2a; box-shadow: 0 0 10px #ff2010; }
+.hud-trace.risk .hud-trace-bar { box-shadow: inset 0 0 0 1px rgba(255, 70, 50, 0.6), 0 0 12px rgba(255, 40, 20, 0.5); }
+@keyframes traceRisk { 50% { opacity: 0.45; } }
+.hud-traced { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: 26px; letter-spacing: 0.32em;
+  color: #ff4a3a; text-shadow: 0 0 14px #ff2010; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+.hud-traced.on { opacity: 1; animation: traceRisk 0.3s steps(2, start) 4; }
+`
+
 export function createHud(root: HTMLElement, toastSec: number, hintSec: number): Hud {
+  const css = document.createElement('style')
+  css.textContent = TRACE_CSS
+  document.head.appendChild(css)
   const hud = el('div', 'hud', root)
 
   // top: status + alarm
@@ -90,6 +117,15 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
   const scanBar = el('div', 'hud-bar thin scan', right)
   const scanFill = el('div', 'hud-bar-fill', scanBar)
 
+  // center bottom: the trace meter while scanning; the traced banner
+  const trace = el('div', 'hud-trace', hud)
+  const traceLabel = el('div', 'hud-trace-label', trace, t('hud.trace'))
+  const traceBar = el('div', 'hud-trace-bar', trace)
+  const traceFill = el('div', 'hud-trace-fill', traceBar)
+  const traceMark = el('div', 'hud-trace-mark', traceBar)
+  const tracedBanner = el('div', 'hud-traced', hud, t('hud.traced'))
+  let tracedTimer: ReturnType<typeof setTimeout> | null = null
+
   // center: crosshair + prompt
   const cross = el('div', 'hud-cross', hud)
   const prompt = el('div', 'hud-prompt', hud)
@@ -110,6 +146,7 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
     status: '',
     sus: -1,
     scan: -1,
+    trace: -1,
     prompt: '',
     wave: -1,
     crouched: false,
@@ -189,6 +226,17 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
         scanBar.classList.toggle('cool', !h.scanActive && h.scanCooldown > 0)
         last.scan = scanKey
       }
+      const warnAt = h.scanWarnAt ?? 0.7
+      const risk = h.scanActive && (h.scanWarning === true || h.scanHeat >= warnAt)
+      const traceKey = h.scanActive ? 1 + Math.round(h.scanHeat * 100) * 10 + (risk ? 5 : 0) + Math.round(warnAt * 100) * 10000 : 0
+      if (traceKey !== last.trace) {
+        trace.classList.toggle('on', h.scanActive)
+        trace.classList.toggle('risk', risk)
+        traceLabel.textContent = risk ? t('hud.traceRisk') : t('hud.trace')
+        traceFill.style.width = `${Math.round(h.scanHeat * 100)}%`
+        traceMark.style.left = `${Math.round(warnAt * 100)}%`
+        last.trace = traceKey
+      }
       if (h.prompt !== last.prompt) {
         prompt.textContent = h.prompt === 'terminal' ? t('prompt.terminal') : h.prompt === 'artifact' ? t('prompt.artifact') : ''
         prompt.classList.toggle('on', h.prompt !== 'none')
@@ -218,6 +266,13 @@ export function createHud(root: HTMLElement, toastSec: number, hintSec: number):
       hintBox.classList.add('on')
       if (hintTimer) clearTimeout(hintTimer)
       hintTimer = setTimeout(() => hintBox.classList.remove('on'), hintSec * 1000)
+    },
+    traced(): void {
+      tracedBanner.classList.remove('on')
+      void tracedBanner.offsetWidth
+      tracedBanner.classList.add('on')
+      if (tracedTimer) clearTimeout(tracedTimer)
+      tracedTimer = setTimeout(() => tracedBanner.classList.remove('on'), 3200)
     },
     setVisible(on: boolean): void {
       hud.style.display = on ? '' : 'none'

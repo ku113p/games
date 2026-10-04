@@ -3,10 +3,11 @@
 import { createRapierWorld, initPhysics } from './adapters/physics-rapier'
 import { createLocalStore } from './adapters/storage'
 import cfgJson from './config.json'
-import { attack, beginFrame, cancelHack, createIntent, dash, hackPick, interact, jump, switchMode, tick, toggleCrouch } from './core/commands'
+import { attack, beginFrame, cancelHack, createIntent, hackPick, interact, jump, moveTap, switchMode, tick, toggleCrouch, TAP_BACK, TAP_FORWARD, TAP_LEFT, TAP_RIGHT } from './core/commands'
 import type { GameConfig } from './core/config'
 import { buildGrid } from './core/grid'
-import { endingCounter, hackSession, phase, runStats } from './core/queries'
+import type { HackSession } from './core/hack/index'
+import { alarmStage, endingCounter, hackSession, phase, runStats } from './core/queries'
 import { applyLoadedState, parseSave, serializeState } from './core/save'
 import { createSim, createState, type GameState } from './core/state'
 import { bindHackInput } from './input/hack'
@@ -14,6 +15,7 @@ import { bindGameInput } from './input/keyboard-mouse'
 import { slice } from './levels/slice'
 import { createGameView } from './view/game-view'
 import { createHackView, type HackView } from './view/hack/index'
+import { hackOutcome } from './view/hack/outcome'
 import { t } from './view/hud'
 
 const cfg: GameConfig = cfgJson
@@ -43,6 +45,12 @@ let lockGrace = 0
 let endTimer = 0
 let hackView: HackView | null = null
 let unbindHack: (() => void) | null = null
+/** The session on the overlay; kept after the core drops it, so its result can stay on screen. */
+let hackShown: HackSession | null = null
+/** > 0 while a finished hack's result holds on screen (DESIGN 11: how it ended must be unmistakable). */
+let hackOutro = 0
+let hackOutroSolved = false
+let hackToast = ''
 /** Headless screenshots cannot lock the pointer: ?nolock plays without it. */
 const noLock = new URLSearchParams(location.search).has('nolock')
 
@@ -72,10 +80,38 @@ function closeHackUi(): void {
   input.setEnabled(true)
 }
 
+/** The session just ended (solved / timed out): show the result and hold it. Reads this frame's events - call it before they are flushed. */
+function beginHackOutro(): void {
+  const o = hackOutcome(sim.events, alarmStage(state))
+  unbindHack?.()
+  unbindHack = null
+  if (hackShown) hackView?.update(hackShown)
+  if (o.kind !== 'none') hackView?.outcome(o.title, o.detail)
+  hackOutroSolved = o.kind === 'solved'
+  hackToast = o.toast
+  hackOutro = cfgJson.hack.view.outroSec
+}
+
+/** The result has been seen: the overlay closes with a glitch and the game says what happened. */
+function endHackOutro(): void {
+  hackOutro = 0
+  closeHackUi()
+  hackShown = null
+  if (hackToast) view.hud.toast(hackToast, hackOutroSolved ? 'good' : 'alarm')
+  hackToast = ''
+  if (phase(state) !== 'playing') return
+  if (hackOutroSolved) play() // the last pick's user activation usually still allows the lock; if not, the pause screen asks for a click
+  else {
+    mode = 'resume'
+    view.hud.showResume(true)
+  }
+}
+
 function openHackUi(): void {
   if (!hackView) hackView = createHackView(view.hud.hackRoot, view.sound.ctx && view.sound.bus ? { audio: { ctx: view.sound.ctx, destination: view.sound.bus } } : {})
   const session = hackSession(state)
   if (!session) return
+  hackShown = session
   mode = 'hack'
   input.setEnabled(false)
   view.hud.hackRoot.classList.add('on')
@@ -85,17 +121,16 @@ function openHackUi(): void {
     view.hud.hackRoot,
     (row, col) => {
       hackPick(state, sim, row, col)
+      if (!hackSession(state)) beginHackOutro()
       flushEvents()
-      if (!hackSession(state)) {
-        closeHackUi()
-        play() // inside the click / key press, so the pointer lock is allowed
-      }
     },
     () => {
       cancelHack(state, sim)
       flushEvents()
       closeHackUi()
-      play()
+      hackShown = null
+      view.hud.toast(t('hack.aborted'))
+      play() // inside the key press, so the pointer lock is allowed
     },
   )
 }
@@ -184,7 +219,10 @@ function frame(now: number): void {
     view.rig.look(input.look.dx, input.look.dy)
     view.aim(state, aim)
     if (pressed.jump > 0) jump(state, sim)
-    if (pressed.dash > 0) dash(state, sim)
+    for (let i = 0; i < pressed.tapForward; i++) moveTap(state, sim, TAP_FORWARD, view.rig.yaw)
+    for (let i = 0; i < pressed.tapBack; i++) moveTap(state, sim, TAP_BACK, view.rig.yaw)
+    for (let i = 0; i < pressed.tapLeft; i++) moveTap(state, sim, TAP_LEFT, view.rig.yaw)
+    for (let i = 0; i < pressed.tapRight; i++) moveTap(state, sim, TAP_RIGHT, view.rig.yaw)
     if (pressed.crouch % 2 === 1) toggleCrouch(state, sim)
     for (let i = 0; i < pressed.switchMode; i++) switchMode(state, sim)
     if (pressed.interact > 0) interact(state, sim)
@@ -194,6 +232,7 @@ function frame(now: number): void {
   intent.moveForward = active && mode === 'playing' ? (held.forward ? 1 : 0) - (held.back ? 1 : 0) : 0
   intent.moveRight = active && mode === 'playing' ? (held.right ? 1 : 0) - (held.left ? 1 : 0) : 0
   intent.run = held.run
+  intent.crouchHold = mode === 'playing' && held.crouch
   intent.scan = mode === 'playing' && held.scan
   intent.lookYaw = view.rig.yaw
   intent.aimPitch = aim.pitch
@@ -202,14 +241,22 @@ function frame(now: number): void {
 
   // the hacking overlay follows the state
   const session = hackSession(state)
-  if (session && mode !== 'hack') openHackUi()
+  if (hackOutro > 0) {
+    hackOutro -= raw
+    if (hackShown) hackView?.update(hackShown)
+    if (hackOutro <= 0 || phase(state) !== 'playing') endHackOutro()
+  } else if (session && mode !== 'hack') openHackUi()
   else if (session && hackView) hackView.update(session)
   else if (!session && mode === 'hack') {
-    // timed out (or died) while the overlay was open
-    closeHackUi()
-    if (phase(state) === 'playing') {
-      mode = 'resume'
-      view.hud.showResume(true)
+    if (phase(state) === 'playing' && hackShown?.status === 'timedOut') beginHackOutro() // timed out: show it, then resume
+    else {
+      // died (or the state was replaced) while the overlay was open
+      closeHackUi()
+      hackShown = null
+      if (phase(state) === 'playing') {
+        mode = 'resume'
+        view.hud.showResume(true)
+      }
     }
   }
 
@@ -258,10 +305,10 @@ requestAnimationFrame(frame)
     view.rig.pitch = pitch
     view.rig.snap()
   },
-  hold(key: 'forward' | 'back' | 'left' | 'right' | 'run' | 'attack' | 'scan', on: boolean): void {
+  hold(key: 'forward' | 'back' | 'left' | 'right' | 'run' | 'crouch' | 'attack' | 'scan', on: boolean): void {
     input.held[key] = on
   },
-  press(key: 'jump' | 'dash' | 'crouch' | 'attack' | 'switchMode' | 'interact'): void {
+  press(key: 'jump' | 'tapForward' | 'tapBack' | 'tapLeft' | 'tapRight' | 'crouch' | 'attack' | 'switchMode' | 'interact'): void {
     input.pressed[key]++
   },
 }

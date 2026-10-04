@@ -16,6 +16,7 @@ import hackStart from '../../audio/sfx/hack_start.mp3'
 import hackSuccess from '../../audio/sfx/hack_success.mp3'
 import hackTickLoop from '../../audio/sfx/hack_tick_loop.mp3'
 import hackWrong from '../../audio/sfx/hack_wrong.mp3'
+import uiConfirm from '../../audio/sfx/ui_confirm.mp3'
 import uiHover from '../../audio/sfx/ui_hover.mp3'
 
 const FILES: Record<string, string> = {
@@ -34,6 +35,7 @@ const FILES: Record<string, string> = {
   hack_success: hackSuccess,
   hack_tick_loop: hackTickLoop,
   hack_wrong: hackWrong,
+  ui_confirm: uiConfirm,
   ui_hover: uiHover,
 }
 
@@ -45,6 +47,7 @@ export type HackSoundName =
   | 'hack_start'
   | 'hack_success'
   | 'hack_wrong'
+  | 'ui_confirm'
   | 'ui_hover'
 
 /** Where the overlay's sound goes: the game's own context and mixer bus, or a private one when omitted. */

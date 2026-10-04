@@ -51,6 +51,15 @@ export function hackSlotLabel(s: HackSession, position: number, hiddenLabel: str
   return s.codes[s.target[position] as number] as string
 }
 
+/**
+ * Is the code index shown at a visible position of the target (one that was never hidden). The generator never puts
+ * such a code under a "??", so a player who knows the rule can rule it out for every hidden slot.
+ */
+export function hackIsShownInTarget(s: HackSession, code: number): boolean {
+  for (let i = 0; i < s.target.length; i++) if (s.hidden[i] !== true && s.target[i] === code) return true
+  return false
+}
+
 /** Is the code index marked as wrong under this position. */
 export function hackIsMarkedWrong(s: HackSession, position: number, code: number): boolean {
   return (((s.wrongMarks[position] as number) >> code) & 1) === 1

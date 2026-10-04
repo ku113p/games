@@ -21,6 +21,8 @@ export interface PlayerConfig {
   dashSpeed: number
   dashSec: number
   dashCooldownSec: number
+  /** Two presses of the same direction key within this time make a dash (DESIGN 12). */
+  dashTapSec: number
   dashInvulnerable: boolean
   maxHp: number
   hurtInvulnSec: number
@@ -49,6 +51,8 @@ export interface NoiseConfig {
   laser: number
   /** How often a running player "emits" a running noise, s. */
   runEverySec: number
+  /** The player's noise ring fades from the run radius to silence in this long, s. */
+  fadeSec: number
 }
 
 export interface SwordConfig {
@@ -87,8 +91,6 @@ export interface DetectionConfig {
   runFactor: number
   /** At the edge of the range the rate is scaled down to this. */
   farFactor: number
-  /** A crouched player in a niche is seen only closer than this. */
-  nicheHideDist: number
 }
 
 export interface VideoCameraConfig {
@@ -117,8 +119,9 @@ export interface SoundCameraConfig {
 
 export interface MotionSensorConfig {
   radius: number
-  tripSpeed: number
   rearmSec: number
+  /** The sensor's dot is noticeable when you are this close with a clear line to it, m. */
+  noticeDist: number
 }
 
 export interface LaserConfig {
@@ -143,8 +146,12 @@ export interface DroneConfig {
   lookAroundSec: number
   keepDist: number
   loseSec: number
+  /** Between the end of one shot and the start of the next aim, s. */
   fireIntervalSec: number
+  /** After spotting the player, before the first aim, s. */
   fireWindupSec: number
+  /** The shot telegraph: the drone holds still and locks on for this long before every shot; losing sight cancels it. */
+  aimSec: number
   boltSpeed: number
   boltDamage: number
   boltLifeSec: number
@@ -152,7 +159,16 @@ export interface DroneConfig {
   hearFactor: number
   /** Extra drone slots for alarm searchers and waves. */
   maxExtra: number
+  /** A spawn gate opens for this long (glitch, light) before its drone comes out. */
   spawnSec: number
+  /** The flight out of (or into) a gate, s. */
+  gateExitSec: number
+  /** How deep behind the gate's surface a drone waits, m. */
+  gateDepth: number
+  /** A wall gate lets its drone out this far in front of the wall, m. */
+  gateOut: number
+  /** Drones queued at the same gate come out this far apart, s. */
+  gateStaggerSec: number
 }
 
 export interface AlarmConfig {
@@ -174,7 +190,8 @@ export interface AlarmConfig {
 }
 
 export interface ScanConfig {
-  warnSec: number
+  /** The warning comes at this share of maxSec (0..1). */
+  warnAt: number
   maxSec: number
   cooldownSec: number
   overheatCooldownSec: number

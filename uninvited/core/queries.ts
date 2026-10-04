@@ -1,12 +1,12 @@
 // Read-only questions for the view and the HUD (rule 2: the view reads the state only through these).
 // Hot path: no allocations - results are numbers, strings, or written into caller-owned objects.
-import type { BoltState, CheckpointState, DroneState, GameState, LaserState, RedWallState, SensorState, Sim, SoundCameraState, TerminalState, VideoCameraState } from './state'
+import type { BoltState, CheckpointState, DroneState, Gate, GameState, GateState, LaserState, ScanLink, Vec3, RedWallState, SensorState, Sim, SoundCameraState, TerminalState, VideoCameraState } from './state'
 import type { HackSession } from './hack/index'
 import { heroColor, isSadEnding, type Rgb } from './rules/progress'
 import { nearestInteractable, type Interactable } from './rules/terminals'
-import { inNiche } from './rules/detection'
+import { inCover } from './rules/detection'
 import { laserOn } from './rules/devices'
-import type { Grid } from './grid'
+import type { Block, Grid } from './grid'
 
 export type { Rgb } from './rules/progress'
 export type { Interactable } from './rules/terminals'
@@ -64,8 +64,19 @@ export function isRunning(s: GameState): boolean {
   return s.player.running
 }
 
+/** Crouched right behind a server block. */
+export function isInCover(s: GameState, sim: Sim): boolean {
+  return inCover(s, sim)
+}
+
+/** @deprecated niches are gone (DESIGN 9.5); the HUD's old "niche" flag now means "crouched in cover". */
 export function isHiddenInNiche(s: GameState, sim: Sim): boolean {
-  return inNiche(s, sim)
+  return inCover(s, sim)
+}
+
+/** The level's server blocks (world boxes), for the view to build. */
+export function coverBlocks(sim: Sim): readonly Readonly<Block>[] {
+  return sim.grid.blocks
 }
 
 export function weaponMode(s: GameState): 'sword' | 'rifle' {
@@ -145,9 +156,59 @@ export function scanActive(s: GameState): boolean {
   return s.scan.active
 }
 
-/** 0..1 how close the held network vision is to calling the security. */
-export function scanHeat(s: GameState, sim: Sim): number {
-  return s.scan.active ? Math.min(1, s.scan.held / sim.cfg.scan.maxSec) : 0
+/** 0..1 how close the held network vision is to calling the security (0 while it is off). The sim argument is unused (kept for old callers). */
+export function scanHeat(s: GameState, _sim?: Sim): number {
+  return s.scan.active ? s.scan.heat : 0
+}
+
+/** The heat (0..1) at which the warning comes (config scan.warnAt). */
+export function scanWarnAt(sim: Sim): number {
+  return sim.cfg.scan.warnAt
+}
+
+/** Network-vision links: terminal -> the wall / laser / drone it controls (drone ends follow the drones). */
+export function scanLinks(s: GameState): readonly Readonly<ScanLink>[] {
+  return s.links
+}
+
+/** Patrol waypoints (at hover height) per drone slot - same indices as drones(); empty for searchers and waves. */
+export function dronePatrolRoutes(s: GameState): readonly (readonly Readonly<Vec3>[])[] {
+  return s.routes
+}
+
+/** How far the player's noise carries right now, m (0 when silent): sprinting keeps it at noise.run, jumps and fights spike it. */
+export function noiseRadius(s: GameState): number {
+  return s.phase === 'playing' ? s.player.noise : 0
+}
+
+export interface SensorZone {
+  x: number
+  y: number
+  z: number
+  radius: number
+  /** Tripped recently (rearming). */
+  tripped: boolean
+  /** The player is close enough to notice the sensor's dot. */
+  seenUpClose: boolean
+}
+
+const zones: SensorZone[] = []
+
+/** Motion-sensor zones (circles on the floor). The returned objects are reused between calls - read them, do not keep them. */
+export function sensorZones(s: GameState): readonly Readonly<SensorZone>[] {
+  while (zones.length < s.sensors.length) zones.push({ x: 0, y: 0, z: 0, radius: 0, tripped: false, seenUpClose: false })
+  zones.length = s.sensors.length
+  for (let i = 0; i < s.sensors.length; i++) {
+    const m = s.sensors[i] as SensorState
+    const z = zones[i] as SensorZone
+    z.x = m.pos.x
+    z.y = m.pos.y
+    z.z = m.pos.z
+    z.radius = m.radius
+    z.tripped = m.rearm > 0
+    z.seenUpClose = m.seenUpClose
+  }
+  return zones
 }
 
 /** 0..1 of the cooldown left (0 = ready). */
@@ -177,6 +238,23 @@ export function hackTerminal(s: GameState): number {
 
 export function drones(s: GameState): readonly Readonly<DroneState>[] {
   return s.drones
+}
+
+/** 0..1 how far drone i is into locking on for a shot (the telegraph); 0 when not aiming. */
+export function droneAim(s: GameState, sim: Sim, i: number): number {
+  const d = s.drones[i]
+  if (!d || !d.active || !d.alive || d.aim <= 0) return 0
+  return 1 - d.aim / sim.cfg.drone.aimSec
+}
+
+/** The level's spawn gates (static shapes). */
+export function spawnGates(sim: Sim): readonly Readonly<Gate>[] {
+  return sim.gates
+}
+
+/** The spawn gates' live state (open timers). */
+export function gateStates(s: GameState): readonly Readonly<GateState>[] {
+  return s.gates
 }
 
 export function videoCameras(s: GameState): readonly Readonly<VideoCameraState>[] {

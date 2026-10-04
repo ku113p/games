@@ -1,4 +1,5 @@
-// The player's body: walk / run / crouch / jump / dash with inertia, through the World port's character mover.
+// The player's body: walk / sprint / crouch / jump / dash, through the World port's character mover. Tuned to feel
+// responsive (DESIGN 12): high ground acceleration, near-instant turning, little air drift - at human speeds.
 import type { GameState, Sim } from '../state'
 import { angleDiff, emit, turnTowards } from '../util'
 import { makeNoise } from './detection'
@@ -8,8 +9,10 @@ export interface Intent {
   /** -1..1 forward/back and right/left, relative to the camera. */
   moveForward: number
   moveRight: number
-  /** Shift held: run. */
+  /** Shift held: sprint. */
   run: boolean
+  /** Ctrl held: crouch while held. */
+  crouchHold: boolean
   /** The camera's yaw (0 = +z, PI/2 = +x): movement and aim are relative to it. */
   lookYaw: number
   /** Aim pitch in radians, positive = up. */
@@ -19,7 +22,7 @@ export interface Intent {
 }
 
 export function createIntent(): Intent {
-  return { moveForward: 0, moveRight: 0, run: false, lookYaw: 0, aimPitch: 0, scan: false }
+  return { moveForward: 0, moveRight: 0, run: false, crouchHold: false, lookYaw: 0, aimPitch: 0, scan: false }
 }
 
 /** The player cannot act: dead, done, or standing at a terminal while hacking. */
@@ -40,6 +43,8 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   p.slashTime -= dt
   p.shootTime -= dt
   p.hitTime -= dt
+  // the player's noise fades out over noiseFadeSec after a jump, a swing, a shot
+  if (p.noise > 0) p.noise = Math.max(0, p.noise - (sim.cfg.noise.run / sim.cfg.noise.fadeSec) * dt)
 
   const frozen = playerFrozen(s)
   let wx = 0
@@ -58,19 +63,13 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   }
   const wishing = wx * wx + wz * wz > 1e-4
 
-  // dash (buffered by the dash command)
+  updateCrouchHold(s, sim, frozen ? p.crouchHold : intent.crouchHold)
+
+  // dash (buffered by the dash command, towards dashX / dashZ)
   if (!frozen && p.dashBuffer > 0 && p.dashCooldown <= 0) {
     p.dashBuffer = 0
     p.dashTime = cfg.dashSec
     p.dashCooldown = cfg.dashCooldownSec
-    if (wishing) {
-      const l = Math.sqrt(wx * wx + wz * wz)
-      p.dashX = wx / l
-      p.dashZ = wz / l
-    } else {
-      p.dashX = Math.sin(p.facing)
-      p.dashZ = Math.cos(p.facing)
-    }
     p.facing = Math.atan2(p.dashX, p.dashZ)
     emit(sim, { type: 'dashed' })
     makeNoise(s, sim, sim.cfg.noise.dash)
@@ -110,6 +109,7 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
       p.jumpBuffer = 0
       p.coyote = 0
       p.grounded = false
+      p.jumping = true
       emit(sim, { type: 'jumped' })
       makeNoise(s, sim, sim.cfg.noise.jump)
     }
@@ -131,6 +131,7 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   p.grounded = m.grounded
   if (!p.grounded && p.vel.y < 0) p.fallSpeed = -p.vel.y
   if (p.grounded) {
+    if (p.vel.y <= 0) p.jumping = false
     p.coyote = cfg.coyoteSec
     if (p.vel.y < 0) p.vel.y = 0
     if (!wasGrounded && p.fallSpeed > cfg.landNoiseSpeed) {
@@ -151,11 +152,12 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   // facing: towards the aim while attacking, otherwise towards the movement
   const acting = p.slashTime > 0 || p.shootTime > 0
   if (acting) p.facing = turnTowards(p.facing, intent.lookYaw, cfg.turnRate * 2 * dt)
-  else if (p.speed > 0.4 && p.dashTime <= 0) p.facing = turnTowards(p.facing, Math.atan2(p.vel.x, p.vel.z), cfg.turnRate * dt)
+  else if (wishing && p.dashTime <= 0) p.facing = turnTowards(p.facing, Math.atan2(wx, wz), cfg.turnRate * dt)
   p.facing = angleDiff(p.facing, 0)
 
   // running is loud (DESIGN 8)
   if (p.running && p.grounded && p.speed > cfg.walkSpeed) {
+    if (p.noise < sim.cfg.noise.run) p.noise = sim.cfg.noise.run
     p.runNoise -= dt
     if (p.runNoise <= 0) {
       p.runNoise = sim.cfg.noise.runEverySec
@@ -164,4 +166,21 @@ export function updatePlayer(s: GameState, sim: Sim, dt: number, intent: Intent)
   } else {
     p.runNoise = 0
   }
+}
+
+/** Ctrl (hold): pressing it crouches, releasing it stands up again - as soon as there is room (DESIGN 12). */
+function updateCrouchHold(s: GameState, sim: Sim, held: boolean): void {
+  const p = s.player
+  if (held && !p.crouchHold && !p.crouched) {
+    p.crouched = true
+    p.crouchByHold = true
+    emit(sim, { type: 'crouchChanged', crouched: true })
+  }
+  p.crouchHold = held
+  if (!held && p.crouchByHold && p.crouched && sim.world.canStand(p.pos.x, p.pos.y, p.pos.z)) {
+    p.crouched = false
+    p.crouchByHold = false
+    emit(sim, { type: 'crouchChanged', crouched: false })
+  }
+  if (!p.crouched) p.crouchByHold = false
 }

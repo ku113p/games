@@ -19,12 +19,14 @@ export type GameEvent =
   | { type: 'targetHit'; target: TargetKind; index: number; x: number; y: number; z: number; killed: boolean; byRifle: boolean }
   | { type: 'playerHurt'; amount: number; hp: number }
   | { type: 'playerDied' }
+  | { type: 'droneAiming'; index: number }
   | { type: 'droneFired'; index: number }
   | { type: 'boltHit'; x: number; y: number; z: number; player: boolean }
   | { type: 'droneSuspicious'; index: number }
   | { type: 'droneAlerted'; index: number }
   | { type: 'droneSpawned'; index: number; role: 'searcher' | 'wave' | 'checker' }
   | { type: 'droneLeft'; index: number }
+  | { type: 'gateOpened'; index: number }
   | { type: 'cameraSpotted'; index: number }
   | { type: 'soundHeard'; index: number }
   | { type: 'sensorTripped'; index: number }
@@ -40,8 +42,17 @@ export type GameEvent =
   | { type: 'devicePaused'; target: 'laser' | 'drone'; index: number; sec: number }
   | { type: 'scanOn' }
   | { type: 'scanOff' }
+  /** @deprecated use scanWarning (emitted together with it) */
   | { type: 'scanOverheating' }
+  /** @deprecated use scanTraced (emitted together with it) */
   | { type: 'scanOverheated' }
+  /** Network vision crossed scan.warnAt of its limit (once per use). */
+  | { type: 'scanWarning' }
+  /**
+   * Network vision held too long: the security is called to (x, y, z). `drone` is the responding drone (-1 none);
+   * `gate` is the spawn gate the responders come out of (-1 when an already present drone answers).
+   */
+  | { type: 'scanTraced'; x: number; y: number; z: number; gate: number; drone: number }
   | { type: 'hackStarted'; terminal: number }
   | { type: 'hack'; event: HackEvent }
   | { type: 'hackSolved'; terminal: number }

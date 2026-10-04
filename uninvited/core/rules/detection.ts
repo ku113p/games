@@ -1,5 +1,5 @@
-// Detection (DESIGN 8): view cones with line of sight, stance, distance and niches; noise for sound cameras and drones.
-import { CellKind, cellAt } from '../grid'
+// Detection (DESIGN 8): view cones with line of sight, stance and distance; noise for sound cameras and drones.
+// Hiding is geometry only: crouch behind a server block or low cover and the line of sight to your head is cut.
 import type { GameState, Sim } from '../state'
 import { emit } from '../util'
 
@@ -9,11 +9,17 @@ export function playerEyeY(s: GameState, sim: Sim): number {
   return p.pos.y + (p.crouched ? sim.cfg.player.crouchEyeHeight : sim.cfg.player.eyeHeight)
 }
 
-/** True while the player is crouched inside a niche (seen only up close). */
-export function inNiche(s: GameState, sim: Sim): boolean {
-  if (!s.player.crouched) return false
-  const i = cellAt(sim.grid, s.player.pos.x, s.player.pos.z)
-  return i >= 0 && sim.grid.kind[i] === CellKind.Niche
+/** True while the player crouches right next to a server block (the HUD's "in cover"; detection itself is by line of sight). */
+export function inCover(s: GameState, sim: Sim): boolean {
+  const p = s.player
+  if (!p.crouched) return false
+  const reach = sim.cfg.player.radius + 0.45
+  for (const b of sim.grid.blocks) {
+    if (p.pos.x < b.minX - reach || p.pos.x > b.maxX + reach || p.pos.z < b.minZ - reach || p.pos.z > b.maxZ + reach) continue
+    if (p.pos.y + 0.3 < b.minY || p.pos.y > b.maxY) continue
+    return true
+  }
+  return false
 }
 
 /**
@@ -44,7 +50,6 @@ export function seeFactor(
   if (d > range || d < 1e-3) return d < 1e-3 ? 1 : 0
   if ((dx * fx + dy * fy + dz * fz) / d < cosHalf) return 0
   const cfg = sim.cfg.detection
-  if (d > cfg.nicheHideDist && inNiche(s, sim)) return 0
   if (!sim.world.lineOfSight(ex, ey, ez, hx, hy, hz)) return 0
   const near = 1 - (1 - cfg.farFactor) * (d / range)
   const stance = p.crouched ? cfg.crouchFactor : p.running || p.dashTime > 0 ? cfg.runFactor : 1
@@ -54,6 +59,7 @@ export function seeFactor(
 /** The player made a noise of this radius (how far it carries) at their position. */
 export function makeNoise(s: GameState, sim: Sim, radius: number): void {
   const p = s.player
+  if (radius > p.noise) p.noise = radius
   makeNoiseAt(sim, p.pos.x, p.pos.y + 1, p.pos.z, radius)
 }
 

@@ -5,6 +5,7 @@ import { attack as attackRule, switchMode as switchModeRule, updateBolts } from 
 import { updateAlarm } from './rules/alarm'
 import { updateCameras, updateHearing, updateLasers, updateSensors } from './rules/devices'
 import { updateDrones } from './rules/drones'
+import { updateGates } from './rules/gates'
 import { playerFrozen, updatePlayer, type Intent } from './rules/movement'
 import { updateCheckpoints } from './rules/progress'
 import { updateScan } from './rules/scan'
@@ -36,6 +37,7 @@ export function tick(s: GameState, sim: Sim, dt: number, intent: Intent): readon
   updateHearing(s, sim, step)
   updateSensors(s, sim, step)
   updateLasers(s, sim, step)
+  updateGates(s, step)
   updateDrones(s, sim, step)
   updateBolts(s, sim, step)
   updateAlarm(s, sim, step)
@@ -49,15 +51,51 @@ export function jump(s: GameState, sim: Sim): readonly GameEvent[] {
   return sim.events
 }
 
-export function dash(s: GameState, sim: Sim): readonly GameEvent[] {
-  if (!playerFrozen(s)) s.player.dashBuffer = sim.cfg.player.jumpBufferSec
+/** A dash towards the world direction (dirX, dirZ) (normalized here; a zero direction dashes where the body faces). */
+export function dash(s: GameState, sim: Sim, dirX: number, dirZ: number): readonly GameEvent[] {
+  if (playerFrozen(s)) return sim.events
+  const p = s.player
+  const l = Math.sqrt(dirX * dirX + dirZ * dirZ)
+  p.dashX = l > 1e-6 ? dirX / l : Math.sin(p.facing)
+  p.dashZ = l > 1e-6 ? dirZ / l : Math.cos(p.facing)
+  p.dashBuffer = sim.cfg.player.jumpBufferSec
   return sim.events
 }
 
-/** C: crouch / stand up (a toggle, DESIGN 12). Standing up needs room above. */
+/** Direction keys for moveTap. */
+export const TAP_FORWARD = 0
+export const TAP_BACK = 1
+export const TAP_LEFT = 2
+export const TAP_RIGHT = 3
+
+/**
+ * A fresh press of a direction key (W/S/A/D = TAP_FORWARD/BACK/LEFT/RIGHT). The same key pressed twice within
+ * player.dashTapSec dashes that way, relative to the camera's yaw (DESIGN 12: double tap = dash).
+ */
+export function moveTap(s: GameState, sim: Sim, dir: number, lookYaw: number): readonly GameEvent[] {
+  if (playerFrozen(s)) return sim.events
+  const p = s.player
+  if (p.tapDir === dir && s.time - p.tapTime <= sim.cfg.player.dashTapSec) {
+    p.tapDir = -1
+    const f = dir === TAP_FORWARD ? 1 : dir === TAP_BACK ? -1 : 0
+    const r = dir === TAP_RIGHT ? 1 : dir === TAP_LEFT ? -1 : 0
+    const sy = Math.sin(lookYaw)
+    const cy = Math.cos(lookYaw)
+    return dash(s, sim, sy * f - cy * r, cy * f + sy * r)
+  }
+  p.tapDir = dir
+  p.tapTime = s.time
+  return sim.events
+}
+
+/** C: crouch / stand up (a toggle, DESIGN 12). Standing up needs room above. Pressed during a Ctrl crouch, it keeps the crouch. */
 export function toggleCrouch(s: GameState, sim: Sim): readonly GameEvent[] {
   if (playerFrozen(s)) return sim.events
   const p = s.player
+  if (p.crouchByHold) {
+    p.crouchByHold = false
+    return sim.events
+  }
   if (p.crouched && !sim.world.canStand(p.pos.x, p.pos.y, p.pos.z)) return sim.events
   p.crouched = !p.crouched
   emit(sim, { type: 'crouchChanged', crouched: p.crouched })

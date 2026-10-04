@@ -1,6 +1,6 @@
 // The runtime grid built from a LevelDef plan: cell kinds, floor heights (with ramps), marker cells and groups.
 // Static data - built once per level (cold path), never saved; the game state refers to it by indices.
-import type { Cell, LevelDef, Side } from './level'
+import type { Cell, CoverDef, LevelDef, Side } from './level'
 
 export const CellKind = {
   Wall: 0,
@@ -61,6 +61,19 @@ export interface Grid {
   laserGroups: number[][]
   /** Cells of each connected group of 'D' cells. */
   wallGroups: number[][]
+  /** Server blocks (the level's `cover` entities) as world boxes. */
+  blocks: Block[]
+}
+
+/** An axis-aligned solid box standing on the floor (a server block). */
+export interface Block {
+  minX: number
+  minZ: number
+  maxX: number
+  maxZ: number
+  /** Floor under it and its top. */
+  minY: number
+  maxY: number
 }
 
 export function cellIndex(g: Grid, col: number, row: number): number {
@@ -203,6 +216,7 @@ export function buildGrid(def: LevelDef): Grid {
     terminals: [],
     laserGroups: [],
     wallGroups: [],
+    blocks: [],
   }
   for (let r = 0; r < rows; r++) {
     const line = def.plan[r] as string
@@ -264,7 +278,20 @@ export function buildGrid(def: LevelDef): Grid {
     if (g.group[i] !== -1) continue
     if (g.kind[i] === CellKind.RedWall) g.wallGroups.push(flood(g, i, CellKind.RedWall, g.wallGroups.length))
   }
+  for (const e of def.entities) if (e.kind === 'cover') g.blocks.push(blockOf(g, def, e))
   return g
+}
+
+function blockOf(g: Grid, def: LevelDef, e: CoverDef): Block {
+  const [c, r] = e.at
+  const k = kindAt(g, c, r)
+  if (k === CellKind.Wall) throw new Error(`level ${def.id}: server block at [${c}, ${r}] stands in a wall cell`)
+  const [w, d, h] = e.size
+  if (!(w > 0 && d > 0 && h > 0)) throw new Error(`level ${def.id}: server block at [${c}, ${r}] needs a positive size`)
+  const x = cellCenterX(g, c) + (e.offset?.[0] ?? 0)
+  const z = cellCenterZ(g, r) + (e.offset?.[1] ?? 0)
+  const y = cellFloor(g, cellIndex(g, c, r))
+  return { minX: x - w / 2, minZ: z - d / 2, maxX: x + w / 2, maxZ: z + d / 2, minY: y, maxY: y + h }
 }
 
 /** The group index of the '=' or 'D' group that contains a plan cell; throws if the cell is not one. */

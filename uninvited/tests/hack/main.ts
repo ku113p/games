@@ -1,5 +1,7 @@
 // Standalone bench for the hacking mini-game: core + view + input wired the way the game will wire them.
-// URL parameters (for screenshots and bug reports): ?d=0.3&bonus=0&seed=123&freeze=1&full=1
+// URL parameters (for screenshots and bug reports): ?d=0.3&bonus=0&seed=123&freeze=1&full=1&hold=1
+// As in the game, a finished hack holds its result for hack.view.outroSec and then closes with a glitch;
+// hold=1 keeps the result on screen (screenshots).
 import corridor from '../../art/generated/NN1b-net-corridor.jpg'
 import cfgAll from '../../config.json'
 import { hackParams, hackPick, hackTick, solveHack, startHack, type HackEvent, type HackSession } from '../../core/hack/index'
@@ -29,6 +31,8 @@ const view = createHackView(stage)
 let session: HackSession | null = null
 let unbind: (() => void) | null = null
 let seedUsed = 0
+let outroTimer = 0
+const hold = q.get('hold') === '1'
 
 function showParams(): void {
   const d = Number(difficulty.value)
@@ -46,13 +50,36 @@ function report(events: readonly HackEvent[]): void {
   const s = session
   if (!s) return
   for (const e of events) {
-    if (e.type === 'hackSolved')
-      setResult(`solved: ${(s.timeTotal - s.timeLeft).toFixed(1)} s used, ${s.mistakes} misses (seed ${seedUsed})`, 'win')
-    if (e.type === 'hackTimedOut') setResult(`timed out: alarm +1 (seed ${seedUsed})`, 'fail')
+    if (e.type === 'hackSolved') {
+      setResult(`ACCESS GRANTED - ${(s.timeTotal - s.timeLeft).toFixed(1)} s used, ${s.mistakes} misses (seed ${seedUsed})`, 'win')
+      endWith('access granted', 'red wall open (bench)')
+    }
+    if (e.type === 'hackTimedOut') {
+      setResult(`HACK FAILED - alarm up (seed ${seedUsed})`, 'fail')
+      endWith('hack failed', 'alarm up to 1 (bench)')
+    }
   }
 }
 
+/** What the game does when a session ends: its own words on the result, hold, then close with a glitch. */
+function endWith(title: string, detail: string): void {
+  const s = session
+  if (!s) return
+  view.update(s) // the result appears now, then the game's words replace its detail line
+  view.outcome(title, detail)
+  window.clearTimeout(outroTimer)
+  if (hold) return
+  outroTimer = window.setTimeout(() => {
+    if (session !== s) return
+    session = null
+    view.hide()
+    unbind?.()
+    unbind = null
+  }, cfg.view.outroSec * 1000)
+}
+
 function newPuzzle(): void {
+  window.clearTimeout(outroTimer)
   seedUsed = seedInput.value === '' ? Math.floor(Math.random() * 1e9) : Number(seedInput.value)
   session = startHack(createRng(seedUsed), Number(difficulty.value), Number(bonus.value) || 0, cfg)
   view.show(session)
@@ -67,7 +94,7 @@ function pick(row: number, col: number): void {
 }
 
 function cancel(): void {
-  if (session?.status === 'running') setResult(`cancelled (seed ${seedUsed})`)
+  if (session?.status === 'running') setResult(`HACK ABORTED (seed ${seedUsed})`)
   session = null
   view.hide()
   unbind?.()

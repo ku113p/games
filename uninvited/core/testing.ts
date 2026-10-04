@@ -11,13 +11,13 @@ export function testConfig(): GameConfig {
   return {
     sim: { maxDt: 0.05, maxEvents: 512 },
     player: {
-      walkSpeed: 3,
-      runSpeed: 5,
+      walkSpeed: 2.6,
+      runSpeed: 6.4,
       crouchSpeed: 1.5,
-      groundAccel: 20,
-      groundDecel: 20,
-      airAccel: 5,
-      turnRate: 10,
+      groundAccel: 50,
+      groundDecel: 60,
+      airAccel: 4,
+      turnRate: 24,
       jumpSpeed: 6,
       gravity: 16,
       maxFall: 24,
@@ -26,6 +26,7 @@ export function testConfig(): GameConfig {
       dashSpeed: 10,
       dashSec: 0.2,
       dashCooldownSec: 1,
+      dashTapSec: 0.25,
       dashInvulnerable: true,
       maxHp: 100,
       hurtInvulnSec: 0.4,
@@ -36,17 +37,17 @@ export function testConfig(): GameConfig {
       landNoiseSpeed: 7,
       hitAnimSec: 0.3,
     },
-    noise: { run: 8, jump: 5, land: 7, dash: 7, sword: 6, rifle: 16, hit: 10, kill: 14, laser: 10, runEverySec: 0.35 },
+    noise: { run: 8, jump: 5, land: 7, dash: 7, sword: 6, rifle: 16, hit: 10, kill: 14, laser: 10, runEverySec: 0.35, fadeSec: 0.6 },
     combat: {
       switchSec: 0.25,
       sword: { damage: 55, range: 2.6, arcDeg: 180, cooldownSec: 0.4, reachUp: 3.2, reachDown: 1, animSec: 0.3 },
       rifle: { damage: 20, intervalSec: 0.15, spreadDeg: 0, range: 40, charges: 3, aimAssistDeg: 5, muzzleHeight: 1.35, animSec: 0.1 },
       hitRadius: { drone: 0.6, camera: 0.45, laser: 0.5 },
     },
-    detection: { rate: 1, decay: 0.5, crouchFactor: 0.4, runFactor: 1.5, farFactor: 0.5, nicheHideDist: 2.5 },
+    detection: { rate: 1, decay: 0.5, crouchFactor: 0.4, runFactor: 1.5, farFactor: 0.5 },
     videoCamera: { range: 14, halfAngleDeg: 25, pitchDeg: 20, mountHeight: 3.5, sweepPeriodSec: 8, holdShare: 0.25, hp: 40, respotSec: 5 },
     soundCamera: { radius: 9, mountHeight: 3.4, hp: 40, respotSec: 5, hearGain: 0.4, decay: 0.3, pingSec: 2.5 },
-    motionSensor: { radius: 2.5, tripSpeed: 3.4, rearmSec: 5 },
+    motionSensor: { radius: 2.5, rearmSec: 5, noticeDist: 4 },
     laser: { damage: 20, hp: 80, tripCooldownSec: 1, height: 2.4 },
     drone: {
       hp: 100,
@@ -65,12 +66,17 @@ export function testConfig(): GameConfig {
       loseSec: 3,
       fireIntervalSec: 1,
       fireWindupSec: 0.5,
+      aimSec: 0.5,
       boltSpeed: 15,
       boltDamage: 10,
       boltLifeSec: 2.5,
       hearFactor: 1,
       maxExtra: 8,
       spawnSec: 0.5,
+      gateExitSec: 0.5,
+      gateDepth: 1.5,
+      gateOut: 1.2,
+      gateStaggerSec: 0.5,
     },
     alarm: {
       decaySec: [0, 10, 20, 0],
@@ -84,7 +90,7 @@ export function testConfig(): GameConfig {
       minSpawnDist: 4,
       raiseCooldownSec: 3,
     },
-    scan: { warnSec: 3, maxSec: 5, cooldownSec: 1.5, overheatCooldownSec: 6 },
+    scan: { warnAt: 0.6, maxSec: 5, cooldownSec: 1.5, overheatCooldownSec: 6 },
     terminal: { interactRadius: 1.7, pauseSec: 30, timeBonusSec: 0 },
     checkpoint: { radius: 2 },
     artifact: { radius: 1.8 },
@@ -132,6 +138,7 @@ export function worldFromGrid(g: Grid): FakeWorld {
       if (k === CellKind.Cover) w.box(x0, 0, z0, x0 + g.cell, g.coverHeight, z0 + g.cell)
     }
   }
+  for (const b of g.blocks) w.box(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ)
   g.wallGroups.forEach((cells, i) => {
     for (const idx of cells) {
       const c = idx % g.cols

@@ -59,6 +59,16 @@ void main() {
   gl_FragColor = vec4(uColor * a, 1.0);
 }`
 
+const all: ShaderMaterial[] = []
+let xray = false
+
+/** Network vision: every view cone shows through walls (still cut where its device cannot see). */
+export function setConesXray(on: boolean): void {
+  if (on === xray) return
+  xray = on
+  for (const m of all) m.depthTest = !on
+}
+
 export interface ViewCone {
   mesh: Mesh
   material: ShaderMaterial
@@ -89,6 +99,8 @@ export function createCone(range: number, halfAngleRad: number, fans: Texture): 
     blending: AdditiveBlending,
     side: DoubleSide,
   })
+  all.push(material)
+  material.depthTest = !xray
   const mesh = new Mesh(geo, material)
   mesh.frustumCulled = false
   mesh.renderOrder = 5

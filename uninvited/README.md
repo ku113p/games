@@ -23,13 +23,15 @@ hooks (`state`, `sim`, `place(col, row, yaw, pitch)`, `hold(key, on)`, `press(ke
 | --- | --- |
 | WASD | move |
 | Mouse | look (click the page to lock the pointer) |
-| Shift | tap: dash; hold: run (running is loud) |
+| Shift (hold) | sprint (loud) |
+| double tap W/A/S/D | dash that way (a short invulnerability) |
 | Space | jump |
 | C | crouch / stand (toggle) |
+| Ctrl (hold) | crouch while held |
 | LMB | attack (sword swing or rifle fire) |
 | Q / wheel | sword <-> rifle |
 | E | hack a terminal / take the artifact |
-| Tab (hold) | network vision - shows sensors and terminal links; held too long it overheats and calls the security |
+| Tab (hold) | network vision - terminal links, drone routes, camera cones through walls, sensor zones, your noise ring; an overheat meter warns before it calls the security |
 | Esc | pause |
 
 During a hack: arrows + Enter (or click a lit code), Esc to abort.
@@ -38,10 +40,10 @@ During a hack: arrows + Enter (or click a lit code), Esc to abort.
 
 One corridor run from the start to the artifact, three checkpoints. Two ways through:
 
-- **Quiet:** walk, crouch behind the low cover past the first camera, wait for the drone's back, crouch into the niche
-  terminal next to the laser grid and hack it (the laser and the drone pause), keep out of the sound camera's ring
-  (walk, never run), avoid the second camera's sweep, hide in the second niche and hack the terminal that opens the red
-  wall, walk up the ramp to the artifact.
+- **Quiet:** walk, crouch behind the low cover past the first camera, wait for the drone's back, crouch behind the server
+  blocks at the terminal next to the laser grid and hack it (the laser and the drone pause), keep out of the sound
+  camera's ring (walk, never sprint), avoid the second camera's sweep, hide behind the blocks at the second terminal and
+  hack it (it opens the red wall and pauses the hall drone), walk up the ramp to the artifact.
 - **Loud:** break the cameras, cut down the drones, run through. Each incident raises the alarm a stage; at stage 3 drone
   waves come, and after three cleared waves the firewall drops and the red wall opens.
 
@@ -57,7 +59,7 @@ heights plan, and a list of entities. Row 0 is the north edge; +x is east, +z is
 | `#` | wall |
 | `.` | floor |
 | `~` | low cover (waist high - hides you only while crouched; you can jump onto it) |
-| `n` | niche under a low roof: no drones; crouched inside you are seen only up close |
+| `n` | niche under a low roof (legacy - no longer hides you; use `cover` entities) |
 | `^ v < >` | ramp; a run of ramp cells slopes between the flat cells at its two ends |
 | `=` | laser grid floor |
 | `D` | red wall (part of a wall group opened by a terminal or the firewall) |
@@ -70,7 +72,10 @@ heights plan, and a list of entities. Row 0 is the north edge; +x is east, +z is
 
 Entities (`[col, row]` cells): `videoCamera` (wall side, sweep in degrees, period, phase), `soundCamera`, `motionSensor`,
 `drone` (patrol waypoints), `laser`, `redWall`, `terminal` (targets = ids of red walls / lasers / drones, difficulty),
-`spawn` (where alarm drones come in). `core/grid.ts` validates the plan and reports readable errors.
+`spawn` (a spawn gate alarm drones fly out of: `wall` = `n`/`e`/`s`/`w`/`up`), `cover` (a tall server block to crouch
+behind: `size` = [w, d, h], optional `offset`). `core/grid.ts` validates the plan and reports readable errors.
+
+`bun tools/slice-bot.ts loud|quiet [seeds] [normal|sloppy]` plays the slice headless with the real core and Rapier.
 
 All balance numbers live in `config.json`.
 

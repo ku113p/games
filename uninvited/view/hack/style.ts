@@ -160,16 +160,43 @@ const CSS = `
   10%, 30% { opacity: 0.2; } 100% { opacity: 0; } }
 @keyframes hk-flash-hit { 0% { opacity: 1; background: rgba(255, 45, 75, 0.22); } 100% { opacity: 0; } }
 
-.hk-result { position: absolute; inset: 0; border-radius: 26px; display: none; flex-direction: column;
+.hk-result { position: absolute; inset: 0; border-radius: 26px; display: none; flex-direction: column; overflow: hidden;
   align-items: center; justify-content: center; gap: 10px; pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.25) 70%); }
+  background: radial-gradient(ellipse 62% 34% at 50% 50%, rgba(0, 0, 0, 0.92) 45%, rgba(0, 0, 0, 0.5)); }
 .hk-result.on { display: flex; animation: hk-result-in 0.5s cubic-bezier(0.2, 0.9, 0.2, 1) both; }
-.hk-result h2 { margin: 0; font-size: 44px; font-weight: 700; letter-spacing: 0.18em; }
-.hk-result p { margin: 0; font-size: 15px; letter-spacing: 0.08em; color: var(--muted); }
+.hk-result h2 { margin: 0; font-size: 44px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+.hk-result p { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 0.12em; color: var(--ice);
+  text-transform: uppercase; }
+.hk-result p.in { animation: hk-result-in 0.4s cubic-bezier(0.2, 0.9, 0.2, 1) both; }
+.hk-result.fail p { color: #ffb3bf; }
 .hk-result.win h2 { color: var(--line); text-shadow: 0 0 24px var(--line); }
 .hk-result.fail h2 { color: var(--red); text-shadow: 0 0 24px var(--red); }
 @keyframes hk-result-in { 0% { opacity: 0; transform: scale(1.3); letter-spacing: 0.6em; } 100% { opacity: 1; } }
 .hk.done .hk-cell, .hk.done .hk-band { opacity: 0.35; }
+
+/* the end: the panel takes the result's colour while the result holds */
+.hk.win .hk-panel { border-color: var(--line); transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9), 0 0 46px rgba(94, 242, 255, 0.5), inset 0 0 60px rgba(94, 242, 255, 0.14); }
+.hk.fail .hk-panel { border-color: var(--red); transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9), 0 0 46px var(--red-soft), inset 0 0 60px var(--red-faint); }
+.hk.win .hk-result::before, .hk.fail .hk-result::before { content: ""; position: absolute; left: 0; right: 0; height: 2px;
+  top: 0; background: var(--line); box-shadow: 0 0 18px var(--line); animation: hk-sweep 0.9s ease-in-out both; }
+.hk.fail .hk-result::before { background: var(--red); box-shadow: 0 0 18px var(--red); }
+@keyframes hk-sweep { 0% { top: 0; opacity: 1; } 100% { top: 100%; opacity: 0; } }
+
+/* closing after a finished hack: the panel tears into slices, collapses to a line and goes out */
+.hk.on.out { opacity: 0; transition: opacity 0.2s ease-in 0.2s; }
+.hk.out .hk-panel { animation: hk-glitch-out 0.42s steps(10, jump-end) both; }
+@keyframes hk-glitch-out {
+  0% { transform: none; clip-path: inset(0 0 0 0 round 26px); filter: none; }
+  12% { transform: translateX(-16px) skewX(14deg); clip-path: inset(8% 0 58% 0); filter: hue-rotate(110deg) brightness(1.8); }
+  24% { transform: translateX(20px); clip-path: inset(46% 0 18% 0); filter: none; }
+  36% { transform: translateX(-8px) skewX(-22deg); clip-path: inset(22% 0 40% 0); filter: brightness(2.4) saturate(2); }
+  48% { transform: translateX(10px); clip-path: inset(62% 0 6% 0); }
+  60% { transform: scaleY(0.05); clip-path: inset(0 0 0 0); filter: brightness(3); }
+  80% { transform: scale(1.05, 0.01); filter: brightness(4); }
+  100% { transform: scale(0, 0.005); opacity: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .hk *, .hk { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

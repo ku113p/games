@@ -9,7 +9,7 @@ export interface SaveData {
   state: GameState
 }
 
-const VERSION = 1
+const VERSION = 2
 
 export function serializeState(s: GameState): string {
   const data: SaveData = { version: VERSION, levelId: s.levelId, state: s }

@@ -5,7 +5,7 @@
 //   #  wall (solid, floor to ceiling)
 //   .  floor
 //   ~  low cover: a block about waist high - hides you only while you crouch; you can jump onto it
-//   n  niche: floor under a low roof; drones cannot get in; crouched inside, you are seen only up close
+//   n  niche: floor under a low roof (drones cannot fit under it); no special hiding rule - the slice uses server blocks
 //   ^ v  ramp along north-south;  < >  ramp along west-east. A run of ramp cells slopes linearly between the
 //        flat cells at its two ends (the arrow points uphill, for the reader only)
 //   =  laser grid (floor you can walk through - it burns and trips the alarm while it is on)
@@ -80,12 +80,31 @@ export interface TerminalDef {
   difficulty: number
 }
 
+/**
+ * A spawn gate: a hatch alarm drones fly in through (and leave by). `at` is the floor cell in front of it; `wall` is
+ * the wall of that cell it is cut into ('up' = a hatch in the ceiling above the cell, the default).
+ */
 export interface SpawnDef {
   kind: 'spawn'
   at: Cell
+  wall?: Side | 'up'
 }
 
-export type EntityDef = VideoCameraDef | SoundCameraDef | MotionSensorDef | DroneDef | LaserDef | RedWallDef | TerminalDef | SpawnDef
+/**
+ * A server block: a solid box standing on the floor that you crouch behind. Tall enough to hide a crouched hero from
+ * cameras and drones by geometry alone, low enough that a standing hero's head and shoulders show over it.
+ */
+export interface CoverDef {
+  kind: 'cover'
+  /** The plan cell it stands in (its floor height is used). */
+  at: Cell
+  /** Width along x, depth along z, height, metres. */
+  size: readonly [number, number, number]
+  /** Shift of its centre from the cell centre, metres (x, z). */
+  offset?: readonly [number, number]
+}
+
+export type EntityDef = VideoCameraDef | SoundCameraDef | MotionSensorDef | DroneDef | LaserDef | RedWallDef | TerminalDef | SpawnDef | CoverDef
 
 export interface LevelDef {
   id: string

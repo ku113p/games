@@ -46,11 +46,19 @@ export interface PlayerState {
   running: boolean
   coyote: number
   jumpBuffer: number
+  /** A dash asked for (buffered briefly), towards (dashX, dashZ). */
   dashBuffer: number
   dashTime: number
   dashCooldown: number
   dashX: number
   dashZ: number
+  /** The last direction key tapped (0 forward, 1 back, 2 left, 3 right; -1 none) and when (game time), for the double tap. */
+  tapDir: number
+  tapTime: number
+  /** Ctrl was held on the last tick (the hold crouch reacts to press and release). */
+  crouchHold: boolean
+  /** The current crouch comes from holding Ctrl: releasing it stands you up (as soon as there is room). */
+  crouchByHold: boolean
   hp: number
   invuln: number
   mode: WeaponMode
@@ -63,6 +71,10 @@ export interface PlayerState {
   runNoise: number
   /** Downward speed while airborne (for landing). */
   fallSpeed: number
+  /** In the air after a jump (motion sensors trip on it). */
+  jumping: boolean
+  /** How far the player's noise carries right now, m (sprinting keeps it up; jumps and fights spike it, then it fades). */
+  noise: number
 }
 
 export type DroneRole = 'patrol' | 'searcher' | 'wave' | 'checker'
@@ -89,8 +101,15 @@ export interface DroneState {
   fireCooldown: number
   lostTimer: number
   pausedTime: number
-  /** > 0 while materializing (cannot act or be hit). */
+  /** > 0 while its spawn gate opens: it waits behind the gate (cannot act or be hit). */
   spawnTime: number
+  /** The gate it comes out of / goes into, -1 none. */
+  gate: number
+  /** > 0 while flying the gate path (out of the gate, or into it when gateIn). */
+  gateTime: number
+  gateIn: boolean
+  /** > 0 while locking on before a shot (the telegraph), s left. */
+  aim: number
 }
 
 export interface VideoCameraState {
@@ -124,7 +143,24 @@ export interface SoundCameraState {
 
 export interface SensorState {
   pos: Vec3
+  /** Its zone's radius, m. */
+  radius: number
+  /** > 0 after a trip while it rearms. */
   rearm: number
+  /** The player is close enough to notice its blinking dot. */
+  seenUpClose: boolean
+}
+
+/** A network-vision link: terminal `terminal` controls this wall / laser / drone (DESIGN 8). */
+export interface ScanLink {
+  kind: 'wall' | 'laser' | 'drone'
+  /** Index of the wall, laser or drone. */
+  index: number
+  terminal: number
+  /** The terminal console. */
+  from: Vec3
+  /** The controlled device (a drone link follows the drone). */
+  to: Vec3
 }
 
 /** A laser grid or a red wall: a vertical plane across the corridor through the middle of its cells. */
@@ -164,6 +200,29 @@ export interface CheckpointState {
   underAlarm: boolean
 }
 
+/** A spawn gate (DESIGN 9: drones arrive visibly). */
+export interface GateState {
+  /** Stays open for this long, s (0 = closed). */
+  open: number
+  /** The next drone queued at it waits this long more, s. */
+  busy: number
+}
+
+/** A spawn gate's static shape: drones wait at `deep` (behind the surface), come out through `mouth` to `out`. */
+export interface Gate {
+  mouth: Vec3
+  deep: Vec3
+  out: Vec3
+  /** Outward normal (into the corridor). */
+  nx: number
+  ny: number
+  nz: number
+  /** True for a hatch in the ceiling. */
+  ceiling: boolean
+  /** The plan cell in front of it. */
+  cell: number
+}
+
 export interface BoltState {
   active: boolean
   pos: Vec3
@@ -188,6 +247,8 @@ export interface AlarmState {
 export interface ScanState {
   active: boolean
   held: number
+  /** 0..1 of the limit while active (1 = the security is called). */
+  heat: number
   cooldown: number
   warned: boolean
   /** After an overheat, Tab must be released before scanning again. */
@@ -227,6 +288,11 @@ export interface GameState {
   walls: RedWallState[]
   terminals: TerminalState[]
   checkpoints: CheckpointState[]
+  gates: GateState[]
+  /** Network-vision links, built with the level (drone ends follow their drones). */
+  links: ScanLink[]
+  /** Patrol waypoints per drone slot (empty for searchers and waves). */
+  routes: Vec3[][]
   bolts: BoltState[]
   alarm: AlarmState
   scan: ScanState
@@ -261,8 +327,8 @@ export interface Sim {
   events: GameEvent[]
   /** Patrol waypoints per patrol drone (x, z at the cell centres; y = the floor there). */
   patrols: Vec3[][]
-  /** Wave / searcher spawn points (hover height not included). */
-  spawns: Vec3[]
+  /** Spawn gates for searchers, checkers and waves. */
+  gates: Gate[]
   terminalLinks: TerminalLinks[]
   artifact: Vec3
   start: Vec3
@@ -325,6 +391,10 @@ function createPlayer(cfg: GameConfig, at: Vec3, facing: number): PlayerState {
     dashCooldown: 0,
     dashX: 0,
     dashZ: 1,
+    tapDir: -1,
+    tapTime: -10,
+    crouchHold: false,
+    crouchByHold: false,
     hp: cfg.player.maxHp,
     invuln: 0,
     mode: 'sword',
@@ -336,6 +406,8 @@ function createPlayer(cfg: GameConfig, at: Vec3, facing: number): PlayerState {
     hitTime: 0,
     runNoise: 0,
     fallSpeed: 0,
+    jumping: false,
+    noise: 0,
   }
 }
 
@@ -359,6 +431,10 @@ export function emptyDrone(): DroneState {
     lostTimer: 0,
     pausedTime: 0,
     spawnTime: 0,
+    gate: -1,
+    gateTime: 0,
+    gateIn: false,
+    aim: 0,
   }
 }
 
@@ -370,7 +446,7 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
     if (d.patrol.length === 0) throw new Error(`drone ${d.id}: empty patrol`)
     return d.patrol.map(([c, r]) => cellPos(grid, c, r))
   })
-  const spawns = level.entities.flatMap((e) => (e.kind === 'spawn' ? [cellPos(grid, e.at[0], e.at[1])] : []))
+  const gates = level.entities.flatMap((e) => (e.kind === 'spawn' ? [buildGate(grid, cfg, e.at, e.wall ?? 'up')] : []))
   const laserIds = new Map<string, number>()
   const wallIds = new Map<string, number>()
   for (const e of level.entities) {
@@ -402,7 +478,7 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
     world,
     events: [],
     patrols,
-    spawns,
+    gates,
     terminalLinks,
     artifact: cellPos(grid, colOf(grid, grid.artifact), rowOf(grid, grid.artifact)),
     start: cellPos(grid, colOf(grid, grid.start), rowOf(grid, grid.start)),
@@ -411,6 +487,75 @@ export function createSim(level: LevelDef, cfg: GameConfig, world: World, prebui
     noiseCount: 0,
     move: { x: 0, y: 0, z: 0, grounded: false },
   }
+}
+
+/** A spawn gate in front of plan cell `at`, cut into its `wall` (or the ceiling). Cold path. */
+function buildGate(g: Grid, cfg: GameConfig, at: readonly [number, number], wall: 'n' | 'e' | 's' | 'w' | 'up'): Gate {
+  const i = cellIndex(g, at[0], at[1])
+  const k = g.kind[i]
+  if (k === undefined || k === CellKind.Wall || k === CellKind.Niche) throw new Error(`spawn gate at [${at[0]}, ${at[1]}]: must stand on an open floor cell`)
+  const floor = cellFloor(g, i)
+  const cx = cellCenterX(g, at[0])
+  const cz = cellCenterZ(g, at[1])
+  const hover = floor + cfg.drone.hover
+  const d = cfg.drone
+  if (wall === 'up') {
+    return {
+      mouth: vec(cx, g.ceiling, cz),
+      deep: vec(cx, g.ceiling + d.gateDepth, cz),
+      out: vec(cx, hover, cz),
+      nx: 0,
+      ny: -1,
+      nz: 0,
+      ceiling: true,
+      cell: i,
+    }
+  }
+  const sx = sideDx(wall)
+  const sz = sideDz(wall)
+  const behind = g.kind[cellIndex(g, at[0] + sx, at[1] + sz)]
+  if (behind !== CellKind.Wall) throw new Error(`spawn gate at [${at[0]}, ${at[1]}]: there is no wall on its '${wall}' side`)
+  if (hover + 0.9 > g.ceiling) throw new Error(`spawn gate at [${at[0]}, ${at[1]}]: the ceiling is too low for a wall gate`)
+  const mx = cx + (sx * g.cell) / 2
+  const mz = cz + (sz * g.cell) / 2
+  return {
+    mouth: vec(mx, hover, mz),
+    deep: vec(mx + sx * d.gateDepth, hover, mz + sz * d.gateDepth),
+    out: vec(mx - sx * d.gateOut, hover, mz - sz * d.gateOut),
+    nx: -sx,
+    ny: 0,
+    nz: -sz,
+    ceiling: false,
+    cell: i,
+  }
+}
+
+function barrierMid(b: BarrierShape, y: number): Vec3 {
+  const mid = (b.min + b.max) / 2
+  return b.alongX ? vec(b.coord, b.floor + y, mid) : vec(mid, b.floor + y, b.coord)
+}
+
+/** Terminal -> device links for network vision. Cold path. */
+function buildLinks(sim: Sim, terminals: TerminalState[], lasers: LaserState[], walls: RedWallState[], drones: DroneState[]): ScanLink[] {
+  const out: ScanLink[] = []
+  sim.terminalLinks.forEach((l, t) => {
+    const term = terminals[t]
+    if (!term) return
+    const from = (): Vec3 => vec(term.pos.x, term.pos.y + 1.1, term.pos.z)
+    for (const w of l.walls) {
+      const shape = walls[w]
+      if (shape) out.push({ kind: 'wall', index: w, terminal: t, from: from(), to: barrierMid(shape, 1.6) })
+    }
+    for (const k of l.lasers) {
+      const shape = lasers[k]
+      if (shape) out.push({ kind: 'laser', index: k, terminal: t, from: from(), to: barrierMid(shape, 1.2) })
+    }
+    for (const d of l.drones) {
+      const dr = drones[d]
+      if (dr) out.push({ kind: 'drone', index: d, terminal: t, from: from(), to: vec(dr.pos.x, dr.pos.y, dr.pos.z) })
+    }
+  })
+  return out
 }
 
 function mount(g: Grid, at: readonly [number, number], wall: 'n' | 'e' | 's' | 'w', height: number): { pos: Vec3; yaw: number } {
@@ -473,7 +618,9 @@ export function createState(sim: Sim, seed: number): GameState {
       const m = mount(g, c.at, c.wall, cfg.soundCamera.mountHeight)
       return { pos: m.pos, yaw: m.yaw, hp: cfg.soundCamera.hp, alive: true, suspicion: 0, respot: 0, pausedTime: 0, heardAgo: 99 }
     })
-  const sensors = level.entities.flatMap((e): SensorState[] => (e.kind === 'motionSensor' ? [{ pos: cellPos(g, e.at[0], e.at[1]), rearm: 0 }] : []))
+  const sensors = level.entities.flatMap((e): SensorState[] =>
+    e.kind === 'motionSensor' ? [{ pos: cellPos(g, e.at[0], e.at[1]), radius: cfg.motionSensor.radius, rearm: 0, seenUpClose: false }] : [],
+  )
   const lasers = g.laserGroups.map((cells): LaserState => ({ ...barrierShape(g, cells), hp: cfg.laser.hp, alive: true, pausedTime: 0, trip: 0 }))
   const walls = g.wallGroups.map((cells): RedWallState => ({ ...barrierShape(g, cells), open: false }))
   const terminals = level.entities
@@ -504,9 +651,12 @@ export function createState(sim: Sim, seed: number): GameState {
     walls,
     terminals,
     checkpoints,
+    gates: sim.gates.map((): GateState => ({ open: 0, busy: 0 })),
+    links: buildLinks(sim, terminals, lasers, walls, drones),
+    routes: drones.map((_, i) => (sim.patrols[i] ?? []).map((w) => vec(w.x, w.y + cfg.drone.hover, w.z))),
     bolts,
     alarm: { stage: 0, cooldown: 0, decay: 0, center: vec(), wave: 0, waveActive: false, waveTimer: 0, wavesCleared: 0, firewallDown: false },
-    scan: { active: false, held: 0, cooldown: 0, warned: false, needRelease: false },
+    scan: { active: false, held: 0, heat: 0, cooldown: 0, warned: false, needRelease: false },
     run: { checkpointsPassed: 0, alarmCheckpoints: 0, calmCheckpoints: 0, kills: 0, devicesBroken: 0, alarmsRaised: 0, deaths: 0, timeSec: 0 },
     hack: null,
     artifactTaken: false,

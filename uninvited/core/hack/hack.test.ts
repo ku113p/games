@@ -5,6 +5,7 @@ import {
   hackIsHidden,
   hackIsMarkedWrong,
   hackIsPickable,
+  hackIsShownInTarget,
   hackParams,
   hackPick,
   hackTick,
@@ -122,6 +123,17 @@ describe('hack: difficulty', () => {
     expect(hackParams(Number.NaN, cfg)).toEqual(hackParams(0, cfg))
     expect(hackParams(7, cfg)).toEqual(hackParams(1, cfg))
   })
+  test('the clock: 45 s at the easiest, 75 s at the hardest (the designer chose the first build\'s clock; May\'s upgrades add time), growing in between', () => {
+    expect(hackParams(0, cfg).timeSec).toBe(45)
+    expect(hackParams(1, cfg).timeSec).toBe(75)
+    let prev = 0
+    for (let i = 0; i <= 20; i++) {
+      const t = hackParams(i / 20, cfg).timeSec
+      expect(t).toBeGreaterThanOrEqual(prev)
+      expect(t >= 45 && t <= 75).toBe(true)
+      prev = t
+    }
+  })
   test("May's bonus adds time", () => {
     const a = startHack(createRng(5), 0.5, 0, cfg)
     const b = startHack(createRng(5), 0.5, 12, cfg)
@@ -163,10 +175,47 @@ describe('hack: the generator', () => {
           else expect(r1).toBe(r0)
         }
       }
+      // a "??" never hides a code shown at a visible position of the same target
+      for (let i = 0; i < s.target.length; i++) {
+        if (!s.hidden[i]) continue
+        for (let j = 0; j < s.target.length; j++) if (!s.hidden[j]) expect(s.target[i]).not.toBe(s.target[j] as number)
+      }
       // ... and the independent solver agrees it is solvable, and so does a player who has to guess
       expect(solveHack(s)).not.toBeNull()
       expect(planHack(s)).not.toBeNull()
     }
+  })
+
+  test('the "??" rule: a hidden code is never a visible code nor another hidden one, also when the visible ones use every code', () => {
+    // the real config (5 codes, at most 4 visible) and a tight one where the visible positions could cover every code
+    const tight: HackConfig = {
+      ...cfg,
+      codes: ['AA', 'BB', 'CC'],
+      gridSize: { easy: 6, hard: 7 },
+      codeCount: { easy: 3, hard: 3 },
+      sequenceLength: { easy: 6, hard: 7 },
+      hiddenCount: { easy: 1, hard: 2 },
+    }
+    let notFull = 0
+    for (const c of [cfg, tight]) {
+      for (let seed = 1; seed <= 10000; seed++) {
+        const d = (seed % 11) / 10
+        const s = startHack(createRng(seed), d, 0, c)
+        let shown = 0
+        for (let i = 0; i < s.target.length; i++) if (!s.hidden[i]) shown |= 1 << (s.target[i] as number)
+        for (let i = 0; i < s.target.length; i++) {
+          const code = s.target[i] as number
+          expect(hackIsShownInTarget(s, code)).toBe(!s.hidden[i])
+        }
+        // the designer: hidden positions differ from each other too (if one "??" was 55, the next is not 55)
+        const hiddenCodes = s.target.filter((_, i) => s.hidden[i])
+        expect(new Set(hiddenCodes).size).toBe(hiddenCodes.length)
+        if (c === tight && shown !== (1 << s.codes.length) - 1) notFull++
+        expect(solveHack(s)).not.toBeNull()
+        expect(planHack(s)).not.toBeNull()
+      }
+    }
+    expect(notFull).toBe(10000) // the tight config always leaves at least one code free for the hidden slots
   })
 
   test('still solvable after random sequences of mistakes (2 000 seeds)', () => {
@@ -216,9 +265,12 @@ describe('hack: the generator', () => {
         }
       }
       expect(s.status).toBe('solved')
-      // it plans every visible code right, so it can only miss hidden codes, each code at most once per position
+      // it plans every visible code right, so it can only miss hidden codes, each code at most once per position -
+      // and never a code shown in the target, so per hidden position at most (codes not shown - 1) misses
+      let notShown = 0
+      for (let code = 0; code < s.codes.length; code++) if (!hackIsShownInTarget(s, code)) notShown++
       const hidden = s.hidden.filter(Boolean).length
-      expect(s.mistakes).toBeLessThanOrEqual(hidden * (s.codes.length - 1))
+      expect(s.mistakes).toBeLessThanOrEqual(hidden * (notShown - 1))
     }
   })
 })

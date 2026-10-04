@@ -1,6 +1,7 @@
 // The puzzle generator. Solvable by construction: it walks a valid solution path first (row 0, then the column
-// of the last pick, then its row, ...), writes the target codes onto that path, fills the rest of the grid at random
-// and only then hides 1-2 positions of the target. Cold path - allocations are fine here.
+// of the last pick, then its row, ...), picks which 1-2 positions of the target are hidden, draws the target (a hidden
+// code is never one of the visible codes), fills the grid at random and writes the target onto the path.
+// Cold path - allocations are fine here.
 import { nextInt, type Rng } from '../random'
 import type { HackConfig, HackRange } from './types'
 
@@ -85,22 +86,53 @@ export function generateHack(rng: Rng, p: HackParams, pool: readonly string[]): 
     lineIsRow = !lineIsRow
   }
 
-  // 2. the target, written onto the path; 3. the rest of the grid at random
-  const target: number[] = []
-  const grid = new Array<number>(n * n).fill(0)
-  for (let i = 0; i < n * n; i++) grid[i] = nextInt(rng, 0, p.codeCount - 1)
-  for (let i = 0; i < p.length; i++) {
-    const code = nextInt(rng, 0, p.codeCount - 1)
-    target.push(code)
-    grid[solution[i] as number] = code
-  }
-
-  // 4. hide positions (never the first: row 0 is wide open, a first-position guess would be pure luck)
+  // 2. which positions are hidden (never the first: row 0 is wide open, a first-position guess would be pure luck)
   const hidden = new Array<boolean>(p.length).fill(false)
   const positions: number[] = []
   for (let i = 1; i < p.length; i++) positions.push(i)
   shuffle(rng, positions)
   for (let i = 0; i < p.hidden; i++) hidden[positions[i] as number] = true
+
+  // 3. the target. Visible positions take any code; a hidden one only a code that no visible position shows
+  //    (the designer's rule: if 55 is shown in the target, a "??" is not 55).
+  const target = new Array<number>(p.length).fill(0)
+  let shown = 0 // bitmask of the codes at visible positions
+  for (let i = 0; i < p.length; i++) {
+    if (hidden[i]) continue
+    const code = nextInt(rng, 0, p.codeCount - 1)
+    target[i] = code
+    shown |= 1 << code
+  }
+  // Hidden positions also differ from each other (the designer: if one "??" was 55, the next is not 55), so free
+  // shown codes until there are enough unshown ones. At least one code stays for the visible positions.
+  const need = Math.min(p.hidden, p.codeCount - 1)
+  const unshownCount = (): number => {
+    let c = 0
+    for (let code = 0; code < p.codeCount; code++) if (((shown >> code) & 1) === 0) c++
+    return c
+  }
+  while (unshownCount() < need) {
+    const shownCodes: number[] = []
+    for (let code = 0; code < p.codeCount; code++) if (((shown >> code) & 1) === 1) shownCodes.push(code)
+    const freed = shownCodes[nextInt(rng, 0, shownCodes.length - 1)] as number
+    const keep = shownCodes.filter((c) => c !== freed)
+    shown = 0
+    for (let i = 0; i < p.length; i++) {
+      if (hidden[i]) continue
+      if (target[i] === freed) target[i] = keep[nextInt(rng, 0, keep.length - 1)] as number
+      shown |= 1 << (target[i] as number)
+    }
+  }
+  const allowed: number[] = []
+  for (let code = 0; code < p.codeCount; code++) if (((shown >> code) & 1) === 0) allowed.push(code)
+  shuffle(rng, allowed)
+  let h = 0
+  for (let i = 0; i < p.length; i++) if (hidden[i]) target[i] = allowed[h++ % allowed.length] as number
+
+  // 4. the grid: random, then the target written onto the solution path
+  const grid = new Array<number>(n * n).fill(0)
+  for (let i = 0; i < n * n; i++) grid[i] = nextInt(rng, 0, p.codeCount - 1)
+  for (let i = 0; i < p.length; i++) grid[solution[i] as number] = target[i] as number
 
   return { size: n, codes, grid, target, hidden, solution }
 }

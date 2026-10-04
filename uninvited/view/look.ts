@@ -1,6 +1,6 @@
 // The network look (DESIGN 14, NN1b/KA3): glossy black, continuous cyan light seams, red security, bloom.
 // Colors come from config.json "view.colors" (values above 1 feed the bloom).
-import { Color, DoubleSide, AdditiveBlending, MeshBasicMaterial, MeshStandardMaterial } from 'three'
+import { Color, DoubleSide, AdditiveBlending, MeshBasicMaterial, MeshStandardMaterial, type Material } from 'three'
 import cfgAll from '../config.json'
 
 const C = cfgAll.view.colors
@@ -29,12 +29,31 @@ export const palette = {
   fog: new Color(cfgAll.view.fog.color),
 }
 
+const RIM = cfgAll.view.light.rim
+
+/** A cold fresnel rim on a lit material, so dark bodies keep their silhouette against the dark (second look pass). */
+export function addRim(m: Material, strength = 1): void {
+  const color = new Color(RIM[0] ?? 0, RIM[1] ?? 0, RIM[2] ?? 0).multiplyScalar(strength)
+  m.onBeforeCompile = (sh): void => {
+    sh.uniforms['uRim'] = { value: color }
+    sh.fragmentShader = 'uniform vec3 uRim;\n' + sh.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      'outgoingLight += uRim * pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);\n#include <opaque_fragment>',
+    )
+  }
+  m.customProgramCacheKey = (): string => 'rim'
+}
+
 /** Shared materials (one instance each, recolored in place when needed). The corridor lines have their own shader
  * materials in view/corridors.ts (the alarm waves run along them). */
 export function createMaterials(): Materials {
+  const glossBlack = new MeshStandardMaterial({ color: 0x080b10, metalness: 0.85, roughness: 0.26, envMapIntensity: 1.2 })
+  const matteBlack = new MeshStandardMaterial({ color: 0x0a0d12, metalness: 0.4, roughness: 0.55 })
+  addRim(glossBlack)
+  addRim(matteBlack, 0.7)
   return {
-    glossBlack: new MeshStandardMaterial({ color: 0x05070a, metalness: 0.85, roughness: 0.22, envMapIntensity: 1.2 }),
-    matteBlack: new MeshStandardMaterial({ color: 0x07090d, metalness: 0.4, roughness: 0.55 }),
+    glossBlack,
+    matteBlack,
     security: new MeshBasicMaterial({ color: palette.security, toneMapped: false }),
     securityAdd: new MeshBasicMaterial({ color: palette.security, toneMapped: false, transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }),
     sound: new MeshBasicMaterial({ color: palette.sound, toneMapped: false }),

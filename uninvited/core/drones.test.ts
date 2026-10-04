@@ -4,6 +4,7 @@ import type { EntityDef } from './level'
 import { makeNoise } from './rules/detection'
 import { nextCell } from './rules/nav'
 import { cellIndex } from './grid'
+import { isInCover } from './queries'
 import { placePlayer, run, setup } from './testing'
 
 const HALL = [
@@ -44,24 +45,24 @@ describe('patrol drones', () => {
     expect(f.s.player.hp).toBeLessThan(f.sim.cfg.player.maxHp)
   })
 
-  test('crouched in a niche you are seen only up close', () => {
-    const plan = [
-      '##############', //
-      '#............#',
-      '#............#',
-      '#............#',
-      '#....n.......#',
-      '#.S..#.....A.#',
-      '##############',
-    ]
-    const f = setup(plan, [{ kind: 'drone', id: 'd', patrol: [[5, 1], [5, 1]] }])
+  test('crouched behind a server block you are hidden; standing, your head shows over it', () => {
+    const block: EntityDef = { kind: 'cover', at: [5, 4], size: [3, 0.6, 1.4], offset: [0, -0.6] }
+    const drone: EntityDef = { kind: 'drone', id: 'd', patrol: [[5, 1], [5, 1]] }
+    const f = setup(HALL, [block, drone])
     placePlayer(f, 5, 4)
+    f.s.player.pos.z += 0.3
     toggleCrouch(f.s, f.sim)
     const d = f.s.drones[0]
-    if (d) d.yaw = 0
-    run(f, 2)
+    run(f, 2, 1 / 60, () => {
+      if (d) d.yaw = 0 // keep it looking straight at the block
+    })
     expect(d?.sees).toBe(false)
     expect(f.s.alarm.stage).toBe(0)
+    expect(isInCover(f.s, f.sim)).toBe(true)
+    toggleCrouch(f.s, f.sim)
+    if (d) d.yaw = 0
+    run(f, 1 / 60)
+    expect(d?.sees).toBe(true)
   })
 
   test('a patrol drone comes to look at a noise', () => {

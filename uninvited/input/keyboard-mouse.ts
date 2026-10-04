@@ -1,6 +1,9 @@
 // Keyboard + mouse (pointer lock) -> the player's intent and one-shot actions (DESIGN 12).
-//   WASD / arrows move, mouse looks, Space jump, Shift dash (hold to keep running), C crouch toggle,
+//   WASD / arrows move (a double tap of a direction dashes that way - the core times the taps), mouse looks,
+//   Shift (hold) sprint, Space jump, C crouch toggle, Ctrl (hold) crouch while held,
 //   LMB attack (hold to repeat), Q / wheel switch sword <-> rifle, E interact / hack, Tab network vision (hold).
+//   Ctrl must not reach the browser while playing: its shortcuts (Ctrl+S, Ctrl+D, Ctrl+wheel zoom...) are blocked;
+//   Ctrl+W cannot be, so a "leave the page?" guard is up while the pointer is locked.
 //   1-4 are reserved for May's abilities (not in the slice).
 // main.ts reads `held`, `look` and the pressed counters every frame and calls consumePressed() after.
 
@@ -10,6 +13,8 @@ export interface Held {
   left: boolean
   right: boolean
   run: boolean
+  /** Ctrl held: crouch while held. */
+  crouch: boolean
   attack: boolean
   scan: boolean
 }
@@ -17,7 +22,11 @@ export interface Held {
 /** Presses since the last consumePressed(). */
 export interface Pressed {
   jump: number
-  dash: number
+  /** Fresh presses (not auto-repeat) of the direction keys, for the double-tap dash. */
+  tapForward: number
+  tapBack: number
+  tapLeft: number
+  tapRight: number
   crouch: number
   attack: number
   switchMode: number
@@ -41,8 +50,8 @@ export interface GameInput {
 }
 
 export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
-  const held: Held = { forward: false, back: false, left: false, right: false, run: false, attack: false, scan: false }
-  const pressed: Pressed = { jump: 0, dash: 0, crouch: 0, attack: 0, switchMode: 0, interact: 0 }
+  const held: Held = { forward: false, back: false, left: false, right: false, run: false, crouch: false, attack: false, scan: false }
+  const pressed: Pressed = { jump: 0, tapForward: 0, tapBack: 0, tapLeft: 0, tapRight: 0, crouch: 0, attack: 0, switchMode: 0, interact: 0 }
   const look = { dx: 0, dy: 0 }
   let enabled = true
   let unlockFn: (() => void) | null = null
@@ -54,24 +63,31 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     switch (code) {
       case 'KeyW':
       case 'ArrowUp':
+        if (down && !repeat && !held.forward) pressed.tapForward++
         held.forward = down
         return true
       case 'KeyS':
       case 'ArrowDown':
+        if (down && !repeat && !held.back) pressed.tapBack++
         held.back = down
         return true
       case 'KeyA':
       case 'ArrowLeft':
+        if (down && !repeat && !held.left) pressed.tapLeft++
         held.left = down
         return true
       case 'KeyD':
       case 'ArrowRight':
+        if (down && !repeat && !held.right) pressed.tapRight++
         held.right = down
         return true
       case 'ShiftLeft':
       case 'ShiftRight':
-        if (down && !repeat) pressed.dash++
         held.run = down
+        return true
+      case 'ControlLeft':
+      case 'ControlRight':
+        held.crouch = down
         return true
       case 'Space':
         if (down && !repeat) pressed.jump++
@@ -93,12 +109,13 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
   }
 
   function clearHeld(): void {
-    held.forward = held.back = held.left = held.right = held.run = held.attack = held.scan = false
+    held.forward = held.back = held.left = held.right = held.run = held.crouch = held.attack = held.scan = false
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!enabled) return
-    if (setKey(e.code, true, e.repeat)) e.preventDefault()
+    // while playing, Ctrl + anything is ours (crouch-walking must not save, bookmark or select the page)
+    if (setKey(e.code, true, e.repeat) || (e.ctrlKey && isLocked())) e.preventDefault()
   }
   const onKeyUp = (e: KeyboardEvent): void => {
     if (setKey(e.code, false, false)) e.preventDefault()
@@ -120,6 +137,7 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
   }
   const onWheel = (e: WheelEvent): void => {
     if (!enabled || !isLocked()) return
+    if (e.ctrlKey) e.preventDefault() // Ctrl + wheel would zoom the page
     // one switch per wheel gesture: trackpads send many small events
     const now = e.timeStamp
     if (now < wheelBlock || Math.abs(e.deltaY) < 1) return
@@ -133,6 +151,12 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
     }
   }
   const onBlur = (): void => clearHeld()
+  // Ctrl+W closes the tab and no page can block it: while playing, ask first
+  const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (!enabled || !isLocked()) return
+    e.preventDefault()
+    e.returnValue = ''
+  }
   const onContext = (e: Event): void => e.preventDefault()
 
   window.addEventListener('keydown', onKeyDown)
@@ -140,8 +164,9 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
   window.addEventListener('mousedown', onMouseDown)
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('mousemove', onMouseMove)
-  window.addEventListener('wheel', onWheel, { passive: true })
+  window.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('blur', onBlur)
+  window.addEventListener('beforeunload', onBeforeUnload)
   canvas.addEventListener('contextmenu', onContext)
   document.addEventListener('pointerlockchange', onLockChange)
 
@@ -163,7 +188,8 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
       if (!on) clearHeld()
     },
     consumePressed(): void {
-      pressed.jump = pressed.dash = pressed.crouch = pressed.attack = pressed.switchMode = pressed.interact = 0
+      pressed.jump = pressed.crouch = pressed.attack = pressed.switchMode = pressed.interact = 0
+      pressed.tapForward = pressed.tapBack = pressed.tapLeft = pressed.tapRight = 0
       look.dx = 0
       look.dy = 0
     },
@@ -178,6 +204,7 @@ export function bindGameInput(canvas: HTMLCanvasElement): GameInput {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('wheel', onWheel)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('beforeunload', onBeforeUnload)
       canvas.removeEventListener('contextmenu', onContext)
       document.removeEventListener('pointerlockchange', onLockChange)
     },

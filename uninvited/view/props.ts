@@ -10,8 +10,6 @@ import {
   CylinderGeometry,
   DoubleSide,
   Group,
-  LineBasicMaterial,
-  LineSegments,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
@@ -23,33 +21,34 @@ import {
 } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import cfgAll from '../config.json'
+import { CellKind } from '../core/grid'
 import type { GameState, Sim } from '../core/state'
 import {
   artifactPos,
   artifactTaken,
   checkpoints,
-  drones,
   gameTime,
   hackTerminal,
   isLaserOn,
   lasers,
   levelCeiling,
+  levelGrid,
   motionSensors,
   redWalls,
   scanActive,
+  sensorZones,
   soundCameras,
-  terminalLinks,
   terminals,
   videoCameras,
 } from '../core/queries'
 import { createCone, type ViewCone } from './cone'
 import { palette, type Materials } from './look'
+import { buildNetVision, type NetVision } from './netvision'
 import { fanSpread, type Sight } from './sight'
 
 const DEG = Math.PI / 180
 const VC = cfgAll.videoCamera
 const SC = cfgAll.soundCamera
-const MS = cfgAll.motionSensor
 const LZ = cfgAll.laser
 
 const tmpColor = new Color()
@@ -107,8 +106,6 @@ interface SensorView {
   root: Group
   light: Mesh
   lightMat: MeshBasicMaterial
-  ring: Mesh
-  ringMat: MeshBasicMaterial
 }
 
 interface LaserView {
@@ -250,22 +247,46 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
     return { root: g, rings, ringMat, floorRing, floorMat, pulse, pulseMat }
   })
 
-  // ---- motion sensors: a dark puck; in network vision a blinking light and its radius
+  // ---- motion sensors (DESIGN 8): a small blinking dot on the nearest wall, noticeable up close if you look;
+  // its zone shows only in network vision (view/netvision.ts)
+  const grid = levelGrid(sim)
+  const wallCell = (c: number, r: number): boolean => c < 0 || r < 0 || c >= grid.cols || r >= grid.rows || grid.kind[r * grid.cols + c] === CellKind.Wall
+  const housingGeo = new CylinderGeometry(0.075, 0.09, 0.04, 16)
+  housingGeo.rotateX(Math.PI / 2)
+  const dotGeoS = new SphereGeometry(0.03, 10, 8)
   const sensors: SensorView[] = motionSensors(s).map((m) => {
     const g = new Group()
-    g.position.set(m.pos.x, m.pos.y, m.pos.z)
-    const puck = new Mesh(new CylinderGeometry(0.16, 0.2, 0.06, 16), mats.matteBlack)
-    puck.position.y = 0.03
+    // the closest wall face from the zone's centre, searched along the four axes
+    const c0 = Math.floor(m.pos.x / grid.cell)
+    const r0 = Math.floor(m.pos.z / grid.cell)
+    let best = 1e9
+    let wx = m.pos.x
+    let wz = m.pos.z
+    let yaw = 0
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      for (let k = 1; k <= 4; k++) {
+        if (!wallCell(c0 + dc * k, r0 + dr * k)) continue
+        const fx = dc > 0 ? (c0 + k) * grid.cell : dc < 0 ? (c0 - k + 1) * grid.cell : m.pos.x
+        const fz = dr > 0 ? (r0 + k) * grid.cell : dr < 0 ? (r0 - k + 1) * grid.cell : m.pos.z
+        const dist = Math.abs(fx - m.pos.x) + Math.abs(fz - m.pos.z)
+        if (dist < best) {
+          best = dist
+          wx = fx - dc * 0.02
+          wz = fz - dr * 0.02
+          yaw = Math.atan2(-dc, -dr)
+        }
+        break
+      }
+    }
+    g.position.set(wx, m.pos.y + 1.05, wz)
+    g.rotation.y = yaw
+    const housing = new Mesh(housingGeo, mats.matteBlack)
     const lightMat = new MeshBasicMaterial({ color: palette.security.clone(), toneMapped: false })
-    const light = new Mesh(new SphereGeometry(0.06, 10, 8), lightMat)
-    light.position.y = 0.09
-    const ringMat = new MeshBasicMaterial({ color: palette.security.clone(), toneMapped: false, transparent: true, opacity: 0.4, blending: AdditiveBlending, depthWrite: false, side: DoubleSide })
-    const ring = new Mesh(new RingGeometry(MS.radius - 0.05, MS.radius, 64), ringMat)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.y = 0.04
-    g.add(puck, light, noReflect(ring))
+    const light = new Mesh(dotGeoS, lightMat)
+    light.position.z = 0.03
+    g.add(housing, light)
     root.add(g)
-    return { root: g, light, lightMat, ring, ringMat }
+    return { root: g, light, lightMat }
   })
 
   // ---- laser grids: two posts with emitters and crossing red beams (NN1b)
@@ -419,26 +440,9 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
   artifact.add(file, r1, r2, beamCol, pedestal)
   root.add(artifact)
 
-  // ---- network-vision links: terminal -> what it controls
-  const MAX_LINKS = 16
-  const linkPos = new Float32Array(MAX_LINKS * 6)
-  const linkGeo = new BufferGeometry()
-  linkGeo.setAttribute('position', new BufferAttribute(linkPos, 3))
-  const linkMat = new LineBasicMaterial({ color: palette.terminal.clone(), toneMapped: false, transparent: true, opacity: 0.9 })
-  const links = new LineSegments(linkGeo, linkMat)
-  links.frustumCulled = false
-  links.visible = false
-  root.add(links)
-
-  function setLink(k: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): void {
-    const o = k * 6
-    linkPos[o] = ax
-    linkPos[o + 1] = ay
-    linkPos[o + 2] = az
-    linkPos[o + 3] = bx
-    linkPos[o + 4] = by
-    linkPos[o + 5] = bz
-  }
+  // ---- network vision: links, patrol routes, sensor zones, the noise ring, cones through walls
+  const net: NetVision = buildNetVision(s, sim)
+  root.add(net.root)
 
   function update(st: GameState, sm: Sim, dt: number): void {
     const time = gameTime(st)
@@ -486,18 +490,15 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
       v.pulseMat.opacity = (1 - t) * 0.35
       for (let k = 0; k < v.rings.length; k++) (v.rings[k] as Mesh).scale.setScalar(1 + 0.15 * Math.sin(time * 4 - k))
     }
-    // motion sensors: hard to see unless scanning
-    const ms = motionSensors(st)
+    // motion sensors: a slow dim blink, brighter up close, a fast bright one while rearming after a trip
+    const zs = sensorZones(st)
     for (let i = 0; i < sensors.length; i++) {
       const v = sensors[i] as SensorView
-      const m = ms[i]
-      if (!m) continue
-      const blink = Math.sin(time * 9 + i) > 0.2 ? 1 : 0.15
-      const tripped = m.rearm > 0
-      v.light.visible = scanning || tripped
-      v.ring.visible = scanning
-      v.lightMat.color.copy(palette.security).multiplyScalar(tripped ? 2 : blink * 1.5)
-      v.ringMat.opacity = 0.25 + 0.15 * blink
+      const z = zs[i]
+      if (!z) continue
+      const close = z.seenUpClose || scanning
+      const blink = Math.sin(time * (z.tripped ? 14 : 3.2) + i * 1.7) > 0.55 ? 1 : 0.12
+      v.lightMat.color.copy(palette.security).multiplyScalar(z.tripped ? 1.6 * blink : blink * (close ? 0.9 : 0.35))
     }
     // lasers
     const ls = lasers(st)
@@ -510,7 +511,7 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
       const flicker = !on && l.alive && l.pausedTime > 0 && Math.sin(time * 37) > 0.97
       v.beams.visible = on || flicker
       v.beamMat.opacity = on ? 0.85 + 0.15 * Math.sin(time * 25 + i) : 0.3
-      v.dots.color.copy(l.alive ? (on ? palette.security : palette.paused) : palette.securityDim)
+      v.dots.color.copy(l.alive ? (on ? palette.security : palette.paused) : palette.securityDim).multiplyScalar(0.45)
       for (const p of v.posts) p.visible = true
     }
     // red walls
@@ -556,40 +557,7 @@ export function buildProps(s: GameState, sim: Sim, mats: Materials, sight: Sight
     file.position.y = 1.45 + Math.sin(time * 1.6) * 0.08
     r1.rotation.set(time * 0.7, time * 0.5, 0)
     r2.rotation.set(-time * 0.4, 0, time * 0.6)
-    // links
-    links.visible = scanning
-    if (scanning) {
-      let k = 0
-      const ds = drones(st)
-      for (let i = 0; i < ts.length && k < MAX_LINKS; i++) {
-        const t = ts[i]
-        const lk = terminalLinks(sm, i)
-        if (!t || !lk) continue
-        const ax = t.pos.x
-        const ay = t.pos.y + 1.2
-        const az = t.pos.z
-        for (const w of lk.walls) {
-          const wall = ws[w]
-          if (!wall || k >= MAX_LINKS) continue
-          const mid = (wall.min + wall.max) / 2
-          setLink(k++, ax, ay, az, wall.alongX ? wall.coord : mid, wall.floor + 2, wall.alongX ? mid : wall.coord)
-        }
-        for (const l of lk.lasers) {
-          const las = ls[l]
-          if (!las || k >= MAX_LINKS) continue
-          const mid = (las.min + las.max) / 2
-          setLink(k++, ax, ay, az, las.alongX ? las.coord : mid, las.floor + 1.2, las.alongX ? mid : las.coord)
-        }
-        for (const d of lk.drones) {
-          const dr = ds[d]
-          if (!dr || !dr.active || !dr.alive || k >= MAX_LINKS) continue
-          setLink(k++, ax, ay, az, dr.pos.x, dr.pos.y, dr.pos.z)
-        }
-      }
-      linkGeo.setDrawRange(0, k * 2)
-      ;(linkGeo.getAttribute('position') as BufferAttribute).needsUpdate = true
-      linkMat.opacity = 0.6 + 0.4 * Math.sin(time * 8)
-    }
+    net.update(st, sm, dt)
   }
 
   return {

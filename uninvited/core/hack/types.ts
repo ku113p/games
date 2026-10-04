@@ -17,7 +17,7 @@ export interface HackConfig {
   codeCount: HackRange
   /** Length of the target sequence (never more than the grid size, so the cursor can never dead-end). */
   sequenceLength: HackRange
-  /** How many positions of the target are hidden ("??"); never the first one. */
+  /** How many positions of the target are hidden ("??"); never the first one, never a code shown elsewhere in the target. */
   hiddenCount: HackRange
   /** The clock before May's bonus: timeBaseSec + timePerCodeSec * length + timePerHiddenSec * hidden. */
   timeBaseSec: number

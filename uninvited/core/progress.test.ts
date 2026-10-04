@@ -141,7 +141,7 @@ describe('queries', () => {
     run(f, 0.1)
     expect(heroAnim(f.s, f.sim)).toBe('jump')
     run(f, 1)
-    dash(f.s, f.sim)
+    dash(f.s, f.sim, 1, 0)
     run(f, 0.05)
     expect(heroAnim(f.s, f.sim)).toBe('dash')
   })

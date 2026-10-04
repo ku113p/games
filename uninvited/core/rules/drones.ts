@@ -1,44 +1,15 @@
 // Patrol drones (DESIGN 8-9): patrol waypoints, see in a cone, grow suspicion, stare, then alert -> chase and shoot,
 // lose you -> look around the last known place. Searchers comb the area at alarm 1-2; wave drones always hunt.
 import { cellAt, floorHeightAt } from '../grid'
-import type { DroneRole, DroneState, GameState, Sim } from '../state'
+import type { DroneState, GameState, Sim } from '../state'
 import { angleDiff, clamp, DEG, dist2, emit, turnTowards } from '../util'
 import { raiseAlarm, randomSearchPoint } from './alarm'
 import { fireBolt } from './combat'
 import { seeFactor } from './detection'
+import { abortGateIn, enterGate, gateStep, nearestGate } from './gates'
 import { nextCell } from './nav'
 
-/** Brings a drone into a free slot at a spawn point; returns its index or -1 when every slot is busy. */
-export function spawnDrone(s: GameState, sim: Sim, role: Exclude<DroneRole, 'patrol'>, x: number, floorY: number, z: number): number {
-  const cfg = sim.cfg.drone
-  for (let i = 0; i < s.drones.length; i++) {
-    const d = s.drones[i] as DroneState
-    if (d.active || d.patrol >= 0) continue
-    d.active = true
-    d.alive = true
-    d.role = role
-    d.hp = cfg.hp
-    d.pos.x = x
-    d.pos.y = floorY + cfg.hover
-    d.pos.z = z
-    d.mode = role === 'wave' ? 'alert' : 'investigate'
-    d.target.x = x
-    d.target.z = z
-    d.lastKnown.x = s.player.pos.x
-    d.lastKnown.y = s.player.pos.y
-    d.lastKnown.z = s.player.pos.z
-    d.suspicion = role === 'wave' ? 1 : 0
-    d.sees = false
-    d.wait = 0
-    d.fireCooldown = cfg.fireIntervalSec
-    d.lostTimer = 0
-    d.pausedTime = 0
-    d.spawnTime = cfg.spawnSec
-    emit(sim, { type: 'droneSpawned', index: i, role })
-    return i
-  }
-  return -1
-}
+export { spawnDrone } from './gates'
 
 export function startInvestigating(s: GameState, sim: Sim, i: number, x: number, z: number): void {
   const d = s.drones[i]
@@ -60,6 +31,7 @@ export function alertDrone(s: GameState, sim: Sim, i: number): void {
   d.lostTimer = 0
   d.suspicion = 1
   d.pausedTime = 0
+  abortGateIn(sim, d)
   if (d.mode === 'alert') return
   d.mode = 'alert'
   d.fireCooldown = sim.cfg.drone.fireWindupSec
@@ -114,10 +86,7 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
   for (let i = 0; i < s.drones.length; i++) {
     const d = s.drones[i] as DroneState
     if (!d.active || !d.alive) continue
-    if (d.spawnTime > 0) {
-      d.spawnTime -= dt
-      continue
-    }
+    if (gateStep(sim, i, d, dt)) continue
     d.fireCooldown -= dt
     if (d.pausedTime > 0) {
       d.pausedTime -= dt
@@ -217,28 +186,38 @@ export function updateDrones(s: GameState, sim: Sim, dt: number): void {
         break
       }
       case 'alert': {
+        // the shot telegraph: hold still and lock on for aimSec; losing sight cancels it
+        if (d.aim > 0) {
+          if (!d.sees || s.phase !== 'playing') {
+            d.aim = 0
+            d.fireCooldown = Math.max(d.fireCooldown, cfg.aimSec * 0.5)
+          } else {
+            d.aim -= dt
+            if (d.aim <= 0) {
+              d.aim = 0
+              d.fireCooldown = cfg.fireIntervalSec
+              fireBolt(s, sim, d, i)
+            }
+            break
+          }
+        }
         const dd = Math.sqrt(dist2(d.pos.x, d.pos.z, d.lastKnown.x, d.lastKnown.z))
         if (!(d.sees && dd < cfg.keepDist)) flyTowards(sim, d, d.lastKnown.x, d.lastKnown.z, cfg.chaseSpeed, dt)
         if (d.sees && d.fireCooldown <= 0 && s.phase === 'playing') {
-          d.fireCooldown = cfg.fireIntervalSec
-          fireBolt(s, sim, d, i)
+          d.aim = cfg.aimSec
+          emit(sim, { type: 'droneAiming', index: i })
         }
         break
       }
       case 'leave': {
-        let best = sim.spawns[0]
-        let bestD = Infinity
-        for (const sp2 of sim.spawns) {
-          const dd = dist2(sp2.x, sp2.z, d.pos.x, d.pos.z)
-          if (dd < bestD) {
-            bestD = dd
-            best = sp2
-          }
-        }
-        if (!best || flyTowards(sim, d, best.x, best.z, cfg.searchSpeed, dt) < 0.6) {
+        const g = nearestGate(sim, d.pos.x, d.pos.z)
+        const gate = sim.gates[g]
+        if (!gate) {
           d.active = false
           emit(sim, { type: 'droneLeft', index: i })
+          break
         }
+        if (flyTowards(sim, d, gate.out.x, gate.out.z, cfg.searchSpeed, dt) < 0.4) enterGate(s, sim, d, g)
         break
       }
     }
@@ -250,7 +229,7 @@ export function dronesHear(s: GameState, sim: Sim, x: number, z: number, radius:
   const r = radius * sim.cfg.drone.hearFactor
   for (let i = 0; i < s.drones.length; i++) {
     const d = s.drones[i] as DroneState
-    if (!d.active || !d.alive || d.spawnTime > 0 || d.pausedTime > 0 || d.mode === 'alert' || d.mode === 'leave') continue
+    if (!d.active || !d.alive || d.spawnTime > 0 || d.gateTime > 0 || d.pausedTime > 0 || d.mode === 'alert' || d.mode === 'leave') continue
     if (dist2(d.pos.x, d.pos.z, x, z) > r * r) continue
     if (d.mode !== 'investigate') emit(sim, { type: 'droneSuspicious', index: i })
     d.mode = 'investigate'

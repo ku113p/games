@@ -3,7 +3,11 @@
 //   const view = createHackView(root)      // once; root should be a positioned element (the overlay fills it)
 //   view.show(session)                     // when a hack starts
 //   view.update(session)                   // every frame while it is open - allocation-free unless something changed
-//   view.hide()
+//   view.outcome(title, detail)            // optional, once it ended: the game's own words for the result
+//   view.hide()                            // after a finished hack: closes with a glitch; else a plain fade
+//
+// When the session ends the overlay shows the result ("access granted" / "hack failed") and stays until hide():
+// the game holds it for config hack.view.outroSec so the outcome cannot be missed.
 //
 // It reads the session only through core/hack queries. It reacts to what happened by watching the session:
 // `last.seq` moves on every accepted pick (correct / wrong), `rev` on every change, `status` at the end.
@@ -39,6 +43,8 @@ const V = cfgAll.hack.view
 export interface HackView {
   show(s: HackSession): void
   update(s: HackSession): void
+  /** Replace the result lines after the session ended (e.g. "access granted" / "red wall open"). */
+  outcome(title: string, detail: string): void
   hide(): void
 }
 
@@ -121,6 +127,7 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
   let clockAnim: Animation | null = null
   let hover = -1
   let hideTimer = 0
+  let ended = false
 
   function build(s: HackSession): void {
     const n = s.size
@@ -221,7 +228,7 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
     const pen = s.penaltySec.toFixed(1)
     if (!running) hint.innerHTML = ''
     else if (hiddenNow)
-      hint.innerHTML = `Guess the hidden code in ${lineName(s)}. A miss costs <b>${pen} s</b> and restarts the sequence.`
+      hint.innerHTML = `Guess the hidden code in ${lineName(s)} - it is none of the codes shown in the target. A miss costs <b>${pen} s</b> and restarts the sequence.`
     else if (hackIsDeadEnd(s))
       hint.innerHTML = `<span class="warn">No ${hackSlotLabel(s, pos, V.hiddenLabel)} left in ${lineName(s)}.</span> Any pick restarts the sequence (<b>-${pen} s</b>).`
     else hint.innerHTML = `Pick <b>${hackSlotLabel(s, pos, V.hiddenLabel)}</b> in ${lineName(s)}.`
@@ -258,14 +265,17 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
     sound.resume()
     sound.play('hack_select', V.selectVolume)
     if (a.kind === 'correct') {
-      sound.play('hack_correct', 1, 1 + a.position * V.correctPitchStep)
-      if (cell) kick(cell, 'pop')
       const slot = slots[a.position]
-      if (slot) kick(slot.got, 'pop')
-      if (a.revealed && slot) {
-        kick(slot.want, 'reveal')
-        sound.play('glitch', V.glitchVolume)
+      if (a.revealed) {
+        // a "??" guessed right: its own brighter sound, never the glitch (the glitch belongs to mistakes)
+        sound.play('hack_correct', 1, V.revealPitch + a.position * V.correctPitchStep)
+        sound.play('ui_confirm', V.revealVolume)
+        if (slot) kick(slot.want, 'reveal')
+      } else {
+        sound.play('hack_correct', 1, 1 + a.position * V.correctPitchStep)
       }
+      if (cell) kick(cell, 'pop')
+      if (slot) kick(slot.got, 'pop')
     } else if (a.kind === 'wrong') {
       sound.play('hack_wrong')
       sound.play('glitch', V.glitchVolume)
@@ -291,6 +301,7 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
 
   function finish(s: HackSession): void {
     sound.stopTick()
+    ended = true
     el.classList.add('done')
     result.className = 'hk-result'
     if (s.status === 'solved') {
@@ -299,16 +310,25 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
       resultTitle.textContent = 'access granted'
       resultText.textContent = `${hackTimeLeft(s).toFixed(1)} s to spare`
       result.classList.add('win')
+      el.classList.add('win')
     } else {
       sound.play('hack_fail')
       sound.play('glitch', V.glitchVolume)
       kick(flash, 'fail')
       kick(panel, 'shake')
-      resultTitle.textContent = 'trace complete'
-      resultText.textContent = 'the alarm goes up'
+      resultTitle.textContent = 'hack failed'
+      resultText.textContent = 'alarm up'
       result.classList.add('fail')
+      el.classList.add('fail')
     }
     kick(result, 'on')
+  }
+
+  function outcome(titleText: string, detail: string): void {
+    if (!ended) return
+    if (titleText) resultTitle.textContent = titleText
+    resultText.textContent = detail
+    kick(resultText, 'in')
   }
 
   // ---------------------------------------------------------------------------------------------- hover feedback
@@ -348,7 +368,8 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
     shownTenths = -1
     low = false
     hover = -1
-    el.classList.remove('low', 'done', 'on', 'over')
+    ended = false
+    el.classList.remove('low', 'done', 'on', 'over', 'out', 'win', 'fail')
     result.className = 'hk-result'
     el.hidden = false
     void el.offsetWidth
@@ -400,12 +421,23 @@ export function createHackView(root: HTMLElement, opts: HackViewOptions = {}): H
   function hide(): void {
     sound.stopTick()
     cur = null
-    el.classList.remove('on')
     window.clearTimeout(hideTimer)
+    if (ended && !el.hidden) {
+      // a finished hack closes with a glitch: the panel tears, collapses to a line and goes out
+      sound.play('glitch', V.glitchVolume)
+      el.classList.add('out')
+      hideTimer = window.setTimeout(() => {
+        if (cur) return
+        el.classList.remove('on', 'out')
+        el.hidden = true
+      }, V.glitchOutMs)
+      return
+    }
+    el.classList.remove('on')
     hideTimer = window.setTimeout(() => {
       if (!cur) el.hidden = true
     }, 200)
   }
 
-  return { show, update, hide }
+  return { show, update, outcome, hide }
 }

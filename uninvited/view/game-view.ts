@@ -1,6 +1,6 @@
 // The game view: builds the scene for a level and, every frame, reads the state through queries and reacts to the
 // core's events with animation, sound, shake, hit-stop, sparks, glitches and HUD messages (rule 2).
-import { Color, MeshStandardMaterial, PointLight, Vector3, type Mesh, type Object3D } from 'three'
+import { Color, PointLight, Vector3, type Mesh, type Object3D } from 'three'
 import cfgAll from '../config.json'
 import type { GameEvent } from '../core/events'
 import {
@@ -27,6 +27,8 @@ import {
   scanActive,
   scanCooldown,
   scanHeat,
+  scanWarnAt,
+  scanWarning,
   securityStatus,
   soundCameras,
   terminals,
@@ -50,6 +52,7 @@ import { buildProps, type Props } from './props'
 import { REFLECT_LAYER } from './reflect'
 import { createRenderer, type Renderer } from './renderer'
 import { createSight, DRONE_KEY, fanSpread, type Sight } from './sight'
+import { createSpawnGates } from './spawn-gates'
 
 const V = cfgAll.view
 const J = V.juice
@@ -84,13 +87,13 @@ const DEG = Math.PI / 180
 const CAM_SPREAD = fanSpread(cfgAll.videoCamera.halfAngleDeg * DEG, cfgAll.videoCamera.pitchDeg * DEG)
 const DRONE_SPREAD = fanSpread(cfgAll.drone.halfAngleDeg * DEG, cfgAll.drone.pitchDeg * DEG)
 
-/** What glows (and the corridor walls that hide it) shows up in the floor mirror; lit black bodies, tiny bits and
- * flat floor decals stay out of it - they would only cost draw calls there. Cold path. */
+/** What glows and every solid body that can hide it shows up in the floor mirror (so a reflection never shows
+ * through a block or a wall); tiny bits and flat floor decals stay out of it - they would only cost draw calls
+ * there. Cold path. */
 function markReflective(root: Object3D): void {
   root.traverse((o) => {
     if (o.userData['noReflect'] === true) return
     const mesh = o as Mesh
-    if (mesh.material instanceof MeshStandardMaterial) return
     // tiny bits (emitter dots, eye cores) are not worth a draw call in a blurred reflection
     const geo = mesh.geometry
     if (geo) {
@@ -106,11 +109,11 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   const mats = createMaterials()
   const grid = levelGrid(sim)
   const sight: Sight = createSight(grid)
-  const corridors: Corridors = buildCorridors(grid, mats, sight, r.mirror)
+  const corridors: Corridors = buildCorridors(grid, mats, sight, r.mirror, s)
   r.scene.add(corridors.root)
   const props: Props = buildProps(s, sim, mats, sight)
   r.scene.add(props.root)
-  const droneViews: DroneViews = buildDrones(s, mats, sight)
+  const droneViews: DroneViews = buildDrones(s, mats, sight, sim)
   r.scene.add(droneViews.root)
   const hero: HeroView = createHero()
   r.scene.add(hero.root)
@@ -121,10 +124,14 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
   // a soft key light that travels with the hero so the black suit, drones and cover read against the dark
   const keyLight = new PointLight(0x9fdcff, V.heroLight.intensity, V.heroLight.distance, 1.6)
   r.scene.add(keyLight)
+  // and a cold rim light beyond the hero (seen from the camera) that draws the suit's and the coat's silhouette
+  const rimLight = new PointLight(0x7fe8ff, V.light.heroRim, V.light.heroRimDistance, 1.4)
+  r.scene.add(rimLight)
   const fx: Fx = createFx()
   r.scene.add(fx.root)
   const hud = createHud(uiRoot, V.hud.toastSec, V.hud.hintSec)
   const sound = new Sound(A.master)
+  const gates = createSpawnGates(r.scene, s, sim, mats, sound)
   const rig = createCameraRig(r.camera, ray, playerFacing(s))
 
   let shake = 0
@@ -194,6 +201,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
     hitStop: 0,
     handle(events, st, sm): void {
       const p = playerPos(st)
+      let hackSolvedNow = false
       for (const e of events) {
         switch (e.type) {
           case 'jumped':
@@ -279,6 +287,12 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
             if (d) sound.play('suspicion_rise', 0.55 * near(d.pos.x, d.pos.y, d.pos.z))
             break
           }
+          case 'droneAiming': {
+            // the telegraph: a short rising charge before the shot
+            const d = drones(st)[e.index]
+            if (d) sound.play('suspicion_rise', 0.75 * near(d.pos.x, d.pos.y, d.pos.z), 0.7)
+            break
+          }
           case 'droneAlerted':
             sound.play('drone_alert', 0.9)
             break
@@ -329,14 +343,15 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
           case 'wallOpened':
             if (time - lastWallToast > 0.5) {
               sound.play('firewall_drop', 0.9)
-              hud.toast(t('toast.wallOpen'), 'good')
+              // a solved hack says what it opened itself (main.ts, after the hack overlay closes)
+              if (!hackSolvedNow) hud.toast(t('toast.wallOpen'), 'good')
               glitch = Math.max(glitch, J.glitchWall)
               lastWallToast = time
             }
             break
           case 'devicePaused':
             sound.play('camera_pause', 0.8)
-            hud.toast(t('toast.paused', { sec: Math.round(e.sec) }), 'good')
+            if (!hackSolvedNow) hud.toast(t('toast.paused', { sec: Math.round(e.sec) }), 'good')
             break
           case 'scanOn':
             sound.play('scan_on', 0.6)
@@ -344,15 +359,17 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
           case 'scanOff':
             sound.play('scan_off', 0.5)
             break
-          case 'scanOverheating':
+          case 'scanWarning':
+            // the trace meter pulses red with "TRACE RISK" (HUD); the sound says it without looking
             sound.play('scan_overheat', 0.8)
-            hud.toast(t('toast.scanHot'), 'alarm')
             break
-          case 'scanOverheated':
+          case 'scanTraced':
+            hud.traced()
+            sound.play('alarm_1', 0.7)
             glitch = Math.max(glitch, J.glitchAlarm)
             break
-          case 'hackTimedOut':
-            hud.toast(t('toast.hackFailed'), 'alarm')
+          case 'hackSolved':
+            hackSolvedNow = true // the hack's outcome toast comes from main.ts once the overlay has closed
             break
           case 'checkpointReached':
             sound.play('checkpoint', 0.9)
@@ -377,6 +394,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       hero.root.position.set(p.x, p.y, p.z)
       hero.root.rotation.y = playerFacing(st)
       keyLight.position.set(p.x - Math.sin(rig.yaw) * V.heroLight.back, p.y + V.heroLight.height, p.z - Math.cos(rig.yaw) * V.heroLight.back)
+      rimLight.position.set(p.x + Math.sin(rig.yaw) * 1.4, p.y + 2.1, p.z + Math.cos(rig.yaw) * 1.4)
       hero.setMode(weaponMode(st))
       heroLineColor(st, sm, red, blue, rgb)
       heroColor.setRGB(rgb.r * WHITE_SCALE, rgb.g * WHITE_SCALE, rgb.b * WHITE_SCALE)
@@ -429,6 +447,7 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       corridors.setConeCount(nc)
 
       props.update(st, sm, dt)
+      gates.update(dt, st, sm)
       droneViews.update(st, dt, r.camera)
       sight.flush(dt)
       fx.update(dt, st)
@@ -474,6 +493,8 @@ export function createGameView(canvas: HTMLCanvasElement, uiRoot: HTMLElement, s
       h.scanActive = scanActive(st)
       h.scanHeat = scanHeat(st, sm)
       h.scanCooldown = scanCooldown(st, sm)
+      h.scanWarnAt = scanWarnAt(sm)
+      h.scanWarning = scanWarning(st)
       h.prompt = interactPrompt(st, sm)
       waveInfo(st, sm, waves)
       h.wave = waves.wave

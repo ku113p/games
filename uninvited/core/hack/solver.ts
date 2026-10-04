@@ -1,13 +1,17 @@
 // A solver for hack puzzles: a depth-first search along the row/column rule. Used by the tests (every generated
 // puzzle is solvable, also after mistakes) and by the balance bot. Cold path.
 import { nextInt, type Rng } from '../random'
+import { hackIsShownInTarget } from './queries'
 import type { HackSession } from './types'
 
 interface Search {
   s: HackSession
   used: boolean[]
   path: number[]
-  /** true: search with the player's knowledge (a hidden position accepts any code not marked wrong). */
+  /**
+   * true: search with the player's knowledge - a hidden position accepts any code that is not marked wrong under it
+   * and is not shown at a visible position of the target (the generator's rule).
+   */
   guess: boolean
   rng: Rng | null
 }
@@ -15,7 +19,7 @@ interface Search {
 function accepts(q: Search, position: number, code: number): boolean {
   const s = q.s
   if (q.guess && s.hidden[position] === true && s.revealed[position] !== true) {
-    return (((s.wrongMarks[position] as number) >> code) & 1) === 0
+    return (((s.wrongMarks[position] as number) >> code) & 1) === 0 && !hackIsShownInTarget(s, code)
   }
   return code === s.target[position]
 }
@@ -70,7 +74,7 @@ export function solveHack(s: HackSession, fromScratch = true): number[] | null {
 
 /**
  * The player's knowledge: a path from scratch where every visible position matches and every hidden one holds a
- * code that is not marked wrong. With an rng the choice among the possible paths is random.
+ * code that is not marked wrong and not shown elsewhere in the target. With an rng the choice among the possible paths is random.
  */
 export function planHack(s: HackSession, rng: Rng | null = null): number[] | null {
   return search(s, true, true, rng)

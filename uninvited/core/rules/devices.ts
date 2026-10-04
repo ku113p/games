@@ -84,16 +84,25 @@ export function updateHearing(s: GameState, sim: Sim, dt: number): void {
   }
 }
 
+/** A motion sensor trips on sprinting, dashing and jumping inside its zone; walking and crouching pass (DESIGN 8). */
+export function sensorTrips(s: GameState): boolean {
+  const p = s.player
+  return p.running || p.dashTime > 0 || p.jumping
+}
+
 export function updateSensors(s: GameState, sim: Sim, dt: number): void {
   const cfg = sim.cfg.motionSensor
   const p = s.player
+  const eyeY = p.pos.y + sim.cfg.player.eyeHeight
   for (let i = 0; i < s.sensors.length; i++) {
     const m = s.sensors[i]
     if (!m) continue
     m.rearm -= dt
+    const d2 = dist2(p.pos.x, p.pos.z, m.pos.x, m.pos.z)
+    m.seenUpClose = d2 < cfg.noticeDist * cfg.noticeDist && sim.world.lineOfSight(p.pos.x, eyeY, p.pos.z, m.pos.x, m.pos.y + 0.3, m.pos.z)
     if (m.rearm > 0 || s.phase !== 'playing') continue
-    if (dist2(p.pos.x, p.pos.z, m.pos.x, m.pos.z) > cfg.radius * cfg.radius || Math.abs(p.pos.y - m.pos.y) > 2.5) continue
-    if (p.speed <= cfg.tripSpeed && p.dashTime <= 0) continue
+    if (d2 > m.radius * m.radius || Math.abs(p.pos.y - m.pos.y) > 2.5) continue
+    if (!sensorTrips(s)) continue
     m.rearm = cfg.rearmSec
     emit(sim, { type: 'sensorTripped', index: i })
     raiseAlarm(s, sim, 'sensor', m.pos.x, m.pos.y, m.pos.z)

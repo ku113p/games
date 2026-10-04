@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { attack, toggleCrouch } from './commands'
+import { attack, dash, jump, toggleCrouch } from './commands'
+import { sensorZones } from './queries'
 import { sweepYaw } from './rules/devices'
 import type { EntityDef } from './level'
 import { placePlayer, run, setup } from './testing'
@@ -138,6 +139,38 @@ describe('motion sensors', () => {
     f.intent.run = true
     expect(run(f, 3)).toContain('sensorTripped')
     expect(f.s.alarm.stage).toBe(1)
+  })
+
+  test('crouch-walking passes; a jump or a dash inside the zone trips it', () => {
+    const crouch = setup(HALL, SENSOR)
+    placePlayer(crouch, 2, 3)
+    toggleCrouch(crouch.s, crouch.sim)
+    crouch.intent.lookYaw = Math.PI / 2
+    crouch.intent.moveForward = 1
+    expect(run(crouch, 6)).not.toContain('sensorTripped')
+
+    const j = setup(HALL, SENSOR)
+    placePlayer(j, 6, 3)
+    jump(j.s, j.sim)
+    expect(run(j, 0.5)).toContain('sensorTripped')
+
+    const d = setup(HALL, SENSOR)
+    placePlayer(d, 4, 3)
+    dash(d.s, d.sim, 1, 0)
+    expect(run(d, 0.3)).toContain('sensorTripped')
+  })
+
+  test('its zone, whether it is rearming, and whether you are close enough to notice it are readable', () => {
+    const f = setup(HALL, SENSOR)
+    placePlayer(f, 1, 7)
+    run(f, 0.05)
+    expect(sensorZones(f.s)[0]?.seenUpClose).toBe(false)
+    placePlayer(f, 5, 3)
+    run(f, 0.05)
+    const z = sensorZones(f.s)[0]
+    expect(z?.seenUpClose).toBe(true)
+    expect(z?.radius).toBe(f.sim.cfg.motionSensor.radius)
+    expect(z?.tripped).toBe(false)
   })
 })
 

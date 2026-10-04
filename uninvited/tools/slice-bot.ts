@@ -1,0 +1,529 @@
+// A scripted player for the slice (balance check, not a test of the view): runs the real core on the real Rapier
+// world with config.json, headless, and reports whether a "normal" player gets through.
+//   bun tools/slice-bot.ts loud  [seeds]   - the Breaker: sprint through, fight everything, wait out the waves
+//   bun tools/slice-bot.ts quiet [seeds]   - the Hacker: crouch-walk, wait for gaps, hack both terminals
+// The loud bot plays like a so-so human: it aims with a few degrees of error, reacts late, and dodges only half of
+// the shots it sees fired. The quiet bot waits whenever the next steps would be seen, and takes 25-40 s per hack.
+import { createRapierWorld, initPhysics } from '../adapters/physics-rapier'
+import cfgJson from '../config.json'
+import { attack, beginFrame, createIntent, hackPick, interact, moveTap, switchMode, tick, toggleCrouch, TAP_LEFT, TAP_RIGHT } from '../core/commands'
+import type { GameConfig } from '../core/config'
+import type { GameEvent } from '../core/events'
+import { buildGrid, cellAt, CellKind, cellCenterX, cellCenterZ, floorHeightAt } from '../core/grid'
+import { solveHack } from '../core/hack/index'
+import { createRng, nextFloat, type Rng } from '../core/random'
+import { seeFactor } from '../core/rules/detection'
+import { sweepYaw } from '../core/rules/devices'
+import { createSim, createState, type GameState, type Sim } from '../core/state'
+import { slice } from '../levels/slice'
+
+const cfg: GameConfig = cfgJson
+const DT = 1 / 60
+const DEBUG = process.env['BOT_DEBUG'] === '1'
+/** "sloppy": a weaker player - slower to notice, worse aim, dodges fewer shots. */
+const SLOPPY = process.argv[4] === 'sloppy'
+const REACT = SLOPPY ? 1.0 : 0.5
+const AIM_ERR = SLOPPY ? 9 : 6
+const DODGE = SLOPPY ? 0.2 : 0.5
+const DEG = Math.PI / 180
+
+await initPhysics()
+const grid = buildGrid(slice)
+
+type Step = { at: [number, number]; act?: 'firewall' | 'hack' | 'take' | 'crouch' | 'stand'; quietWait?: boolean }
+
+const LOUD: Step[] = [
+  { at: [3, 30] },
+  { at: [3, 22] },
+  { at: [3, 19] },
+  { at: [3, 16] },
+  { at: [9, 15] },
+  { at: [12, 15] },
+  { at: [16, 15] },
+  { at: [19, 15] },
+  { at: [23, 14] },
+  { at: [23, 11] },
+  { at: [27, 11] },
+  { at: [27, 5] },
+  { at: [25, 4] },
+  { at: [24, 2], act: 'firewall' },
+  { at: [18, 1] },
+  { at: [10, 1] },
+  { at: [6, 1] },
+  { at: [4, 2], act: 'take' },
+]
+
+// the Hacker's route: the same corridors, crouched, through both terminals
+const QUIET: Step[] = [
+  { at: [3, 31], act: 'crouch' },
+  { at: [3, 22] },
+  { at: [3, 19] },
+  { at: [3, 16], act: 'stand' }, // walk the sensor corridor (crouching is too slow there; walking is silent)
+  { at: [9, 15] },
+  { at: [11, 15], act: 'crouch' },
+  { at: [11.5, 13.8] },
+  { at: [13, 13.8], act: 'hack' }, // T2: pauses the lasers and drone 1
+  { at: [11.5, 13.8] },
+  { at: [11, 15], act: 'stand' },
+  { at: [19, 15] },
+  { at: [23, 14] },
+  { at: [23, 12], act: 'crouch' },
+  { at: [23, 11] },
+  { at: [26, 11] },
+  { at: [27, 9] },
+  { at: [27, 6] },
+  { at: [24, 6] },
+  { at: [18, 6] },
+  { at: [17.6, 4.8] },
+  { at: [19, 4.8], act: 'hack' }, // T1: opens the red wall
+  { at: [17.6, 4.8], quietWait: true }, // wait in the shelter until the way out is clear
+  { at: [18, 6] },
+  { at: [24, 6] },
+  { at: [25, 4] },
+  { at: [25, 2] },
+  { at: [18, 1] },
+  { at: [10, 1] },
+  { at: [6, 1] },
+  { at: [4, 2], act: 'take' },
+]
+
+interface Result {
+  won: boolean
+  why: string
+  time: number
+  hp: number
+  minHp: number
+  alarms: number
+  kills: number
+  waves: number
+  hitsTaken: number
+  shotsAtPlayer: number
+}
+
+function cx(c: number): number {
+  return cellCenterX(grid, c)
+}
+function cz(r: number): number {
+  return cellCenterZ(grid, r)
+}
+
+// --- a fine walk grid for the quiet bot's path finding (0.5 m cells, inflated by the body radius) ---
+const FINE = 0.5
+const FC = Math.ceil((grid.cols * grid.cell) / FINE)
+const FR = Math.ceil((grid.rows * grid.cell) / FINE)
+const walk = new Uint8Array(FC * FR)
+const fineH = new Float32Array(FC * FR)
+for (let r = 0; r < FR; r++) {
+  for (let c = 0; c < FC; c++) {
+    const x = (c + 0.5) * FINE
+    const z = (r + 0.5) * FINE
+    let ok = true
+    for (const [ox, oz] of [[0, 0], [0.4, 0], [-0.4, 0], [0, 0.4], [0, -0.4], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]] as const) {
+      const i = cellAt(grid, x + ox, z + oz)
+      const k = i < 0 ? CellKind.Wall : grid.kind[i]
+      if (k === CellKind.Wall || k === CellKind.Cover || k === CellKind.RedWall) ok = false
+      for (const b of grid.blocks) if (x + ox > b.minX && x + ox < b.maxX && z + oz > b.minZ && z + oz < b.maxZ) ok = false
+    }
+    walk[r * FC + c] = ok ? 1 : 0
+    fineH[r * FC + c] = floorHeightAt(grid, x, z)
+  }
+}
+const dist = new Int32Array(FC * FR)
+const queue = new Int32Array(FC * FR)
+let fieldKey = -1
+
+/** Distance field (in fine steps) towards the fine cell of (x, z); a step up more than 0.45 m is not allowed. */
+function fieldTo(x: number, z: number): void {
+  const key = Math.floor(z / FINE) * FC + Math.floor(x / FINE)
+  if (key === fieldKey) return
+  fieldKey = key
+  dist.fill(-1)
+  let head = 0
+  let tail = 0
+  dist[key] = 0
+  queue[tail++] = key
+  while (head < tail) {
+    const i = queue[head++] as number
+    const c = i % FC
+    const r = Math.floor(i / FC)
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nc = c + dc
+      const nr = r + dr
+      if (nc < 0 || nr < 0 || nc >= FC || nr >= FR) continue
+      const j = nr * FC + nc
+      if (dist[j] !== -1 || !walk[j]) continue
+      // walking from j to i: no climbing a ledge
+      if ((fineH[i] as number) - (fineH[j] as number) > 0.45) continue
+      dist[j] = (dist[i] as number) + 1
+      queue[tail++] = j
+    }
+  }
+}
+
+/** A point a few steps along the shortest walk from (x, z) towards the current field's target. */
+function walkStep(x: number, z: number, out: { x: number; z: number }): boolean {
+  let i = Math.floor(z / FINE) * FC + Math.floor(x / FINE)
+  if ((dist[i] ?? -1) < 0) return false
+  for (let k = 0; k < 3; k++) {
+    const c = i % FC
+    const r = Math.floor(i / FC)
+    let best = i
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const j = (r + dr) * FC + (c + dc)
+      const d = dist[j] ?? -1
+      if (d >= 0 && d < (dist[best] as number)) best = j
+    }
+    i = best
+  }
+  out.x = ((i % FC) + 0.5) * FINE
+  out.z = (Math.floor(i / FC) + 0.5) * FINE
+  return true
+}
+const stepOut = { x: 0, z: 0 }
+
+function droneVisible(s: GameState, sim: Sim, i: number): boolean {
+  const d = s.drones[i]
+  if (!d || !d.active || !d.alive || d.spawnTime > 0) return false
+  const p = s.player.pos
+  return sim.world.lineOfSight(p.x, p.y + 1.4, p.z, d.pos.x, d.pos.y, d.pos.z)
+}
+
+function play(seed: number, route: Step[], loud: boolean): Result {
+  const physics = createRapierWorld(grid, { radius: cfg.player.radius, ...cfgJson.physics })
+  const sim = createSim(slice, cfg, physics, grid)
+  const s = createState(sim, seed)
+  const rng: Rng = createRng(seed * 7919 + 13)
+  const intent = createIntent()
+  let step = 0
+  let stuck = 0
+  let detour = 0
+  let detourSide = 1
+  let unsticks = 0
+  let lastX = s.player.pos.x
+  let lastZ = s.player.pos.z
+  let strafe = 1
+  let strafeT = 0
+  const dodges: number[] = [] // times to dodge at
+  let hitsTaken = 0
+  let shots = 0
+  let minHp = s.player.hp
+  let hackWait = 0
+  let waiting = 0
+  let camYaw = s.player.facing
+  /** Per drone slot: game time from which the bot "knows" about it (Infinity = not noticed). */
+  const knownAt: number[] = s.drones.map(() => Infinity)
+
+  const done = (won: boolean, why: string): Result => {
+    physics.dispose()
+    return { won, why, time: s.time, hp: s.player.hp, minHp, alarms: s.run.alarmsRaised, kills: s.run.kills, waves: s.alarm.wavesCleared, hitsTaken, shotsAtPlayer: shots }
+  }
+
+  /** Would a crouched/standing player at (x, z) be seen by anyone in the next `ahead` seconds? */
+  function unsafe(x: number, z: number, ahead: number): boolean {
+    const p = s.player
+    const ox = p.pos.x
+    const oz = p.pos.z
+    p.pos.x = x
+    p.pos.z = z
+    const vc = cfg.videoCamera
+    let seen = false
+    for (const c of s.cameras) {
+      if (!c.alive || c.pausedTime > 0) continue
+      for (let t = 0; t <= ahead && !seen; t += 0.25) {
+        const yaw = sweepYaw(c.baseYaw, c.sweepA, c.sweepB, c.period, c.phase, vc.holdShare, s.time + t)
+        const cp = Math.cos(vc.pitchDeg * DEG)
+        const f = seeFactor(s, sim, c.pos.x, c.pos.y, c.pos.z, Math.sin(yaw) * cp, -Math.sin(vc.pitchDeg * DEG), Math.cos(yaw) * cp, Math.cos((vc.halfAngleDeg + 8) * DEG), vc.range + 1)
+        if (f > 0) seen = true
+      }
+    }
+    const dc = cfg.drone
+    for (const d of s.drones) {
+      if (seen) break
+      if (!d.active || !d.alive || d.pausedTime > 0 || d.spawnTime > 0) continue
+      // a drone may turn: anything within its range and line of sight close by counts, its cone further out
+      const dist = Math.hypot(d.pos.x - x, d.pos.z - z)
+      const cp = Math.cos(dc.pitchDeg * DEG)
+      const cone = Math.cos((dist < 5 ? 179 : dc.halfAngleDeg + 25) * DEG)
+      const f = seeFactor(s, sim, d.pos.x, d.pos.y, d.pos.z, Math.sin(d.yaw) * cp, -Math.sin(dc.pitchDeg * DEG), Math.cos(d.yaw) * cp, cone, dc.range + 1)
+      if (f > 0) seen = true
+    }
+    p.pos.x = ox
+    p.pos.z = oz
+    return seen
+  }
+
+  const last: GameEvent[] = [] // the events of the previous tick
+  /** The next legs after `from` are out of every drone's reach and every camera's sweep for a while. */
+  function wayClear(from: number): boolean {
+    for (let k = from + 1; k <= from + 3; k++) {
+      const w = route[k]
+      if (!w) break
+      const x = cx(w.at[0])
+      const z = cz(w.at[1])
+      for (const d of s.drones) if (d.active && d.alive && d.pausedTime <= 0 && Math.hypot(d.pos.x - x, d.pos.z - z) < 9) return false
+      if (unsafe(x, z, 3)) return false
+    }
+    return true
+  }
+
+  for (let frame = 0; frame < 60 * 600; frame++) {
+    last.length = 0
+    last.push(...sim.events)
+    beginFrame(sim)
+    const p = s.player
+    if (s.phase === 'dead') return done(false, `died at step ${step} (${route[step]?.at.join(',')})`)
+    if (s.phase === 'won') return done(true, 'took the file')
+    minHp = Math.min(minHp, p.hp)
+
+    // hacking: stand at the console for a human-ish while, then solve it
+    if (s.hack) {
+      hackWait -= DT
+      if (hackWait <= 0) {
+        const sol = solveHack(s.hack.session)
+        if (sol) for (const idx of sol) hackPick(s, sim, Math.floor(idx / s.hack.session.size), idx % s.hack.session.size)
+      }
+      intent.moveForward = intent.moveRight = 0
+      tick(s, sim, DT, intent)
+      continue
+    }
+
+    const target = route[step]
+    if (!target) return done(false, 'route ended')
+    const tx = cx(target.at[0])
+    const tz = cz(target.at[1])
+    const dist = Math.hypot(tx - p.pos.x, tz - p.pos.z)
+    let wx = tx - p.pos.x
+    let wz = tz - p.pos.z
+    if (!loud) {
+      // walk around blocks and cover instead of into them
+      fieldTo(tx, tz)
+      if (walkStep(p.pos.x, p.pos.z, stepOut) && dist >= 0.7) {
+        wx = stepOut.x - p.pos.x
+        wz = stepOut.z - p.pos.z
+        if (Math.hypot(wx, wz) < 0.05) {
+          wx = tx - p.pos.x
+          wz = tz - p.pos.z
+        }
+      }
+    }
+    let wantYaw = Math.atan2(wx, wz)
+    let sprint = loud
+    let hold = false
+
+    // arrived?
+    if (dist < 0.7) {
+      if (target.act === 'firewall' && !s.alarm.firewallDown && s.walls.some((w) => !w.open)) hold = true
+      else if (target.act === 'hack' && s.terminals.some((t) => !t.done && t.cooldown <= 0 && Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z) < 1.7)) {
+        interact(s, sim)
+        hackWait = 25 + nextFloat(rng) * 15
+      } else if (target.act === 'take') {
+        interact(s, sim)
+      } else if (target.quietWait && !wayClear(step)) {
+        hold = true
+        waiting += DT
+      } else {
+        if (target.act === 'crouch' && !p.crouched) toggleCrouch(s, sim)
+        if (target.act === 'stand' && p.crouched) toggleCrouch(s, sim)
+        step++
+        stuck = 0
+      }
+    }
+    if (hold) {
+      wx = 0
+      wz = 0
+    }
+
+    // the loud player fights what it has noticed: drones in front of the camera (after a reaction time), or ones
+    // that shoot at it from elsewhere (noticed late)
+    if (loud) {
+      for (let i = 0; i < s.drones.length; i++) {
+        const d = s.drones[i]
+        if (!d || !d.active || !d.alive || d.spawnTime > 0) {
+          knownAt[i] = Infinity
+          continue
+        }
+        if (knownAt[i] !== Infinity) continue
+        const off = Math.abs(Math.atan2(Math.sin(Math.atan2(d.pos.x - p.pos.x, d.pos.z - p.pos.z) - camYaw), Math.cos(Math.atan2(d.pos.x - p.pos.x, d.pos.z - p.pos.z) - camYaw)))
+        if (off < 35 * DEG && droneVisible(s, sim, i)) knownAt[i] = s.time + REACT + nextFloat(rng) * 0.6
+      }
+      for (const e of last) if ((e.type === 'droneFired' || e.type === 'droneAlerted') && knownAt[e.index] === Infinity) knownAt[e.index] = s.time + 1.2 + nextFloat(rng) * 0.8
+      let best = -1
+      let bestD = 18
+      for (let i = 0; i < s.drones.length; i++) {
+        const d = s.drones[i]
+        if (!d || !d.active || !d.alive || d.spawnTime > 0 || (knownAt[i] as number) > s.time || !droneVisible(s, sim, i)) continue
+        const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.z - p.pos.z)
+        if (s.alarm.firewallDown && dd > 6) continue // after the firewall: just run for it
+        if (dd < bestD) {
+          bestD = dd
+          best = i
+        }
+      }
+      const d = best >= 0 ? s.drones[best] : undefined
+      if (d) {
+        const dx = d.pos.x - p.pos.x
+        const dz = d.pos.z - p.pos.z
+        const hd = Math.hypot(dx, dz)
+        const muzzleY = p.pos.y + cfg.combat.rifle.muzzleHeight
+        const wantRifle = hd > 4.5 && p.charges > 0
+        if ((p.mode === 'rifle') !== wantRifle && p.switchCooldown <= 0) switchMode(s, sim)
+        wantYaw = Math.atan2(dx, dz)
+        const off = Math.abs(Math.atan2(Math.sin(wantYaw - camYaw), Math.cos(wantYaw - camYaw)))
+        const err = (nextFloat(rng) - 0.5) * 2 * AIM_ERR * DEG
+        const aimPitch = Math.atan2(d.pos.y - muzzleY, hd) + (nextFloat(rng) - 0.5) * 2 * 3 * DEG
+        if (off < 10 * DEG) attack(s, sim, camYaw + err, aimPitch)
+        if (p.mode === 'sword') {
+          // close in
+          wx = hd > 1.8 ? dx : 0
+          wz = hd > 1.8 ? dz : 0
+          sprint = true
+        } else {
+          // strafe while shooting
+          strafeT -= DT
+          if (strafeT <= 0) {
+            strafe = -strafe
+            strafeT = 0.8 + nextFloat(rng) * 0.8
+          }
+          wx = Math.cos(wantYaw) * strafe * -1
+          wz = Math.sin(wantYaw) * strafe
+          sprint = false
+        }
+      }
+    } else {
+      // the quiet player: only go on when the next metre is unseen for a while
+      if (dist >= 0.7 && wx * wx + wz * wz > 0) {
+        const l = Math.hypot(wx, wz)
+        const ax = p.pos.x + (wx / l) * Math.min(1.5, l)
+        const az = p.pos.z + (wz / l) * Math.min(1.5, l)
+        if (unsafe(ax, az, 1.5)) {
+          if (!unsafe(p.pos.x, p.pos.z, 0.6)) {
+            wx = 0
+            wz = 0
+            waiting += DT
+          } else {
+            // about to be seen where we stand: step to the nearby spot that stays hidden, nearest the goal first
+            let bx = 0
+            let bz = 0
+            let bestD = Infinity
+            for (let k = 0; k < 8; k++) {
+              const a = (k * Math.PI) / 4
+              const qx = p.pos.x + Math.sin(a) * 1.2
+              const qz = p.pos.z + Math.cos(a) * 1.2
+              const px = Math.cos(a) * 0.35
+              const pz = -Math.sin(a) * 0.35
+              const y = p.pos.y + 0.5
+              if (!sim.world.lineOfSight(p.pos.x + px, y, p.pos.z + pz, qx + px, y, qz + pz)) continue
+              if (!sim.world.lineOfSight(p.pos.x - px, y, p.pos.z - pz, qx - px, y, qz - pz)) continue
+              if (!sim.world.lineOfSight(p.pos.x, y, p.pos.z, qx, y, qz)) continue
+              if (unsafe(qx, qz, 1)) continue
+              const dd = Math.hypot(tx - qx, tz - qz)
+              if (dd < bestD) {
+                bestD = dd
+                bx = qx - p.pos.x
+                bz = qz - p.pos.z
+              }
+            }
+            if (bestD < Infinity) {
+              wx = bx
+              wz = bz
+            } else {
+              // nowhere hidden nearby: back off from the closest watching drone
+              let fx = 0
+              let fz = 0
+              let fd = Infinity
+              for (const d of s.drones) {
+                if (!d.active || !d.alive || !d.sees) continue
+                const dd = Math.hypot(d.pos.x - p.pos.x, d.pos.z - p.pos.z)
+                if (dd < fd) {
+                  fd = dd
+                  fx = p.pos.x - d.pos.x
+                  fz = p.pos.z - d.pos.z
+                }
+              }
+              if (fd < Infinity) {
+                wx = fx
+                wz = fz
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // dodge: react to some of the shots fired at us
+    for (const e of last) {
+      if (e.type === 'droneFired') {
+        shots++
+        if (loud && nextFloat(rng) < DODGE) dodges.push(s.time + 0.15 + nextFloat(rng) * 0.2)
+      }
+      if (e.type === 'playerHurt') hitsTaken++
+      if (DEBUG && (e.type === 'alarmRaised' || e.type === 'laserTripped' || e.type === 'playerHurt' || e.type === 'hackSolved' || e.type === 'hackTimedOut' || e.type === 'cameraSpotted' || e.type === 'sensorTripped' || e.type === 'soundHeard' || e.type === 'droneAlerted'))
+        console.log(`  t=${s.time.toFixed(1)} step ${step} at ${(p.pos.x / 2).toFixed(1)},${(p.pos.z / 2).toFixed(1)} crouched=${p.crouched}: ${JSON.stringify(e)}`)
+    }
+    for (let k = dodges.length - 1; k >= 0; k--) {
+      if ((dodges[k] as number) <= s.time) {
+        dodges.splice(k, 1)
+        const dir = nextFloat(rng) < 0.5 ? TAP_LEFT : TAP_RIGHT
+        moveTap(s, sim, dir, camYaw)
+        moveTap(s, sim, dir, camYaw)
+      }
+    }
+
+    // stuck on something: slide sideways for a moment (alternating sides), give up after a while
+    if (detour > 0) {
+      detour -= DT
+      const gl = Math.hypot(tx - p.pos.x, tz - p.pos.z) || 1
+      const gx = (tx - p.pos.x) / gl
+      const gz = (tz - p.pos.z) / gl
+      wx = -gz * detourSide - gx * 0.3
+      wz = gx * detourSide - gz * 0.3
+    }
+    const moved = Math.hypot(p.pos.x - lastX, p.pos.z - lastZ)
+    lastX = p.pos.x
+    lastZ = p.pos.z
+    if (wx * wx + wz * wz > 0.01 && moved < 0.2 * DT) stuck += DT
+    else stuck = Math.max(0, stuck - DT * 0.25)
+    if (stuck > 0.5 && detour <= 0) {
+      detour = 0.8
+      detourSide = -detourSide
+      unsticks++
+    }
+    if (unsticks > 40) {
+      if (!loud) return done(false, `stuck at step ${step} (${target.at.join(',')}) at ${(p.pos.x / 2).toFixed(2)},${(p.pos.z / 2).toFixed(2)}`)
+      unsticks = 0
+    }
+
+    // the camera turns like a mouse hand would (fast, not instant); the intent is relative to it
+    const turn = Math.atan2(Math.sin(wantYaw - camYaw), Math.cos(wantYaw - camYaw))
+    camYaw += Math.max(-6 * DT, Math.min(6 * DT, turn))
+    const l = Math.hypot(wx, wz)
+    const sy = Math.sin(camYaw)
+    const cy = Math.cos(camYaw)
+    intent.lookYaw = camYaw
+    intent.moveForward = l > 1e-3 ? (sy * wx + cy * wz) / l : 0
+    intent.moveRight = l > 1e-3 ? (-cy * wx + sy * wz) / l : 0
+    intent.run = sprint && !p.crouched
+    tick(s, sim, DT, intent)
+  }
+  return done(false, `timed out at step ${step} (${route[step]?.at.join(',')}) after waiting ${waiting.toFixed(0)} s`)
+}
+
+const mode = process.argv[2] === 'quiet' ? 'quiet' : 'loud'
+if (process.argv[5] === 'old') {
+  // the balance the designer could not beat, for comparison
+  Object.assign(cfg.player, { maxHp: 100 })
+  Object.assign(cfg.drone, { hp: 100, fireIntervalSec: 1.15, fireWindupSec: 0.6, aimSec: 0.05, boltSpeed: 15, boltDamage: 7 })
+  Object.assign(cfg.combat.sword, { damage: 55 })
+  Object.assign(cfg.alarm, { searchers: [0, 2, 3, 0], waveSizes: [2, 3, 4], waveFirstDelaySec: 3, waveGapSec: 6, maxWaveDrones: 5 })
+}
+const seeds = Number(process.argv[3] ?? 8)
+let wins = 0
+for (let seed = 1; seed <= seeds; seed++) {
+  const r = mode === 'loud' ? play(seed, LOUD, true) : play(seed, QUIET, false)
+  if (r.won) wins++
+  console.log(
+    `${mode} seed ${seed}: ${r.won ? 'WON ' : 'LOST'} ${r.why} | ${r.time.toFixed(0)} s, hp ${r.hp.toFixed(0)} (min ${r.minHp.toFixed(0)}/${cfg.player.maxHp}), ` +
+      `alarms ${r.alarms}, kills ${r.kills}, waves cleared ${r.waves}, hits taken ${r.hitsTaken}/${r.shotsAtPlayer} shots`,
+  )
+}
+console.log(`${mode}: ${wins}/${seeds} won`)
