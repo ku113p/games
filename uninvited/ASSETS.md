@@ -106,6 +106,24 @@ The key lives outside the repository (agent's scratchpad). Every generated asset
 - FP4: a Gemini edit of FP3 - no data cables, a wireless keyboard and VR headset, the chair removed (the corner is now a floor grate with tools).
   New depth and SlimSAM masks with the same channel layout; close-ups CU1c-CU4c against FP4. FP3 and the CU*b files were deleted.
 
+### Round 7 (2026-10-04): close-ups that match the room, VR from the inside, a better window
+
+- The designer: the props in close-ups differed from the room; a taken bottle must be gone from its place; the VR should be seen as being put on;
+  the window should show poverty near and the rich city's neon far beyond the walls; the tablet close-up lost the desk behind.
+- Gemini 3.1 Flash Image with two references - the FP4 plate and a crop of the prop from it - then small Gemini edits:
+  CU1e water (the side-table spot empty), CU2e noodles (the shelf cups' print), CU3d tablet, CU4e the inside of the VR headset, CU5b window.
+- CU1c-CU4c and CU5 were deleted.
+
+### Round 8 (2026-10-04): the hero, simpler
+
+- The designer likes H3 (coat) and H6 (asymmetric) but wants the in-game hero simpler, close to Tron in simplicity (a form-fitting neon suit),
+  keeping the coat nuance; energy sword and energy rifle; a little hacker flavor. H7-H10 (MAI-2.6-flash, refs H3/H6).
+
+### Round 9 (2026-10-04): the chosen hero in the network scenes
+
+- The designer chose H10 (hooded coat) and liked that the sword and the gun are one weapon - the design now has one energy gunblade with two modes.
+- NN1b corridor (Gemini after MAI's filter blocked it), KA3 key art and K3 cover (MAI-2.6-flash), refs H10 + the NN1/KA2 look. KA2 and K2 were deleted.
+
 ### D. Not now
 
 - Seamless textures for a 3D room/office - not needed: the real world is 2.5D (generated plates, see `DESIGN.md` section 5).
