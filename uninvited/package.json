@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "play": "bun tools/serve.ts 3330 index.html",
+    "dev": "bun --port 3331 index.html",
+    "test": "bun test core scripts",
+    "lint:layers": "bun scripts/check-layers.ts",
+    "typecheck": "bunx tsc --noEmit -p .",
+    "check": "bun run typecheck && bun run lint:layers && bun run test",
+    "build": "bun build index.html --outdir dist/uninvited --minify",
     "spike": "bun --port 3320 spike/index.html",
     "spike:build": "bun build spike/index.html --outdir dist/spike --minify",
     "test:room": "bun tools/serve.ts 3325 tests/room-fp/index.html",

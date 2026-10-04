@@ -88,7 +88,9 @@ Goal: one corridor, 2-3 minutes, passable **quietly** and **by force**, with the
 
 ### Day 6 - Thu 10-09: the build and other eyes
 - Upload to itch as a draft; check on another PC and a weak laptop.
-- 2-3 people play silently; the designer watches where they get stuck; the agent fixes what they hit.
+- There are no outside testers (none came for snake either). Instead: the designer plays the whole game once "cold", start to finish,
+  without the agent's notes, and writes where they got stuck or bored; the agent adds a scripted smoke playthrough of every scene.
+- Optional: post the draft in the jam's community tab and the GameDev.tv Discord playtest channel - jam participants trade plays there.
 
 ### Days 7-8 - Fri 10-10, Sat 10-11: polish
 - Juice: hit-stop, shake, sparks, glitches when something breaks, transitions; a sound for every action.
@@ -108,11 +110,11 @@ level 3 shrinks to its finale. Never cut: the prologue, the room, the two ending
 | --- | --- |
 | Every task | Play it and say what feels wrong (on your PC with a real GPU). |
 | Day 2 evening | Pass the slice both ways; say which path is boring. |
-| Day 3 | Download two free CC0 packs from quaternius.com if the site needs a browser click (the agent says which). |
-| Day 3-4 | Texts: the agent drafts every line (May, notes, letters, news, prologue, endings) into `texts/en.json` from the story in DESIGN; you edit. |
-| Day 4 | Level 1: the agent proposes the layout (ASCII map + a top-down picture); you approve or redraw. Same for levels 2 and 3 on day 5. |
+| Day 2 | Download the Quaternius CC0 packs (Universal Base Characters, Universal Animation Library 1 and 2) into Windows Downloads. |
+| Day 3-4 | Texts (agreed): the agent drafts every line (May, notes, letters, news, prologue, endings) into `texts/en.json` from the story in DESIGN; you edit. The game is in English. |
+| Day 4 | Levels (agreed): the agent proposes each layout (ASCII map + a top-down picture); you approve or redraw. Level 1 on day 4, levels 2 and 3 on day 5. |
 | Day 4 | Music: approve the style prompts (Ghostrunner-like darksynth). |
-| Day 6 | Find 2-3 people to play silently. |
+| Day 6 | Play the whole draft once "cold" and write where it stuck or bored; optionally post it in the jam community. |
 | Day 8 | Fill in the retrospective in `NOTES.md` and a row in the journal after release. |
 
 ## 5. Budget
