@@ -1,0 +1,93 @@
+# Uninvited - generated assets plan
+
+Budget: one OpenRouter key, **$10 for everything** (expires 2026-10-11). Images get at most **$4**; the rest is kept for voices and music.
+The key lives outside the repository (agent's scratchpad). Every generated asset goes into `CREDITS.md` with the model name.
+
+## Models (live test on 2026-10-04, the same hard prompt on 8 models)
+
+| Model | $ / image | Verdict | Used for |
+| --- | --- | --- | --- |
+| `microsoft/mai-image-2.6-flash` | 0.020 | best price/quality: followed every detail (back to camera, props, window) | **default** |
+| `microsoft/mai-image-2.6` | 0.040 | same, more detail | the style anchors (A1, A3, A5) |
+| `google/gemini-3.1-flash-image` | 0.067 | strongest at editing a reference while keeping it the same | edits of an anchor (empty plates A2, A4) |
+| `recraft/recraft-v4-vector` | ~0.02 | returns SVG | the logo |
+| `openai/gpt-image-2` | 0.033 | the only one that renders text reliably | only if an image must contain text |
+| flux-3, seedream-5-flash, qwen-image-3, krea-2 | 0.018-0.030 | weaker on this prompt | not used |
+
+## Fixed descriptions (copied verbatim into every prompt that needs them)
+
+- **JOHNNY** - "a slim man in his late thirties with short dark messy hair". Office: "in a cheap grey suit with a loosened tie". Room: "in a dark worn hoodie".
+  **His face is never shown** (back, over-the-shoulder, shadow) - the design says the room hides it; the agent keeps it hidden everywhere for consistency.
+- **JIM** - "a man in his mid fifties with short grey hair and a trimmed grey beard, in an expensive charcoal three-piece suit, tired stern eyes" (from `concept-art/office-1.jpg`).
+- **STEVE** - "a nervous young man in his early twenties, short light-brown hair, white shirt with a corporate lanyard".
+- **OFFICE look** - "cold white and steel-blue light, glass partitions, brushed metal, holographic monitors, clean and oppressive megacorporation interior".
+- **ROOM look** - "riveted corrugated metal walls and cheap patched plastic panels, everything cheap, worn, fourth-rate and home-made but kept tidy, no garbage, cables taped along the walls, warm tungsten desk lamp against cold cyan screen glow, rain and pink-cyan neon outside one small window".
+- **REAL suffix** - "Photorealistic cinematic film still, 35mm lens, natural film grain, no text, no letters, no logos, no watermark."
+- **NET look** (key art only; the network itself is built in code) - "Tron Legacy inspired cyberspace: glossy black architecture outlined with thin continuous cyan light lines, red security, deep fog".
+
+## Units
+
+`refs` = reference images passed to the model. 16:9 unless noted. ~2 attempts each.
+
+### A. Style anchors (generated first; everything else references them)
+
+| ID | Use | Model | Refs | Prompt |
+| --- | --- | --- | --- | --- |
+| A1 room-master | room, fixed camera; clickable props | mai-2.6 | `concept-art/room-2.jpg`, test winner | Fixed wide shot from a corner at standing eye level of a tiny one-room home in a cyberpunk slum. ROOM look. JOHNNY in a dark worn hoodie sits in a worn office chair at a home-made computer rig with three mismatched screens, his back to the camera, face not visible. Clearly separated props: a cheap plastic water bottle and a translucent holographic tablet on a small side table, a narrow shelf with instant noodle packs, a neural-link headset with thick cables hanging on a hook beside the rig, a narrow cot along the wall, a metal door on the left. REAL suffix. |
+| A2 room-plate | the same room without the man (for compositing the animated character) | gemini-3.1-flash | A1 | Keep this exact room, camera, framing, lighting and every prop identical. Only change: the office chair is empty and nobody is in the room. REAL suffix. |
+| A3 office-master | prologue establishing shot | mai-2.6 | `concept-art/office-1.jpg` | Wide shot of a cramped glass cubicle of a middle manager inside a megacorporation tower. OFFICE look. JOHNNY in a cheap grey suit with a loosened tie sits at his desk facing his holographic monitors, seen from behind at three quarters, face not visible. Behind a glass partition, STEVE sits at a smaller desk. A glass door to a bright white corridor on the right. The cubicle is noticeably smaller than the offices around it. REAL suffix. |
+| A4 office-plate | the same cubicle, empty | gemini-3.1-flash | A3 | Keep this exact office, camera, framing, lighting and furniture identical. Only change: nobody is in the room, both chairs are empty. REAL suffix. |
+| A5 key-art | title screen, itch page | mai-2.6 | `concept-art/net-2.jpg`, `concept-art/hero-1.jpg`, `concept-art/enemy-1.jpg` | Video game key art. NET look. A lone small figure in a black light suit with thin cyan lines and a smooth helmet stands on a narrow bridge inside a vast vertical data shaft that rises into fog. Three hovering security drones - glossy black discs with a red light ring and a single red eye - watch him from above. Empty dark space in the upper third for a title. Cinematic, high contrast, no text, no letters, no logos. |
+
+### B. Story stills
+
+| ID | Use | Model | Refs | Prompt |
+| --- | --- | --- | --- | --- |
+| P2 jim-door | prologue: Jim walks in | mai-2.6-flash | A3, office-1 | Medium shot from a seated person's point of view: JIM stands in the glass doorway of a cramped cubicle, looking down at the viewer, one hand on the door frame, about to deliver bad news. OFFICE look. REAL suffix. |
+| P3 johnny-hands | prologue: the firing | mai-2.6-flash | A3, P2 | Over-the-shoulder shot from behind JOHNNY in a cheap grey suit, seated, his face not visible, his hands clenched on the desk; JIM stands in front of the desk slightly out of focus, speaking. OFFICE look. REAL suffix. |
+| P4 steve | prologue: Steve looks away | mai-2.6-flash | A3 | Through a glass partition: STEVE at a small desk stares hard at his screen, pretending not to hear, guilty, cold screen light on his face. OFFICE look. REAL suffix. |
+| P5 box | prologue: leaving | mai-2.6-flash | A3 | JOHNNY in a cheap grey suit seen from behind, carrying a cardboard box with his few belongings down a long sterile white corridor lined with glass cubicles; office workers keep their eyes on their screens; a security guard in a white uniform walks two steps behind him. OFFICE look. REAL suffix. |
+| P6 gate | prologue: exile | mai-2.6-flash | P5 | JOHNNY seen from behind, holding a cardboard box, standing in the opening of a huge white corporate security gate as it slides shut behind him. Before him in the rain: the Free Territories, a sprawl of shacks, cables and patched neon signs under a dark sky; behind him: sterile white light. Strong contrast of the two worlds. REAL suffix. |
+| S1-S6 cctv | the encounter with Jim: lagged security-camera frames | mai-2.6-flash | P2 | Security camera frame from a high ceiling corner with a wide fisheye lens, grainy low-resolution footage, faint scanlines, slight motion blur, desaturated cold tones, no timestamp, no text. A night office of a senior manager; JIM ... **S1** sits at his desk with his head in his hands. **S2** reads a glowing letter on a holographic screen, a hand over his mouth. **S3** holds a small framed family photo, looking at it. **S4** types alone in the dark, only the screen lights his face. **S5** stands at the window, looking out at the city lights. **S6** (no Jim) the same office empty, the chair pushed back, the desk cleared. |
+| N1-N4 news | tablet news in the room | mai-2.6-flash | - | News photo, REAL suffix. **N1** a crowd of fired corporate employees carrying cardboard boxes walking out through giant white corporate gates, drones overhead, rain. **N2** aerial dusk view: gleaming white corporate towers of a megacity on one side of a wall, the sprawling shanty town of the Free Territories on the other. **N3** a corporate executive at a white podium in front of a huge minimalist white tower, cameras flashing. **N4** a busy street market under neon rain in the slums, makeshift stalls, cables overhead. |
+| E1 parcel-money | peaceful ending | mai-2.6-flash | A2 | Close-up on the floor of the same small room: an opened cardboard parcel full of bundles of banknotes, the metal door ajar behind it, warm lamp light. ROOM look. REAL suffix. |
+| E2 parcel-door | sad ending, before the blast | mai-2.6-flash | A2 | The same small room: a closed cardboard parcel just placed inside the metal door, a tiny red light blinking through a torn corner of the box, ominous. ROOM look. REAL suffix. |
+| F1 delivery | after level 1 | mai-2.6-flash | A1 | Close-up on the small side table of the same room: an opened cheap food delivery box with steaming noodles and chopsticks, a cheap plastic water bottle, warm lamp light. ROOM look. REAL suffix. |
+| J1 family | Jim's family photo (desk, notes) | mai-2.6-flash | P2 | Slightly faded warm family photo in a simple frame: JIM, smiling a little, with his wife and two children in a city park in summer. REAL suffix. |
+
+### C. Interface and identity
+
+| ID | Use | Model | Refs | Prompt |
+| --- | --- | --- | --- | --- |
+| M1-M2 may | May's icon in dialogue | mai-2.6-flash, 1:1 | - | Icon of an artificial intelligence: a single ring-shaped eye made of cyan and white light, small glitch fragments breaking off its edge, perfectly centered, symmetrical, on a pure black background, minimal, high contrast, no text. (M2: the same but the ring is half corrupted with a few red glitch pixels.) |
+| L1-L2 logo | Shuseki logo (office screens, letters) | recraft-v4-vector, 1:1, SVG | - | Minimal flat corporate logo mark for a megacorporation whose name means "agglomeration": many small squares converging into one dense square block, single color white on black, geometric, no text. (L2: a stylised circle made of concentric dense rings.) |
+| C1-C2 portraits | dialogue portraits | mai-2.6-flash, 1:1 | P2 / P4 | Head and shoulders portrait, neutral dark grey background, soft cold key light. C1: JIM. C2: STEVE. REAL suffix. |
+| K1 cover | itch cover 630x500 | mai-2.6, 4:3 (cropped) | A5 | The same scene as the reference, recomposed for a near-square cover: the figure on the bridge in the lower middle, drones above, empty space at the top for a title. No text. |
+
+### Round 2 (2026-10-04, after the designer's notes)
+
+- Johnny's face is never shown; the office is **enclosed**; the network must be **narrow enclosed spaces**.
+- Network concepts: NN1 corridor with a camera cone and a laser firewall, NN2 tight server hall with a drone, NN3 maintenance duct over a guarded room.
+- Enclosed office set replacing A3/A4/P2-P5: O3 master, O4 empty plate, OP2 Jim at the door, OP3 over Johnny's shoulder, OP4 Steve, OP5 leaving with the box.
+- The Microsoft model's safety filter falsely blocks some prompts; the runner falls back to Gemini 3.1 Flash Image automatically.
+
+### Next (after the designer chose first person, 2026-10-04)
+
+- The real world is seen in **first person** with no animated character. The room and office plates (A1/A2, O3/O4) are third-person shots
+  and need first-person versions: the view from Johnny's chair at the rig, and from his desk in the cubicle (Jim at the door, OP2, is already a POV shot).
+  Not generated yet - waits for the designer's go.
+
+### D. Not now
+
+- Seamless textures for a 3D room/office - not needed: the real world is 2.5D (generated plates, see `DESIGN.md` section 5).
+- The network itself - built in code (lines, light, geometry), no images.
+- Voices, music, sound effects - separate plans, after the images.
+
+## Prompt review (done three times before generating)
+
+1. **Against the design:** names, the no-garbage room, the headset as the "go online" device, the props for every room action (water, food, tablet),
+   the delivery after level 1, mass-layoff news, the lagged camera frames, both parcel endings, Jim's family. Johnny's face hidden everywhere.
+2. **Consistency:** the fixed descriptions are pasted verbatim; every scene references its anchor; one palette per place; 16:9 for scenes.
+3. **Model pitfalls:** no real game or film titles inside scene prompts except "Tron Legacy" as a style word for key art; no artist names;
+   "no text" everywhere (in-game text is rendered by the game, not baked into images); no negative-only phrasing for objects
+   (the earlier "not vehicles" style); camera position and lens stated in each shot.

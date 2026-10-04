@@ -1,0 +1,83 @@
+{
+  "player": {
+    "runSpeed": 7.2,
+    "sneakSpeed": 2.4,
+    "groundAccel": 60,
+    "airAccel": 18,
+    "jumpSpeed": 8.2,
+    "gravity": 24,
+    "maxFall": 30,
+    "coyoteMs": 110,
+    "jumpBufferMs": 130,
+    "dashSpeed": 21,
+    "dashMs": 160,
+    "dashCooldownMs": 550,
+    "turnRate": 16,
+    "radius": 0.35,
+    "halfHeight": 0.55,
+    "maxHp": 100,
+    "hurtInvulnMs": 350,
+    "respawnMs": 1400
+  },
+  "strike": {
+    "range": 2.4,
+    "arcDeg": 110,
+    "cooldownMs": 360,
+    "damage": 45,
+    "takedownBehindDeg": 80,
+    "lungeSpeed": 9,
+    "lungeMs": 90,
+    "hitStopMs": 70,
+    "killHitStopMs": 120
+  },
+  "decoy": {
+    "cooldownMs": 5000,
+    "lifeMs": 4500,
+    "throwDist": 7
+  },
+  "drone": {
+    "patrolSpeed": 2.6,
+    "chaseSpeed": 5.2,
+    "hover": 2.3,
+    "viewDist": 13,
+    "viewDeg": 62,
+    "suspicionRate": 1.1,
+    "sneakFactor": 0.35,
+    "suspicionDecay": 0.45,
+    "alertMs": 4500,
+    "fireMs": 650,
+    "boltSpeed": 17,
+    "boltDamage": 12,
+    "boltLifeMs": 1800,
+    "hp": 90,
+    "keepDist": 6.5,
+    "turnRate": 4
+  },
+  "node": {
+    "captureMs": 1600,
+    "radius": 1.8
+  },
+  "camera": {
+    "distance": 5.2,
+    "height": 0.9,
+    "lookHeight": 1.45,
+    "sensitivity": 0.0024,
+    "followLerp": 18,
+    "minPitch": -0.35,
+    "maxPitch": 1.15,
+    "startPitch": 0.32,
+    "fov": 62,
+    "dashFov": 72,
+    "shakeDecay": 7,
+    "collisionPad": 0.3
+  },
+  "fx": {
+    "particles": 400,
+    "afterimages": 6,
+    "afterimageMs": 260,
+    "bolts": 48
+  },
+  "sim": {
+    "maxDt": 0.034
+  }
+}

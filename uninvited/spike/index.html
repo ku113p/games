@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Uninvited - spike</title>
+    <style>
+      :root { --hud: #7ff3ff; --enemy: #ff2a3a; --accent: #ffa21a; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--hud);
+        font: 14px/1.4 ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace; user-select: none; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      .hidden { display: none !important; }
+      .glow { text-shadow: 0 0 8px currentColor; }
+      #top { position: fixed; top: 16px; left: 0; right: 0; text-align: center; pointer-events: none; }
+      #status { display: inline-block; padding: 4px 14px; border: 1px solid currentColor; letter-spacing: 4px; font-size: 13px;
+        text-shadow: 0 0 8px currentColor; box-shadow: 0 0 12px -4px currentColor; }
+      #status.sus { color: #ffd23a; }
+      #status.alert { color: var(--enemy); animation: blink 0.4s steps(2) infinite; }
+      @keyframes blink { 50% { opacity: 0.55; } }
+      #objective { margin-top: 8px; opacity: 0.8; font-size: 12px; letter-spacing: 1px; }
+      #bars { position: fixed; left: 24px; bottom: 24px; width: 260px; pointer-events: none; }
+      .bar { height: 6px; background: rgba(255,255,255,0.08); margin-top: 8px; position: relative; }
+      .bar > div { height: 100%; background: var(--hud); box-shadow: 0 0 10px var(--hud); transition: width 0.1s; }
+      .bar.small { height: 3px; width: 70%; }
+      .bar.decoy > div { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+      .label { font-size: 10px; letter-spacing: 3px; opacity: 0.7; margin-top: 10px; }
+      #ai { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(10px); max-width: 640px;
+        padding: 10px 16px; border-left: 2px solid var(--accent); background: rgba(0,0,0,0.55); color: #e8fbff;
+        opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; }
+      #ai.on { opacity: 1; transform: translateX(-50%); }
+      #hint-capture { position: fixed; left: 50%; top: 58%; transform: translateX(-50%); color: var(--accent);
+        letter-spacing: 3px; text-shadow: 0 0 10px currentColor; pointer-events: none; }
+      #help { position: fixed; right: 24px; top: 40px; text-align: right; font-size: 11px; opacity: 0.65; line-height: 1.7; pointer-events: none; }
+      #look { position: fixed; right: 24px; top: 18px; font-size: 11px; opacity: 0.75; pointer-events: none; }
+      #start, #end { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at center, rgba(0,0,0,0.35), rgba(0,0,0,0.85)); cursor: pointer; text-align: center; }
+      #start h1, #end h1 { font-weight: 300; letter-spacing: 18px; font-size: 54px; margin: 0 0 12px; text-shadow: 0 0 18px currentColor; }
+      #start p { margin: 4px; opacity: 0.8; }
+      #start .go { margin-top: 28px; padding: 10px 26px; border: 1px solid currentColor; letter-spacing: 4px; box-shadow: 0 0 16px -4px currentColor; }
+      #end { cursor: default; }
+      #end-stats { opacity: 0.85; }
+      body.clean #top, body.clean #bars, body.clean #help, body.clean #look, body.clean #ai, body.clean #hint-capture { display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="top">
+      <div id="status">HIDDEN</div>
+      <div id="objective"></div>
+    </div>
+    <div id="bars">
+      <div class="label">SIGNAL</div>
+      <div class="bar"><div id="hp-fill"></div></div>
+      <div class="label">DASH</div>
+      <div class="bar small"><div id="dash-fill"></div></div>
+      <div class="label">AI · GHOST SIGNAL</div>
+      <div class="bar small decoy"><div id="decoy-fill"></div></div>
+    </div>
+    <div id="ai"></div>
+    <div id="hint-capture" class="hidden">HOLD [E] - CAPTURE NODE</div>
+    <div id="look"></div>
+    <div id="help">
+      WASD move · mouse look<br />
+      SPACE jump · SHIFT dash<br />
+      C / CTRL sneak · LMB strike (from behind = takedown)<br />
+      RMB / F ghost signal (AI) · E capture<br />
+      R restart · 1 2 3 look
+    </div>
+    <div id="start">
+      <h1>UNINVITED</h1>
+      <p>You came back. Nobody was expecting you.</p>
+      <p style="opacity: 0.5; font-size: 12px">feel spike - movement · stealth · strike</p>
+      <div class="go">CLICK TO JACK IN</div>
+    </div>
+    <div id="end" class="hidden">
+      <h1 id="end-title"></h1>
+      <div id="end-stats"></div>
+      <p style="margin-top: 24px; opacity: 0.7">R - run it again</p>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

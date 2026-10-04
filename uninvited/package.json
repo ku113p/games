@@ -1,0 +1,18 @@
+{
+  "name": "uninvited",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "spike": "bun --port 3320 spike/index.html",
+    "spike:build": "bun build spike/index.html --outdir dist/spike --minify"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "bun-types": "1.4.2",
+    "typescript": "7.0.2"
+  }
+}
