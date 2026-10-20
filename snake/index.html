@@ -1,0 +1,1677 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <title></title>
+    <style>
+      :root {
+        color-scheme: dark;
+        /* Extra room at the bottom while the page is fullscreen (the browser toast "To exit full screen..." sits there).
+           Set from screens/fullscreen.ts (value: config.json layout.fullscreenBottomReservePx); 0px outside fullscreen. */
+        --fs-reserve: 0px;
+        --bg: #05060a;
+        --fg: #d9fbff;
+        --neon: #39ffe0;
+        --neon-dim: #1c8f80;
+        --accent: #ff2fb0;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        overflow: hidden;
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+        /* iOS: no text selection or system menu on long press */
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      #app {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #game-canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+
+      .screen {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 16px;
+        padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+          calc(max(24px, env(safe-area-inset-bottom)) + var(--fs-reserve)) max(16px, env(safe-area-inset-left));
+        text-align: center;
+        background: radial-gradient(ellipse at 50% 30%, rgba(57, 255, 224, 0.08), transparent 60%), var(--bg);
+      }
+
+      .screen.hidden {
+        display: none;
+      }
+
+      .screen h1 {
+        margin: 0 0 4px;
+        font-size: clamp(28px, 8vw, 44px);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--neon);
+        text-shadow: 0 0 12px var(--neon), 0 0 32px var(--neon-dim);
+      }
+
+      .screen h2 {
+        margin: 0;
+        font-size: clamp(22px, 6vw, 32px);
+        color: var(--accent);
+        text-shadow: 0 0 12px var(--accent);
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        max-width: 420px;
+      }
+
+      .field > span {
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+
+      .options {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 100%;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--neon-dim);
+        background: rgba(57, 255, 224, 0.06);
+        color: var(--fg);
+        border-radius: 10px;
+        padding: 12px 18px;
+        min-height: 44px;
+        min-width: 44px;
+        font-size: 16px;
+        font-family: inherit;
+        cursor: pointer;
+      }
+
+      button:active {
+        background: rgba(57, 255, 224, 0.18);
+      }
+
+      button.selected {
+        border-color: var(--neon);
+        background: rgba(57, 255, 224, 0.22);
+        box-shadow: 0 0 10px rgba(57, 255, 224, 0.5);
+      }
+
+      .record {
+        font-size: 14px;
+        opacity: 0.85;
+        letter-spacing: 0.04em;
+      }
+
+      .tap-to-play {
+        width: min(100%, 420px);
+        min-height: 56px;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--bg);
+        background: var(--neon);
+        border: none;
+        box-shadow: 0 0 24px var(--neon-dim);
+      }
+
+      .tap-to-play:active {
+        background: var(--neon-dim);
+      }
+
+      #hud {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      #hud.hidden {
+        display: none;
+      }
+
+      #hud .score-pill {
+        padding: 6px 18px;
+        border-radius: 999px;
+        background: rgba(5, 6, 10, 0.6);
+        border: 1px solid var(--neon-dim);
+        font-size: 20px;
+        letter-spacing: 0.05em;
+        text-shadow: 0 0 8px var(--neon);
+      }
+
+      #game-over p {
+        margin: 2px 0;
+        font-size: 16px;
+        opacity: 0.9;
+      }
+
+      .screen.overlay {
+        background: rgba(5, 6, 10, 0.82);
+        justify-content: center;
+      }
+
+      .screen.overlay p {
+        margin: 0;
+        max-width: 420px;
+        font-size: 17px;
+        line-height: 1.45;
+      }
+
+      .screen.overlay .hint {
+        font-size: 14px;
+        opacity: 0.7;
+      }
+
+      button.secondary {
+        background: transparent;
+        min-width: 120px;
+      }
+
+      /* Scheme "Taps": a compact pad in the bottom corner (right by default, can be moved left in the menu; in "Swipes" there is no pad).
+         A button is at least 44 px (about 15vmin on a phone), the margins are the notch and home-indicator safe areas.
+         The minimap lives top left, the play field is in the center - the pad does not cover them. */
+      #pad {
+        --btn: clamp(48px, 15vmin, 72px);
+        position: absolute;
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve));
+        right: max(12px, env(safe-area-inset-right));
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        gap: 10px;
+        touch-action: none;
+      }
+
+      #pad.left {
+        right: auto;
+        left: max(12px, env(safe-area-inset-left));
+        flex-direction: row-reverse;
+      }
+
+      #pad.hidden {
+        display: none;
+      }
+
+      #pad .cross {
+        display: grid;
+        grid-template-columns: repeat(3, var(--btn));
+        grid-template-rows: repeat(3, var(--btn));
+        gap: 4px;
+      }
+
+      #pad button {
+        padding: 0;
+        width: var(--btn);
+        height: var(--btn);
+        min-width: 44px;
+        min-height: 44px;
+        font-size: calc(var(--btn) * 0.42);
+        line-height: 1;
+        border-radius: 14px;
+        background: rgba(5, 6, 10, 0.55);
+        border: 1px solid rgba(57, 255, 224, 0.45);
+        color: rgba(57, 255, 224, 0.85);
+        touch-action: none;
+        transition: background 60ms, box-shadow 60ms;
+      }
+
+      #pad button:active,
+      #pad button.pressed {
+        background: rgba(57, 255, 224, 0.35);
+        transform: scale(0.94);
+      }
+
+      /* Command accepted, the snake has not executed it yet (a step can last more than a second). */
+      #pad button.queued {
+        border-color: var(--neon);
+        color: var(--bg);
+        background: var(--neon);
+        box-shadow: 0 0 14px var(--neon);
+      }
+
+      #pad button.up {
+        grid-area: 1 / 2;
+      }
+      #pad button.left {
+        grid-area: 2 / 1;
+      }
+      #pad button.right {
+        grid-area: 2 / 3;
+      }
+      #pad button.down {
+        grid-area: 3 / 2;
+      }
+
+      /* Boost button (both schemes): hold - the snake goes faster. In "Swipes" - at the bottom
+         in the corner on the pad's side, in "Taps" - in the center of the cross (see below). At least 44 px, the margins are the safe areas. */
+      #boost {
+        --boost: clamp(64px, 20vmin, 96px);
+        position: absolute;
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve));
+        left: max(12px, env(safe-area-inset-left));
+        width: var(--boost);
+        height: var(--boost);
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: calc(var(--boost) * 0.34);
+        font-weight: 700;
+        line-height: 1;
+        /* Optical centring, same class of bug as the pause icon: the button centres the LINE BOX, whose middle depends on the font's ascent/descent,
+           not on where the digits are painted - the ink sat 0 to 4.6 px off centre depending on the font. Trimming the box to the cap height and the
+           baseline makes the box equal the digits, so any label ("×1.5", "×4") is centred on what the eye sees, in any font. Unsupported browsers keep the old centring. */
+        text-box: trim-both cap alphabetic;
+        background: rgba(5, 6, 10, 0.55);
+        border: 2px solid rgba(255, 47, 176, 0.55);
+        color: rgba(255, 47, 176, 0.9);
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        transition: background 60ms, box-shadow 60ms;
+      }
+      #boost.side-right {
+        left: auto;
+        right: max(12px, env(safe-area-inset-right));
+      }
+      /* Scheme "Taps": "×2" sits in the empty central cell of the pad's cross (main.ts moves it into .cross).
+         The cell = a pad button (≥ 48 px), a 4 px gap to the arrows - same as between the arrows themselves. */
+      #pad #boost.in-cross {
+        position: static;
+        grid-area: 2 / 2;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 47, 176, 0.55);
+        color: rgba(255, 47, 176, 0.9);
+        font-size: calc(var(--btn) * 0.34);
+      }
+      #pad #boost.in-cross:active {
+        background: rgba(255, 47, 176, 0.3);
+      }
+      #pad #boost.in-cross.boosting {
+        border-color: var(--accent);
+        color: var(--bg);
+        background: var(--accent);
+        box-shadow: 0 0 22px var(--accent);
+      }
+      #boost.hidden {
+        display: none;
+      }
+      #boost.pressed {
+        transform: scale(0.94);
+      }
+      /* Boost is on (including from the keyboard): the button glows. */
+      #boost.boosting {
+        border-color: var(--accent);
+        color: var(--bg);
+        background: var(--accent);
+        box-shadow: 0 0 22px var(--accent);
+      }
+
+      /* Camera turn stick (both schemes): small, at the bottom edge, opposite the pad/"×2" (left by default).
+         Self-centering: hold - the camera moves, release - the knob is centered, the camera stays. The size is set by main from config.json. */
+      #stick {
+        --stick: 92px;
+        /* Height of the row the stick is level with: "×2" (Swipes) or the pad cross (Taps, .beside-pad).
+           The stick is centered on the middle of the row, but not below the screen safe area. */
+        --row: clamp(64px, 20vmin, 96px);
+        display: none; /* the stick is for touch devices only (see @media below); on PC the camera is turned with the mouse, reset is the R key */
+        position: absolute;
+        z-index: 4;
+        bottom: calc(calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve)) + max(0px, (var(--row) - var(--stick)) / 2));
+        left: max(12px, env(safe-area-inset-left));
+        width: var(--stick);
+        height: var(--stick);
+        border-radius: 50%;
+        background: rgba(5, 6, 10, 0.45);
+        border: 1px solid rgba(57, 255, 224, 0.45);
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        opacity: 0.8;
+        transition: opacity 120ms;
+      }
+      /* any-pointer, not pointer: on a laptop with a touch screen and on a tablet with a mouse the primary pointer is not a touch,
+         but you can play with a finger. The media query is live: it survives screen rotation and changes of input devices. */
+      @media (any-pointer: coarse) {
+        #stick {
+          display: block;
+        }
+      }
+      #stick.beside-pad {
+        --row: calc(clamp(48px, 15vmin, 72px) * 3 + 8px);
+      }
+      #stick.side-right {
+        left: auto;
+        right: max(12px, env(safe-area-inset-right));
+      }
+      #stick.active {
+        opacity: 1;
+        border-color: var(--neon);
+      }
+      /* Quick tap = camera reset: a short ring flash. */
+      #stick.flash {
+        animation: stick-flash 260ms ease-out 1;
+      }
+      @keyframes stick-flash {
+        0% { background: rgba(57, 255, 224, 0.55); box-shadow: 0 0 22px var(--neon); border-color: var(--neon); opacity: 1; }
+        100% { box-shadow: 0 0 0 transparent; }
+      }
+      #stick.hidden {
+        display: none;
+      }
+      #stick .knob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44%;
+        height: 44%;
+        margin: -22% 0 0 -22%;
+        border-radius: 50%;
+        background: rgba(57, 255, 224, 0.35);
+        border: 1px solid var(--neon);
+        pointer-events: none;
+      }
+      #stick .glyph {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        color: rgba(57, 255, 224, 0.4);
+        pointer-events: none;
+      }
+
+      /* Manual pause: top right corner - away from the big thumbs at the bottom (no accidental press),
+         the minimap is top left, the score in the center. An icon without a label. */
+      #pause-btn {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        right: max(12px, env(safe-area-inset-right));
+        width: 48px;
+        height: 48px;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        display: grid;
+        place-items: center; /* the icon is SVG strokes, not a font glyph: "❚❚" has asymmetric side bearings and letter spacing that shifted it */
+        background: rgba(5, 6, 10, 0.6);
+        border: 1px solid var(--neon);
+        color: var(--neon);
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #pause-btn svg {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+        pointer-events: none;
+      }
+      #pause-btn.hidden {
+        display: none;
+      }
+
+      /* Camera reset (tilt and zoom). Above the boost button (in "Taps" - above the pad), on the same side: the bottom of the screen
+         is for big thumbs, the score/maps/pause at the top are untouched. Above the overlays
+         (z-index), so it can be pressed during pause too. Dims while the camera is at its default view. */
+      #cam-reset {
+        --boost: clamp(64px, 20vmin, 96px);
+        --size: 48px;
+        position: absolute;
+        z-index: 5;
+        bottom: calc(calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve)) + var(--boost) + 10px);
+        left: calc(max(12px, env(safe-area-inset-left)) + (var(--boost) - var(--size)) / 2);
+        width: var(--size);
+        height: var(--size);
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(5, 6, 10, 0.6);
+        border: 1px solid var(--neon);
+        color: var(--neon);
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        transition: opacity 150ms;
+      }
+      #cam-reset.right {
+        left: auto;
+        right: calc(max(12px, env(safe-area-inset-right)) + (var(--boost) - var(--size)) / 2);
+      }
+      /* Scheme "Taps": reset above the pad, pad height = 3 buttons + 2 gaps. */
+      #cam-reset.above-pad {
+        --btn: clamp(48px, 15vmin, 72px);
+        bottom: calc(calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve)) + var(--btn) * 3 + 8px + 10px);
+        left: calc(max(12px, env(safe-area-inset-left)) + (var(--btn) - var(--size)) / 2);
+      }
+      #cam-reset.above-pad.right {
+        left: auto;
+        right: calc(max(12px, env(safe-area-inset-right)) + (var(--btn) - var(--size)) / 2);
+      }
+      #cam-reset.idle {
+        opacity: 0.45;
+      }
+      #cam-reset.hidden {
+        display: none;
+      }
+      #cam-reset svg {
+        width: 24px;
+        height: 24px;
+        pointer-events: none;
+      }
+
+      /* ---- Game-over screen: neon GAME OVER caption (HTML+CSS, the glow is layered text-shadow: bloom does not apply to the DOM).
+         Palette from :root: pink --accent for the tube, --neon for the glitch layer. The text is not translated (arcade formula). ---- */
+      #game-over {
+        justify-content: center;
+        gap: 12px;
+        overflow-y: auto;
+        touch-action: pan-y;
+      }
+      #game-over h2.neon-title {
+        --tube: #ffe3f6;
+        margin: 0 0 4px;
+        font-size: clamp(48px, min(21vw, 15vh), 112px);
+        font-weight: 900;
+        line-height: 0.95;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--tube);
+        text-shadow:
+          0 0 2px #fff,
+          0 0 7px var(--accent),
+          0 0 18px var(--accent),
+          0 0 40px var(--accent),
+          0 0 80px rgba(255, 47, 176, 0.65);
+        animation:
+          neon-on 800ms linear 1 both,
+          neon-flicker 7s linear 1.4s infinite;
+      }
+      .neon-title .word {
+        display: block;
+        position: relative;
+        /* letter-spacing adds a tail on the right: compensate so the word stays centered */
+        padding-left: 0.1em;
+      }
+      /* Glitch on appearance: a cyan copy with shifted slices, ~0.6 s, then clip collapses to zero. */
+      .neon-title .word::before {
+        content: attr(data-text);
+        position: absolute;
+        inset: 0;
+        padding-left: 0.1em;
+        color: var(--neon);
+        text-shadow: 0 0 10px var(--neon);
+        clip-path: inset(0 0 100% 0);
+        animation: neon-glitch 600ms steps(1, end) 1 both;
+        pointer-events: none;
+      }
+      .neon-title .word:last-child::before {
+        animation-delay: 90ms;
+      }
+      /* A thin neon line under the caption. */
+      .neon-rule {
+        width: min(70%, 320px);
+        height: 2px;
+        margin: 0 auto 6px;
+        border-radius: 2px;
+        background: var(--neon);
+        box-shadow: 0 0 6px var(--neon), 0 0 16px var(--neon-dim);
+        animation: neon-on 800ms linear 1 both;
+      }
+      @keyframes neon-on {
+        0% { opacity: 0; }
+        6% { opacity: 1; }
+        11% { opacity: 0.15; }
+        18% { opacity: 1; }
+        26% { opacity: 0.35; }
+        32%, 100% { opacity: 1; }
+      }
+      /* Rare tube flicker: a couple of short brightness dips every few seconds. */
+      @keyframes neon-flicker {
+        0%, 4%, 7%, 60%, 63%, 65%, 100% { opacity: 1; }
+        5% { opacity: 0.55; }
+        61% { opacity: 0.8; }
+        64% { opacity: 0.45; }
+      }
+      @keyframes neon-glitch {
+        0% { clip-path: inset(12% 0 62% 0); transform: translateX(-7px); }
+        16% { clip-path: inset(55% 0 18% 0); transform: translateX(6px); }
+        33% { clip-path: inset(72% 0 4% 0); transform: translateX(-4px); }
+        50% { clip-path: inset(25% 0 50% 0); transform: translateX(5px); }
+        66% { clip-path: inset(40% 0 34% 0); transform: translateX(-2px); }
+        83% { clip-path: inset(4% 0 80% 0); transform: translateX(3px); }
+        100% { clip-path: inset(0 0 100% 0); transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .neon-title, .neon-rule { animation: none; }
+        .neon-title .word::before { animation: none; }
+      }
+
+      .run-stats {
+        display: flex;
+        gap: 22px;
+        justify-content: center;
+        align-items: baseline;
+        font-size: 16px;
+      }
+      .run-stats b {
+        font-size: 28px;
+        color: var(--neon);
+        text-shadow: 0 0 10px var(--neon-dim);
+        letter-spacing: 0.04em;
+      }
+
+      /* Leaderboard (game-over screen and menu). */
+      .board-wrap {
+        width: 100%;
+        max-width: 340px;
+      }
+      .board-title {
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        opacity: 0.7;
+        margin: 0 0 6px;
+      }
+      ol.board {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .board-row {
+        display: grid;
+        grid-template-columns: 2ch 1fr auto 5ch;
+        align-items: baseline;
+        gap: 12px;
+        padding: 6px 12px;
+        border: 1px solid rgba(57, 255, 224, 0.22);
+        border-radius: 8px;
+        background: rgba(57, 255, 224, 0.05);
+        font-variant-numeric: tabular-nums;
+        text-align: left;
+      }
+      .board-row .rank { opacity: 0.6; }
+      .board-row .name {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.22em;
+        color: var(--neon);
+      }
+      .board-row .score { font-weight: 700; font-size: 18px; text-align: right; }
+      .board-row .time { font-size: 13px; opacity: 0.7; text-align: right; }
+      .board-row.empty { opacity: 0.35; }
+      .board-row.mine {
+        border-color: var(--accent);
+        background: rgba(255, 47, 176, 0.12);
+        box-shadow: 0 0 14px rgba(255, 47, 176, 0.45);
+      }
+      .board-row.mine .name { color: var(--accent); text-shadow: 0 0 8px var(--accent); }
+
+      /* Name-entry drum: three slots, tap the arrows (at least 44 px), holding scrolls. */
+      .drum {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        touch-action: none;
+      }
+      .drum.hidden { display: none; }
+      .reel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .reel .step {
+        width: 64px;
+        height: 48px;
+        padding: 0;
+        font-size: 20px;
+        line-height: 1;
+        touch-action: none;
+      }
+      .reel .sym {
+        width: 64px;
+        height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 44px;
+        font-weight: 700;
+        color: var(--neon);
+        border: 1px solid var(--neon-dim);
+        border-radius: 10px;
+        background: rgba(5, 6, 10, 0.7);
+        text-shadow: 0 0 10px var(--neon);
+      }
+      .reel .sym.active {
+        border-color: var(--neon);
+        box-shadow: 0 0 14px rgba(57, 255, 224, 0.55);
+      }
+      .drum-hint { font-size: 14px; opacity: 0.8; margin: 0; }
+      #game-over .actions {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+      }
+      #game-over .actions.hidden, #game-over .drum-block.hidden { display: none; }
+      #game-over .drum-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+      }
+      /* Languages: Chinese without letter-spacing and caps (glyphs do not need them), with CJK fonts from the system. */
+      :lang(zh) {
+        font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Droid Sans Fallback", sans-serif;
+      }
+      :lang(zh) .field > span,
+      :lang(zh) .board-title,
+      :lang(zh) .screen-head h2,
+      :lang(zh) .tap-to-play,
+      :lang(zh) .screen h1 {
+        letter-spacing: 0.02em;
+      }
+      /* Language switcher: a row of two-letter buttons, quieter than the game button. One on the main and on the legal screens.
+         Each button is 44x44 (AGENTS.md, section 5); the selected language is highlighted with the usual .selected. */
+      .lang-switch {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+      .lang-switch button {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        background: transparent;
+        border-color: rgba(57, 255, 224, 0.28);
+        opacity: 0.8;
+      }
+      .lang-switch button.selected {
+        opacity: 1;
+        box-shadow: 0 0 8px rgba(57, 255, 224, 0.45);
+      }
+      /* Icon button (gear, back): 48x48, glyph 24. */
+      .icon-btn {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        border-color: rgba(57, 255, 224, 0.28);
+      }
+      .icon-btn svg {
+        width: 24px;
+        height: 24px;
+      }
+      /* Main screen: title, high score, game button, footer. The game button is bigger than everything else and in the bottom half;
+         free space is divided by auto margins between the title and the button. If the screen is short (landscape) - it scrolls. */
+      #menu {
+        justify-content: flex-start; /* flex-end on overflow pushes the top past the edge, and it cannot be scrolled to */
+        overflow-y: auto;
+        touch-action: pan-y;
+        gap: 12px;
+      }
+      #menu > * {
+        flex-shrink: 0;
+      }
+      #menu > h1 {
+        margin-top: auto;
+        margin-bottom: 0;
+        font-size: clamp(34px, 11vw, 52px);
+      }
+      #menu .tap-to-play {
+        margin-top: auto;
+        min-height: 76px;
+        font-size: 19px;
+        letter-spacing: 0.04em;
+      }
+      /* The #1 high score row: a tap opens the table. Quiet: no fill, so as not to compete with the game button. */
+      .record-line {
+        display: inline-flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 8px 20px;
+        background: transparent;
+        border-color: rgba(57, 255, 224, 0.22);
+        border-radius: 999px;
+        font-variant-numeric: tabular-nums;
+      }
+      .record-line::before {
+        content: '▸';
+        color: var(--neon);
+        opacity: 0.8;
+      }
+      .record-line .rank {
+        opacity: 0.6;
+      }
+      .record-line .name {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.22em;
+        color: var(--neon);
+      }
+      .record-line .score {
+        font-weight: 700;
+        font-size: 18px;
+      }
+      .record-line .empty-label {
+        font-size: 14px;
+        opacity: 0.6;
+      }
+      .record-line:disabled {
+        cursor: default;
+        border-color: transparent;
+      }
+      .record-line:disabled::before {
+        content: none;
+      }
+      .menu-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: min(100%, 420px);
+      }
+      /* Second-level screens (settings, records): a header with a back arrow, a scrollable body, a "Back" button at the bottom. */
+      .screen.sub {
+        justify-content: flex-start;
+        gap: 12px;
+      }
+      .screen.sub > * {
+        flex-shrink: 0;
+      }
+      .screen-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: min(100%, 420px);
+      }
+      .screen-head h2 {
+        margin: 0;
+        font-size: clamp(22px, 6vw, 28px);
+      }
+      .screen-head .icon-btn {
+        margin-left: -8px;
+      }
+      .screen.sub > .sub-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: min(100%, 420px);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+        touch-action: pan-y;
+        padding: 2px;
+      }
+      .sub-body > * {
+        flex-shrink: 0;
+      }
+      #records-board .board-row {
+        padding: 14px 14px;
+      }
+      #records-board .board-row .name,
+      #records-board .board-row .score {
+        font-size: 22px;
+      }
+      #records-board .board-row .time {
+        font-size: 15px;
+      }
+      /* Three quality buttons in one row, even at 360 px. */
+      .sub-body .options {
+        gap: 8px;
+      }
+      .sub-body .quality-options {
+        flex-wrap: nowrap;
+      }
+      .sub-body .quality-options button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-left: 6px;
+        padding-right: 6px;
+      }
+      button.wide {
+        width: min(100%, 420px);
+        min-height: 52px;
+      }
+      /* Language switcher on the legal screen - the first line of text, on the right. */
+      .legal-body > .lang-switch {
+        align-self: flex-end;
+      }
+      @media (max-height: 720px) {
+        #menu {
+          gap: 8px;
+        }
+        #menu .tap-to-play {
+          min-height: 64px;
+        }
+        .screen.sub {
+          gap: 8px;
+        }
+        .sub-body {
+          gap: 10px;
+        }
+        .sub-body .field {
+          gap: 4px;
+        }
+      }
+      /* ---- Controls screen (screens/controls-view.ts): a scheme tab, a diagram of the screen with numbered controls beside a short legend, the key list on desktop. ---- */
+      .ctl-body {
+        align-items: stretch;
+        text-align: left;
+      }
+      .ctl-tabs button {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 48px;
+      }
+      .ctl-main {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .ctl-diagram {
+        flex: 0 0 auto;
+        width: clamp(118px, 38vw, 160px);
+        height: auto;
+      }
+      .ctl-legend {
+        flex: 1 1 0;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        font-size: 14px;
+        line-height: 1.3;
+      }
+      .ctl-legend li {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .ctl-badge {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--bg);
+        background: var(--neon);
+      }
+      .ctl-badge.boost {
+        background: var(--accent);
+      }
+      .ctl-text {
+        padding-top: 2px;
+        overflow-wrap: anywhere;
+      }
+      .ctl-note {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.35;
+        opacity: 0.75;
+      }
+      .d-frame { fill: none; stroke: rgba(57, 255, 224, 0.35); stroke-width: 1.5; }
+      .d-ctl { fill: rgba(57, 255, 224, 0.06); stroke: rgba(57, 255, 224, 0.75); stroke-width: 1.5; }
+      .d-line { fill: none; stroke: rgba(57, 255, 224, 0.95); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .d-fill { fill: var(--neon); }
+      .d-ring { fill: none; stroke: var(--neon); stroke-width: 1.5; }
+      .d-ring.dashed { stroke-dasharray: 3 3; }
+      .d-boost { fill: rgba(255, 47, 176, 0.18); stroke: var(--accent); stroke-width: 2; }
+      .d-badge { fill: var(--neon); }
+      .d-badge.boost { fill: var(--accent); }
+      .d-num { fill: var(--bg); font: 700 9px system-ui, sans-serif; }
+      .ctl-keys h3 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 400;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+      .ctl-keylist {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px 14px;
+        align-items: center;
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .ctl-keylist dt,
+      .ctl-keylist dd {
+        margin: 0;
+      }
+      .ctl-caps {
+        display: inline-flex;
+        gap: 4px;
+      }
+      .ctl-or {
+        margin: 0 8px;
+        opacity: 0.5;
+      }
+      .ctl-keys kbd {
+        min-width: 28px;
+        padding: 3px 7px;
+        text-align: center;
+        font: 600 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: var(--neon);
+        border: 1px solid var(--neon-dim);
+        border-radius: 6px;
+        background: rgba(57, 255, 224, 0.06);
+      }
+      .ctl-keys .ctl-note + .ctl-note {
+        margin-top: 4px;
+      }
+      #menu > .open-controls {
+        min-height: 48px;
+      }
+
+      /* ---- One-time boost prompt (screens/boost-hint.ts). Beside the boost button, in the corner strip, never over the button or the field.
+         "Swipes": on the boost's own row, on the side toward the screen centre. "Taps": see below. The boost itself gets a ring while the prompt is up. ---- */
+      #boost-hint {
+        --boost: clamp(64px, 20vmin, 96px);
+        --btn: clamp(48px, 15vmin, 72px);
+        --edge-l: max(12px, env(safe-area-inset-left));
+        --edge-r: max(12px, env(safe-area-inset-right));
+        --edge-b: calc(max(12px, env(safe-area-inset-bottom)) + var(--fs-reserve));
+        --stick-w: clamp(88px, 24vmin, 112px);
+        position: absolute;
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+        padding: 6px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--accent);
+        background: rgba(5, 6, 10, 0.88);
+        box-shadow: 0 0 12px rgba(255, 47, 176, 0.35);
+        color: var(--fg);
+        font-size: 14px;
+        line-height: 1.25;
+        text-align: left;
+        pointer-events: none;
+        animation: hint-in 200ms ease-out;
+      }
+      #boost-hint.hidden {
+        display: none;
+      }
+      /* Swipes: row of the corner boost. Width is what is left between the boost and the stick. */
+      #boost-hint.swipes {
+        bottom: calc(var(--edge-b) + var(--boost) / 2);
+        transform: translateY(50%); /* vertically centred on the boost */
+        max-width: min(220px, calc(100vw - var(--edge-l) - var(--edge-r) - var(--boost) - var(--stick-w) - 20px));
+      }
+      #boost-hint.swipes.side-right { right: calc(var(--edge-r) + var(--boost) + 10px); }
+      #boost-hint.swipes.side-left { left: calc(var(--edge-l) + var(--boost) + 10px); }
+      /* Taps: the boost sits inside the pad's cross and the row above the pad is squeezed against the field on a small phone, so the prompt takes the free
+         spot in the corner opposite the pad: above the camera stick, level with the top of the cross (the cross's empty corner cell is next to it). */
+      #boost-hint.taps {
+        --row: calc(var(--btn) * 3 + 8px);
+        bottom: calc(var(--edge-b) + (var(--row) + var(--stick-w)) / 2 + 2px);
+        padding: 4px 8px;
+        font-size: 13px;
+        line-height: 1.2;
+        max-width: calc(100vw - var(--edge-l) - var(--edge-r) - var(--btn) * 4 - 18px - 10px - 6px);
+      }
+      #boost-hint.taps.side-right { left: var(--edge-l); }
+      #boost-hint.taps.side-left { right: var(--edge-r); }
+      /* The ring around the boost button while the prompt is up: outside its edge, so the button itself stays uncovered. */
+      #boost.hint-ring {
+        box-shadow: 0 0 0 4px rgba(255, 47, 176, 0.35), 0 0 18px rgba(255, 47, 176, 0.5);
+      }
+      @keyframes hint-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boost-hint { animation: none; }
+      }
+
+      /* ---- Shop and coins. The coin is a gold dot (one for everything: balance, prices, "+N"), so the currency does not depend on the language. ---- */
+      .coin {
+        display: inline-block;
+        flex: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 32%, #fff6b8, #ffc93a 58%, #c98a00);
+        box-shadow: 0 0 8px rgba(255, 201, 58, 0.55);
+      }
+      #menu > .shop-btn {
+        position: absolute;
+        top: max(16px, env(safe-area-inset-top));
+        right: max(16px, env(safe-area-inset-right));
+      }
+      .shop-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        padding: 0 16px 0 12px;
+        background: transparent;
+        border-color: rgba(255, 201, 58, 0.45);
+        font-variant-numeric: tabular-nums;
+      }
+      .shop-btn svg {
+        width: 22px;
+        height: 22px;
+        color: #ffc93a;
+      }
+      .shop-btn b {
+        font-size: 16px;
+      }
+      .shop-btn.hidden,
+      .to-shop.hidden,
+      .coins-line.hidden {
+        display: none;
+      }
+      .balance {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border: 1px solid rgba(255, 201, 58, 0.55);
+        border-radius: 999px;
+        font-size: 20px;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 8px rgba(255, 201, 58, 0.5);
+      }
+      .balance .coin {
+        width: 16px;
+        height: 16px;
+      }
+      .coins-line {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: #ffe38a;
+        text-shadow: 0 0 10px rgba(255, 201, 58, 0.5);
+      }
+      #game-over .to-shop {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 48px;
+        border-color: rgba(255, 201, 58, 0.55);
+      }
+      #game-over .to-shop.hidden {
+        display: none;
+      }
+      /* Shop view: a scrollable body; the text fades at the bottom so it is clear that the list continues. */
+      .screen.sub > .shop-body {
+        gap: 8px;
+        padding: 8px 10px 28px; /* generous padding: the glow of the equipped card must not hit the scroll edge */
+        margin: -6px -8px 0;
+        width: min(calc(100% + 16px), 436px);
+        -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+        mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+      }
+      .shop-group {
+        border: 1px solid rgba(57, 255, 224, 0.18);
+        border-radius: 12px;
+        background: rgba(57, 255, 224, 0.03);
+      }
+      .shop-group.open {
+        border-color: rgba(57, 255, 224, 0.4);
+      }
+      .shop-group-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 56px;
+        padding: 8px 14px;
+        border: none;
+        background: transparent;
+        text-align: left;
+      }
+      .shop-group-head .g-title {
+        flex: 0 1 auto;
+        min-width: 0;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .shop-group-head .g-dot {
+        flex: none;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #ffc93a;
+        box-shadow: 0 0 8px rgba(255, 201, 58, 0.8);
+      }
+      .shop-group-head .g-now {
+        flex: 1 1 4ch;
+        min-width: 0;
+        text-align: right;
+        font-size: 14px;
+        opacity: 0.7;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .shop-group-head .g-chev {
+        flex: none;
+        width: 9px;
+        height: 9px;
+        margin: 0 4px 3px 2px;
+        border-right: 2px solid var(--neon);
+        border-bottom: 2px solid var(--neon);
+        transform: rotate(45deg);
+        transition: transform 0.15s;
+      }
+      .shop-group.open .g-chev {
+        transform: rotate(-135deg);
+        margin-bottom: -3px;
+      }
+      .shop-group-items {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 0 8px 10px;
+      }
+      .shop-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 2px 12px;
+        padding: 8px 10px 8px 14px;
+        border: 1px solid rgba(57, 255, 224, 0.22);
+        border-radius: 10px;
+        background: rgba(57, 255, 224, 0.05);
+        text-align: left;
+        min-height: 60px;
+      }
+      .shop-item .name {
+        font-size: 16px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
+      .shop-item .meta {
+        grid-column: 1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        opacity: 0.8;
+        font-variant-numeric: tabular-nums;
+      }
+      .shop-item .meta .coin {
+        width: 11px;
+        height: 11px;
+      }
+      .shop-item .act {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        min-width: 104px;
+        min-height: 44px;
+        padding: 8px 12px;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .shop-item .act.buy {
+        color: var(--bg);
+        background: var(--neon);
+        border-color: var(--neon);
+      }
+      .shop-item .act:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+      .shop-item.equipped {
+        border-color: var(--neon);
+        box-shadow: 0 0 10px rgba(57, 255, 224, 0.4);
+      }
+      .shop-item.equipped .act {
+        border-color: transparent;
+        color: var(--neon);
+        opacity: 1;
+      }
+      .shop-item.short .meta {
+        color: var(--accent);
+        opacity: 1;
+      }
+      .shop-note {
+        margin: 0;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 201, 58, 0.6);
+        border-radius: 10px;
+        background: rgba(255, 201, 58, 0.08);
+        font-size: 14px;
+        line-height: 1.35;
+      }
+      .shop-item.locked {
+        opacity: 0.45;
+      }
+      .shop-item.locked .act {
+        opacity: 0.7;
+      }
+      .shop-item.soon {
+        border-style: dashed;
+        opacity: 0.55;
+      }
+      .shop-item.soon .name {
+        letter-spacing: 0.3em;
+      }
+      .shop-item.flash {
+        animation: shop-flash 0.5s ease-out;
+      }
+      @keyframes shop-flash {
+        0% { background: rgba(57, 255, 224, 0.4); }
+        100% { background: rgba(57, 255, 224, 0.05); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .shop-item.flash { animation: none; }
+      }
+      #shop > .tap-to-play {
+        min-height: 72px;
+        font-size: 19px;
+      }
+      @media (max-height: 720px) {
+        #shop {
+          gap: 8px;
+        }
+        .shop-item {
+          min-height: 56px;
+          padding-top: 6px;
+          padding-bottom: 6px;
+        }
+        #shop > .tap-to-play {
+          min-height: 60px;
+        }
+      }
+      /* Legal screens (flashing-lights warning, terms): over the menu, no animation or flashing.
+         The text scrolls, the button is always at the bottom and in view. */
+      .screen.legal {
+        z-index: 20;
+        justify-content: flex-start;
+        background: var(--bg);
+      }
+      .screen.legal .legal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+        max-width: 420px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        text-align: left;
+        font-size: 17px;
+        line-height: 1.5;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        position: relative;
+      }
+      /* The "text continues" hint (class more is set by main.ts while unread content remains below): the text fades
+         into the background and a down arrow sits in the center. All static: the screen is about flashing lights, no animation here. */
+      .screen.legal .legal-body.more::after {
+        content: '▼';
+        position: sticky;
+        bottom: 0;
+        flex-shrink: 0;
+        height: 64px;
+        margin-top: -78px; /* 64px of height + 14px gap: the hint adds no scrollable height */
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 2px;
+        font-size: 16px;
+        line-height: 1;
+        color: var(--accent);
+        background: linear-gradient(transparent, var(--bg) 75%);
+        pointer-events: none;
+      }
+      .screen.legal .legal-body > h2 {
+        margin: auto 0 0; /* a short text is pressed to the button, a long one scrolls from the very top */
+        text-align: center;
+      }
+      .screen.legal .legal-body > :not(h2) {
+        margin: 0;
+        flex-shrink: 0;
+      }
+      .screen.legal ul {
+        padding-left: 20px;
+      }
+      .screen.legal li + li {
+        margin-top: 12px;
+      }
+      .screen.legal .tap-to-play {
+        flex-shrink: 0;
+      }
+      .screen.legal strong {
+        color: var(--accent);
+      }
+      @media (max-height: 720px) {
+        .screen.legal .legal-body {
+          font-size: 16px;
+          gap: 10px;
+        }
+      }
+    </style>
+  <script type="module" crossorigin src="./index-ryfd5jkt.js"></script></head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+
+      <div id="pad" class="hidden" role="group" data-i18n-aria="aria.pad">
+        <div class="cross" id="pad-cross">
+          <button type="button" class="up" data-pad="up" tabindex="-1" data-i18n-aria="aria.up">▲</button>
+          <button type="button" class="left" data-pad="left" tabindex="-1" data-i18n-aria="aria.left">◀</button>
+          <button type="button" class="right" data-pad="right" tabindex="-1" data-i18n-aria="aria.right">▶</button>
+          <button type="button" class="down" data-pad="down" tabindex="-1" data-i18n-aria="aria.down">▼</button>
+        </div>
+      </div>
+
+      <button type="button" id="boost" class="hidden" tabindex="-1" data-i18n-aria="aria.boost">×1.5</button>
+
+      <!-- One-time "hold to boost" prompt (screens/boost-hint.ts). Filled and positioned by main.ts; the text is not markup-translated: it is built per game. -->
+      <div id="boost-hint" class="hidden" role="status" aria-live="polite"></div>
+
+      <div id="stick" class="hidden" role="group" data-i18n-aria="aria.stick">
+        <svg class="glyph" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M50 10l-6 7h12zM50 90l-6-7h12zM10 50l7-6v12zM90 50l-7-6v12z" />
+        </svg>
+        <div class="knob" id="stick-knob"></div>
+      </div>
+
+      <button type="button" id="pause-btn" class="hidden" tabindex="-1" data-i18n-aria="aria.pause">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="0.8" /><rect x="13.5" y="5" width="4" height="14" rx="0.8" /></svg>
+      </button>
+
+      <button type="button" id="cam-reset" class="hidden idle" tabindex="-1" data-i18n-aria="aria.camReset">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+        </svg>
+      </button>
+
+      <div id="hud" class="hidden">
+        <div class="score-pill"><span data-i18n="hud.score"></span> <span id="score">0</span></div>
+      </div>
+
+      <!-- Main screen is bare: title, #1 high score (tap - table), game button, gear and language. -->
+      <div id="menu" class="screen">
+        <h1 data-i18n="menu.title"></h1>
+
+        <!-- Wallet entry to the shop: a chip in the top right corner, hidden until the first finished game (main.ts: syncShopEntry). -->
+        <button type="button" id="open-shop" class="shop-btn hidden" data-i18n-aria="aria.shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg><span class="coin" aria-hidden="true"></span><b id="menu-balance">0</b></button>
+
+        <button type="button" id="record-line" class="record-line" data-i18n-aria="aria.records"></button>
+
+        <button type="button" id="tap-to-play" class="tap-to-play" data-i18n="tapToPlay"></button>
+
+        <button type="button" id="open-controls" class="secondary open-controls" data-i18n="controls.title"></button>
+
+        <div class="menu-footer">
+          <button type="button" id="open-settings" class="icon-btn" data-i18n-aria="aria.settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg></button>
+          <div id="menu-lang" class="lang-switch"></div>
+        </div>
+      </div>
+
+      <div id="settings" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="settings-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="settings.title"></h2>
+        </header>
+
+        <div class="sub-body">
+          <div class="field">
+            <span data-i18n="menu.scheme"></span>
+            <div id="scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
+              <button type="button" data-scheme="swipes" data-i18n="scheme.swipes"></button>
+              <button type="button" data-scheme="taps" data-i18n="scheme.taps"></button>
+            </div>
+          </div>
+
+          <div class="field" id="pad-side-field">
+            <span data-i18n="menu.padSide"></span>
+            <div id="pad-side-options" class="options" role="radiogroup" data-i18n-aria="aria.padSide">
+              <button type="button" data-side="left" data-i18n="side.left"></button>
+              <button type="button" data-side="right" data-i18n="side.right"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.sound"></span>
+            <div class="options sound-toggles" role="group" data-i18n-aria="aria.sound">
+              <button type="button" data-snd="music" aria-pressed="true"></button>
+              <button type="button" data-snd="sfx" aria-pressed="true"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.view"></span>
+            <div class="options" role="group" data-i18n-aria="aria.view">
+              <button type="button" data-fog aria-pressed="true"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span data-i18n="menu.quality"></span>
+            <div class="options quality-options" role="radiogroup" data-i18n-aria="aria.quality">
+              <button type="button" data-quality="high" data-i18n="quality.high"></button>
+              <button type="button" data-quality="medium" data-i18n="quality.medium"></button>
+              <button type="button" data-quality="low" data-i18n="quality.low"></button>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" id="settings-done" class="secondary wide" data-i18n="nav.back"></button>
+      </div>
+
+      <div id="records" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="records-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="records.title"></h2>
+        </header>
+
+        <div class="sub-body">
+          <ol id="records-board" class="board"></ol>
+        </div>
+
+        <button type="button" id="records-done" class="secondary wide" data-i18n="nav.back"></button>
+      </div>
+
+      <!-- Controls: header, scrollable body (screens/controls-view.ts draws the diagram and the legend), "Back" at the bottom. -->
+      <div id="controls" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="controls-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="controls.title"></h2>
+        </header>
+
+        <div id="controls-body" class="sub-body ctl-body"></div>
+
+        <button type="button" id="controls-done" class="secondary wide" data-i18n="nav.back"></button>
+      </div>
+
+      <!-- Shop: header (back, title, balance in view), scrollable shop view, a big "Play" at the bottom. The shop view is drawn by screens/shop-view.ts. -->
+      <div id="shop" class="screen sub hidden">
+        <header class="screen-head">
+          <button type="button" id="shop-back" class="icon-btn" data-i18n-aria="nav.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <h2 data-i18n="shop.title"></h2>
+          <div class="balance" id="shop-balance" role="status"><span class="coin" aria-hidden="true"></span><b id="shop-balance-n">0</b></div>
+        </header>
+
+        <div id="shop-body" class="sub-body shop-body"></div>
+
+        <button type="button" id="shop-play" class="tap-to-play" data-i18n="shop.play"></button>
+      </div>
+
+      <div id="game-over" class="screen hidden">
+        <h2 class="neon-title" aria-label="GAME OVER">
+          <span class="word" data-text="GAME" aria-hidden="true">GAME</span>
+          <span class="word" data-text="OVER" aria-hidden="true">OVER</span>
+        </h2>
+        <div class="neon-rule"></div>
+        <div class="run-stats">
+          <span><span data-i18n="over.score"></span> <b id="final-score">0</b></span>
+          <span><span data-i18n="over.time"></span> <b id="final-time">0:00</b></span>
+        </div>
+        <p id="coins-line" class="coins-line hidden"><span class="coin" aria-hidden="true"></span><span id="coins-earned"></span></p>
+        <div class="board-wrap">
+          <p class="board-title" data-i18n="board.title"></p>
+          <ol id="game-over-board" class="board"></ol>
+        </div>
+        <div id="drum-block" class="drum-block hidden">
+          <p class="drum-hint" data-i18n="over.drumHint"></p>
+          <div id="drum" class="drum" role="group" data-i18n-aria="aria.drum"></div>
+          <button type="button" id="drum-ok" class="tap-to-play" data-i18n="over.drumOk"></button>
+        </div>
+        <div id="game-over-actions" class="actions">
+          <button type="button" id="play-again" class="tap-to-play" data-i18n="over.playAgain"></button>
+          <button type="button" id="to-shop" class="secondary to-shop hidden"><span class="coin" aria-hidden="true"></span><span data-i18n="over.toShop"></span></button>
+          <button type="button" id="to-menu" class="secondary" data-i18n="over.toMenu"></button>
+        </div>
+      </div>
+
+      <div id="pause" class="screen overlay hidden">
+        <h2 data-i18n="pause.title"></h2>
+        <div class="options sound-toggles" role="group" data-i18n-aria="aria.sound">
+          <button type="button" data-snd="music" aria-pressed="true"></button>
+          <button type="button" data-snd="sfx" aria-pressed="true"></button>
+        </div>
+        <div class="options" role="group" data-i18n-aria="aria.view">
+          <button type="button" data-fog aria-pressed="true"></button>
+        </div>
+        <div class="field">
+          <span data-i18n="menu.scheme"></span>
+          <div id="pause-scheme-options" class="options" role="radiogroup" data-i18n-aria="aria.scheme">
+            <button type="button" data-scheme="swipes" data-i18n="scheme.swipes"></button>
+            <button type="button" data-scheme="taps" data-i18n="scheme.taps"></button>
+          </div>
+        </div>
+        <div class="field">
+          <span data-i18n="menu.quality"></span>
+          <div class="options quality-options" role="radiogroup" data-i18n-aria="aria.quality">
+            <button type="button" data-quality="high" data-i18n="quality.high"></button>
+            <button type="button" data-quality="medium" data-i18n="quality.medium"></button>
+            <button type="button" data-quality="low" data-i18n="quality.low"></button>
+          </div>
+        </div>
+        <button type="button" id="resume" class="tap-to-play" data-i18n="pause.resume"></button>
+        <button type="button" id="pause-to-menu" class="secondary" data-i18n="pause.toMenu"></button>
+      </div>
+
+      <div id="demo-explainer" class="screen overlay hidden">
+        <h2 data-i18n="demo.title"></h2>
+        <p data-i18n="demo.p1"></p>
+        <p data-i18n="demo.p2"></p>
+        <p class="hint" data-i18n="demo.hint"></p>
+        <button type="button" id="demo-continue" class="tap-to-play" data-i18n="demo.continue"></button>
+      </div>
+      <div id="legal-warning" class="screen legal" role="alertdialog" aria-modal="true" aria-labelledby="legal-warning-title">
+        <div class="legal-body">
+          <div id="warning-lang" class="lang-switch"></div>
+          <h2 id="legal-warning-title" data-i18n="legal.warn.title"></h2>
+          <p data-i18n-rich="legal.warn.p1"></p>
+          <p data-i18n-rich="legal.warn.p2"></p>
+          <p data-i18n-rich="legal.warn.p3"></p>
+        </div>
+        <button type="button" id="legal-warning-ok" class="tap-to-play" data-i18n="legal.warn.ok"></button>
+      </div>
+
+      <div id="legal-terms" class="screen legal hidden" role="dialog" aria-modal="true" aria-labelledby="legal-terms-title">
+        <div class="legal-body">
+          <div id="terms-lang" class="lang-switch"></div>
+          <h2 id="legal-terms-title" data-i18n="legal.terms.title"></h2>
+          <ul>
+            <li data-i18n-rich="legal.terms.b1"></li>
+            <li data-i18n-rich="legal.terms.b2"></li>
+            <li data-i18n-rich="legal.terms.b2b"></li>
+            <li data-i18n-rich="legal.terms.b3"></li>
+            <li data-i18n-rich="legal.terms.b4"></li>
+          </ul>
+        </div>
+        <button type="button" id="legal-terms-ok" class="tap-to-play" data-i18n="legal.terms.ok"></button>
+      </div>
+    </div>
+
+    
+  </body>
+</html>

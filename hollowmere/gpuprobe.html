@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hollowmere - GPU probe</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #05030a; color: #f1e8d4;
+        font: 14px/1.4 ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace; }
+      canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+      #graph { pointer-events: none; }
+      #panel { position: fixed; left: 10px; top: 10px; max-width: min(560px, 92vw); padding: 10px 12px; background: rgba(5, 3, 10, 0.78);
+        border: 1px solid rgba(242, 180, 65, 0.5); }
+      #panel h1 { margin: 0 0 6px; font-size: 15px; color: #f2b441; }
+      #panel p { margin: 0 0 8px; opacity: 0.85; }
+      #panel label { margin-right: 12px; }
+      #panel button, #panel select { font: inherit; color: #f2b441; background: rgba(20, 12, 24, 0.9); border: 1px solid rgba(242, 180, 65, 0.5); padding: 3px 10px; cursor: pointer; }
+      #stats { white-space: pre; margin-top: 8px; color: #f1e8d4; }
+      #gpuinfo { white-space: pre-wrap; margin: 0 0 8px; padding: 6px 8px; border: 1px solid rgba(242, 180, 65, 0.35); color: #f2b441; user-select: text; -webkit-user-select: text; }
+      #gpuinfo b { color: #f1e8d4; font-weight: normal; }
+    </style>
+  <script type="module" crossorigin src="./gpuprobe-pq7cnb5z.js"></script></head>
+  <body>
+    <canvas id="gl"></canvas>
+    <canvas id="graph"></canvas>
+    <div id="panel">
+      <h1>GPU probe (no game loaded)</h1>
+      <div id="gpuinfo">Reading your GPU...</div>
+      <p>Leave this tab open and visible for 1-2 minutes, touch nothing, then press "Download log" and send the file. Green = GPU ms per frame, orange = frame-to-frame ms
+        (last 30 s). If the GPU line jumps about 10x for a couple of seconds every few seconds, the stall comes from the machine (power or thermal limits, another GPU client), not from the game.
+        Try the same with the limit at 60 and Off.</p>
+      <label>Load <input id="load" type="range" min="0" max="2000" step="10" /> <span id="loadv"></span></label>
+      <label>Frame rate limit <select id="cap"><option value="0">Off</option><option value="30">30</option><option value="60">60</option><option value="90">90</option></select></label>
+      <button id="dl" type="button">Download log</button>
+      <div id="stats"></div>
+    </div>
+    
+  </body>
+</html>

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Hollowmere</title>
+    <!-- "Add to Home Screen" (the iPhone has no fullscreen API; a home-screen web app runs without Safari's bars): the manifest is
+         display fullscreen -> standalone; the apple tags are what iOS reads. Direct link only: inside itch's iframe none of it applies. -->
+    <link rel="manifest" href="./manifest-d077ky48.webmanifest" />
+    <link rel="icon" type="image/png" href="./icon-192-6pk5xa8v.png" />
+    <link rel="apple-touch-icon" href="./icon-180-vynxgm15.png" />
+    <meta name="theme-color" content="#05030a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Hollowmere" />
+    <script>
+      // ?gpuprobe=1: the standalone GPU probe page (gpuprobe.html, loads nothing from the game)
+      if (/[?&]gpuprobe(=|&|$)/.test(location.search)) location.replace('gpuprobe.html' + location.search);
+    </script>
+    
+    
+    
+    <style>
+      :root { --white: #f1e8d4; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #05030a; color: var(--white);
+        font: 14px/1.4 ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace; user-select: none; -webkit-user-select: none;
+        -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: none; overscroll-behavior: none; }
+      canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; }
+      /* the touch layer (input/touch.ts draws the stick on it, view/touch-hud.ts the buttons); it shows only in touch mode (body.touch) */
+      #touch { position: fixed; inset: 0; z-index: 45; display: none; touch-action: none; }
+      body.touch #touch { display: block; }
+      /* a phone held upright: the game wants landscape (main.ts also pauses) */
+      #rotate { position: fixed; inset: 0; z-index: 400; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background: #05030a; color: #f2b441; font: 20px Georgia, 'Palatino Linotype', serif; letter-spacing: 0.12em; text-align: center; text-transform: uppercase; }
+      #rotate i { display: block; width: 64px; height: 38px; border: 4px solid #f2b441; border-radius: 8px; animation: rot 2.4s ease-in-out infinite; }
+      @keyframes rot { 0%, 20% { transform: rotate(-90deg); } 60%, 100% { transform: rotate(0deg); } }
+      #rotate { padding: 0 16px; font-size: clamp(14px, 4.6vw, 20px); }
+      #rotate small { display: block; margin-top: 6px; color: #c9bfae; font-size: 14px; letter-spacing: 0.04em; line-height: 1.5; text-transform: none; }
+      @media (orientation: portrait) { body.touch #rotate { display: flex; } }
+      #ui { position: fixed; inset: 0; pointer-events: none; }
+      /* the first screen = the title's picture (same art, shade, name and tagline), so the wait already shows the game; the art is a 960 px copy (~35 KB) the HTML
+         asks for first, the name and the tagline are plain text in a system font: nothing here waits for a script. view/title.ts has the same layout. */
+      #loading { position: fixed; inset: 0; z-index: 170; overflow: hidden; background: #05030a; color: #f1e8d4; font: 22px Georgia, 'Palatino Linotype', serif; }
+      #loading-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(1.02); }
+      #loading-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(6, 3, 10, 0.93) 0%, rgba(6, 3, 10, 0.72) 32%, rgba(6, 3, 10, 0) 62%), linear-gradient(0deg, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0) 30%); }
+      #loading-col { position: absolute; left: 6vw; top: 0; bottom: 0; width: min(44vw, 640px); display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 1.2vh; }
+      #loading-col h1 { margin: 0; color: #f1e8d4; font-weight: 400; font-size: clamp(40px, 9vh, 110px); letter-spacing: 0.2em; line-height: 1; text-shadow: 0 0 30px rgba(242, 180, 65, 0.65), 0 3px 10px #000; }
+      #loading-col p { margin: 0 0 3vh; font-size: clamp(16px, 2.6vh, 32px); line-height: 1.4; color: rgba(246, 232, 200, 0.92); max-width: 28em; font-style: italic; }
+      #loading-col small { font-size: clamp(11px, 1.7vh, 16px); letter-spacing: 0.4em; color: #f2b441; }
+      #loading-bar { display: block; width: min(34vw, 300px); height: 10px; border: 2px solid #b98a32; box-shadow: 0 0 0 2px #0b0810; background: #1b0e12; overflow: hidden; }
+      #loading-bar b { display: block; width: 100%; height: 100%; background: #f2b441; transform: scaleX(0.04); transform-origin: 0 50%; transition: transform 0.25s ease-out; }
+      #loading-btg { position: absolute; z-index: 2; right: max(14px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); font: 400 13px/1 Cinzel, Georgia, serif; letter-spacing: 0.22em; text-transform: uppercase; color: #f2b441; opacity: 0.5; }
+      @media (max-height: 600px) { #loading-btg { font-size: 10px; right: auto; left: max(10px, env(safe-area-inset-left)); bottom: max(6px, env(safe-area-inset-bottom)); } }
+      /* a touch phone: the picture is mirrored, as in view/title.ts (no flip between loading and title) */
+      @media (pointer: coarse) and (max-height: 600px) and (min-aspect-ratio: 3/2) { #loading-art { scale: -1 1; } }
+      @media (max-height: 520px) { #loading-col { left: max(4vw, env(safe-area-inset-left)); width: 56vw; } #loading-col p { margin-bottom: 1.5vh; } }
+    </style>
+  <link rel="stylesheet" crossorigin href="./index-myjq2hzk.css"><script type="module" crossorigin src="./index-e72ahg3e.js"></script></head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="ui"></div>
+    <div id="touch"></div>
+    <div id="rotate"><i></i>Turn your phone sideways<small>Best on a PC with a mouse and keyboard.<br>A phone works too.</small></div>
+    <div id="loading">
+      <img id="loading-art" src="./loading-title-kd4x7kzk.jpg" alt="" />
+      <div id="loading-shade"></div>
+      <span id="loading-btg">Black Two Games</span>
+      <div id="loading-col">
+        <h1>HOLLOWMERE</h1>
+        <!-- the same words as texts/en.json "title" and "start.tagline" -->
+        <p>Tonight at midnight, guests will come.</p>
+        <small>LOADING</small>
+        <i id="loading-bar"><b></b></i>
+      </div>
+    </div>
+    <script>
+      // the score hand-off (view/score-handoff.ts, main.ts leaveToScore): the old page won the level, saved the score sheet and a backdrop (its last frame, or the
+      // next place's art) and reloaded at once. Paint that backdrop with the screen's own dark gradient before anything else, so the page change is one continuous picture;
+      // main.ts builds the score panel over it (view/menus.ts .fx-still has the same layers) and removes this div.
+      window.__scoreBg = false;
+      try {
+        if (/[?&]go=/.test(location.search) && /[?&]score=1(&|$)/.test(location.search)) {
+          var h = JSON.parse(sessionStorage.getItem('uninvited.score') || 'null');
+          if (h && h.bg) {
+            var bg = document.createElement('div');
+            bg.id = 'scorebg';
+            var shade = h.bgKind === 'art' ? 'rgba(8,4,12,0.3), rgba(0,0,0,0.82)' : 'rgba(8,4,12,0.55), rgba(0,0,0,0.93)'; // the same as view/menus.ts .fx-still(.art)
+            bg.style.cssText = 'position:fixed;inset:0;z-index:170;background:radial-gradient(ellipse at center, ' + shade + '), url("' + h.bg + '") center / cover no-repeat, #05030a;';
+            document.body.appendChild(bg);
+            document.getElementById('loading').style.display = 'none';
+            window.__scoreBg = true;
+          }
+        }
+      } catch (e) {}
+    </script>
+    <script>
+      // a level change reloads the page: redraw the card the old page saved (view/interlevel.ts snapshot) before anything else paints,
+      // so the screen stays one continuous card instead of art -> blank -> plain LOADING -> art again
+      try {
+        var saved = !window.__scoreBg && /[?&]go=/.test(location.search) && sessionStorage.getItem('uninvited.loadcard');
+        sessionStorage.removeItem('uninvited.loadcard');
+        if (saved) {
+          var o = JSON.parse(saved);
+          var st = document.createElement('style');
+          st.textContent = o.css;
+          document.head.appendChild(st);
+          var tmp = document.createElement('div');
+          tmp.innerHTML = o.html;
+          var card = tmp.firstElementChild;
+          card.id = 'loadcard';
+          card.style.transition = 'none';
+          document.body.appendChild(card);
+          document.getElementById('loading').style.display = 'none';
+        }
+      } catch (e) {}
+    </script>
+    <script>
+      // a level change reloads the page and fullscreen ends: main.ts leaves a flag, the first press (the interlevel "Click to enter" is one)
+      // asks for fullscreen again, and for the landscape lock on Android. Never inside an iframe (itch's own fullscreen belongs to the host page).
+      (function () {
+        var flag = false;
+        try { flag = window.self === window.top && sessionStorage.getItem('uninvited-gunblade.fs') === '1'; sessionStorage.removeItem('uninvited-gunblade.fs'); } catch (e) {}
+        if (!flag) return;
+        window.__uninvitedFsAgain = true; // main.ts: the interstitial then asks for the enter tap even on touch
+        var done = false;
+        function again() {
+          if (done) return;
+          done = true;
+          ['click', 'pointerup', 'keydown'].forEach(function (t) { removeEventListener(t, again, true); });
+          try {
+            var el = document.documentElement;
+            var p = el.requestFullscreen ? el.requestFullscreen() : (el.webkitRequestFullscreen && el.webkitRequestFullscreen());
+            var lock = function () {
+              if (!/Android/i.test(navigator.userAgent)) return;
+              try { var l = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (l && l.catch) l.catch(function () {}); } catch (x) {}
+            };
+            if (p && p.then) p.then(lock, function () {}); else lock();
+          } catch (x) {}
+        }
+        ['click', 'pointerup', 'keydown'].forEach(function (t) { addEventListener(t, again, true); });
+      })();
+    </script>
+    <script>
+      // Android: the first tap goes fullscreen and locks landscape (never on iOS, never inside an iframe such as itch's, all rejections ignored)
+      (function () {
+        if (!/Android/i.test(navigator.userAgent) || window.self !== window.top) return;
+        var done = false;
+        addEventListener('pointerup', function (e) {
+          if (done || e.pointerType !== 'touch') return;
+          done = true;
+          try {
+            var el = document.documentElement;
+            var p = el.requestFullscreen ? el.requestFullscreen() : (el.webkitRequestFullscreen && el.webkitRequestFullscreen());
+            var lock = function () {
+              try { var l = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (l && l.catch) l.catch(function () {}); } catch (x) {}
+            };
+            if (p && p.then) p.then(lock, function () {}); else lock();
+          } catch (x) {}
+        }, true);
+        // iOS ignores user-scalable=no: stop the pinch zoom gesture
+        document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+      })();
+    </script>
+    
+  </body>
+</html>
